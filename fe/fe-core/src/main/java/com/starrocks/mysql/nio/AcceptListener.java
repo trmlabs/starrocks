@@ -49,7 +49,6 @@ import org.xnio.channels.AcceptingChannel;
 
 import java.io.IOException;
 import java.net.SocketAddress;
-import javax.net.ssl.SSLContext;
 
 /**
  * listener for accept mysql connections.
@@ -57,11 +56,9 @@ import javax.net.ssl.SSLContext;
 public class AcceptListener implements ChannelListener<AcceptingChannel<StreamConnection>> {
     private static final Logger LOG = LogManager.getLogger(AcceptListener.class);
     private ConnectScheduler connectScheduler;
-    private SSLContext sslContext;
 
-    public AcceptListener(ConnectScheduler connectScheduler, SSLContext sslContext) {
+    public AcceptListener(ConnectScheduler connectScheduler) {
         this.connectScheduler = connectScheduler;
-        this.sslContext = sslContext;
     }
 
     @Override
@@ -73,7 +70,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             }
             // connection has been established, so need to call context.cleanup()
             // if exception happens.
-            NConnectContext context = new NConnectContext(connection, sslContext);
+            NConnectContext context = new NConnectContext(connection);
             context.setGlobalStateMgr(GlobalStateMgr.getCurrentState());
             connectScheduler.submit(context);
             int connectionId = context.getConnectionId();
