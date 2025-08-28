@@ -173,7 +173,7 @@ jobs:
           mkdir -p ${{ github.workspace }}
       
       - name: Download BE Path Filter Artifact
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v11
         with:
           name: be-path-filter
           path: be-path-filter
@@ -627,7 +627,7 @@ jobs:
           fi
 
       - name: Download BE Path Filter Artifact
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v11
         if: steps.check-sync.outputs.IS_SYNC != 'true'
         with:
           name: be-path-filter
@@ -636,7 +636,7 @@ jobs:
           run_id: ${{ github.run_id }}
       
       - name: Download FE Path Filter Artifact
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v11
         if: steps.check-sync.outputs.IS_SYNC != 'true'
         with:
           name: fe-path-filter

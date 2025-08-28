@@ -47,7 +47,7 @@ jobs:
           echo "bucket_prefix=${bucket_prefix}" >> $GITHUB_OUTPUT
       
       - name: Download workflow artifact - PR
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@v11
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           run_id: ${{ github.event.workflow_run.id }}
