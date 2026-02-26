@@ -1,0 +1,760 @@
+# StarRocks Parameter Dictionary - Materialized Views
+# MV rewrite, planning, refresh, text match, view-delta, CBO integration
+
+materialized_views:
+
+  mv_rewrite:
+
+    - name: "enable_materialized_view_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Master switch for materialized view query rewrite. When enabled, the optimizer
+        considers rewriting queries to use materialized views for acceleration.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 688
+            context: "constant ENABLE_MATERIALIZED_VIEW_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2643
+            context: "@VarAttr field enableMaterializedViewRewrite = true"
+        thrift_propagation: null
+      behavior:
+        "true": "Optimizer attempts to rewrite queries using available MVs"
+        "false": "No MV-based query rewrite is attempted"
+      related_variables:
+        - "enable_sync_materialized_view_rewrite"
+        - "enable_materialized_view_for_insert"
+        - "materialized_view_rewrite_mode"
+
+    - name: "enable_sync_materialized_view_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables rewrite using synchronous (rollup) materialized views. Synchronous MVs
+        are automatically maintained during data loading and are always consistent with
+        the base table.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 784
+            context: "constant ENABLE_SYNC_MATERIALIZED_VIEW_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2652
+            context: "@VarAttr field enableSyncMaterializedViewRewrite = true"
+        thrift_propagation: null
+      related_variables:
+        - "enable_materialized_view_rewrite"
+
+    - name: "enable_cbo_based_mv_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables materialized view rewrite in the CBO (cost-based optimizer) phase.
+        When true, the optimizer tries to use MVs for rewrite in both RBO and CBO phases.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 816
+            context: "constant ENABLE_CBO_BASED_MV_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2744
+            context: "@VarAttr field enableCBOBasedMVRewrite = true"
+        thrift_propagation: null
+      related_variables:
+        - "enable_cbo_view_based_mv_rewrite"
+        - "enable_materialized_view_rewrite"
+
+    - name: "enable_cbo_view_based_mv_rewrite"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables CBO-phase view-based materialized view rewrite. When enabled, the CBO
+        considers rewriting queries through view definitions that match MV definitions.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 815
+            context: "constant ENABLE_CBO_VIEW_BASED_MV_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2739
+            context: "@VarAttr field enableCBOViewBasedMvRewrite = false"
+        thrift_propagation: null
+      related_variables:
+        - "enable_cbo_based_mv_rewrite"
+        - "enable_view_based_mv_rewrite"
+
+    - name: "materialized_view_union_rewrite_mode"
+      type: Integer
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Controls the union rewrite mode for materialized views. See
+        MaterializedViewUnionRewriteMode for mode definitions.
+        Mode 0 is the default behavior.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 690
+            context: "constant MATERIALIZED_VIEW_UNION_REWRITE_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2661
+            context: "@VarAttr field materializedViewUnionRewriteMode = 0"
+        thrift_propagation: null
+      related_variables:
+        - "enable_materialized_view_union_rewrite"
+        - "enable_materialized_view_transparent_union_rewrite"
+
+    - name: "optimizer_materialized_view_timelimit"
+      type: Long
+      default: 1000
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Time limit in milliseconds for materialized view rewrite during optimization.
+        If MV rewrite takes longer than this, it is abandoned and the original plan
+        is used instead.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 399
+            context: "constant OPTIMIZER_MATERIALIZED_VIEW_TIMELIMIT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1750
+            context: "@VarAttr field optimizerMaterializedViewTimelimit = 1000"
+        thrift_propagation: null
+      behavior:
+        low_values: "Less time for MV rewrite, may miss complex rewrites"
+        high_values: "More time for MV rewrite, may slow down planning"
+
+    - name: "cbo_materialized_view_rewrite_rule_output_limit"
+      type: Integer
+      default: 3
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum number of MV rewrite outputs per rule for an OptExpression.
+        Limits how many alternative MV-based plans a single rewrite rule can produce.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 400
+            context: "constant CBO_MATERIALIZED_VIEW_REWRITE_RULE_OUTPUT_LIMIT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2762
+            context: "@VarAttr field cboMaterializedViewRewriteRuleOutputLimit = 3, INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "cbo_materialized_view_rewrite_candidate_limit"
+        - "cbo_materialized_view_rewrite_related_mvs_limit"
+
+    - name: "cbo_materialized_view_rewrite_candidate_limit"
+      type: Integer
+      default: 12
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum number of MV candidates considered per rewrite rule for an OptExpression.
+        Limits the search space of MV rewrite to control planning time.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 402
+            context: "constant CBO_MATERIALIZED_VIEW_REWRITE_CANDIDATE_LIMIT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2768
+            context: "@VarAttr field cboMaterializedViewRewriteCandidateLimit = 12, INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "cbo_materialized_view_rewrite_rule_output_limit"
+        - "cbo_materialized_view_rewrite_related_mvs_limit"
+
+    - name: "cbo_materialized_view_rewrite_related_mvs_limit"
+      type: Integer
+      default: 16
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum number of related materialized views considered for rewriting a query.
+        Limits the total number of MVs the optimizer evaluates for a single query.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 404
+            context: "constant CBO_MATERIALIZED_VIEW_REWRITE_RELATED_MVS_LIMIT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2774
+            context: "@VarAttr field cboMaterializedViewRewriteRelatedMVsLimit = 16, INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "cbo_materialized_view_rewrite_rule_output_limit"
+        - "cbo_materialized_view_rewrite_candidate_limit"
+
+    - name: "materialized_view_join_same_table_permutation_limit"
+      type: Integer
+      default: 5
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum number of join permutations to consider when the same table appears
+        multiple times in an MV join. Limits combinatorial explosion in self-join
+        MV matching.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 795
+            context: "constant MATERIALIZED_VIEW_JOIN_SAME_TABLE_PERMUTATION_LIMIT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2708
+            context: "@VarAttr field materializedViewJoinSameTablePermutationLimit = 5, INVISIBLE"
+        thrift_propagation: null
+
+  mv_planning:
+
+    - name: "enable_mv_planner"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables the dedicated MV planner for materialized view refresh planning.
+        The MV planner optimizes refresh operations specifically for MVs.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 309
+            context: "constant ENABLE_MV_PLANNER"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1141
+            context: "@VarAttr field enableMVPlanner = false"
+        thrift_propagation: null
+
+    - name: "enable_incremental_mv"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables incremental refresh for materialized views. When enabled, only the
+        changed partitions or data are refreshed rather than the entire MV.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 310
+            context: "constant ENABLE_INCREMENTAL_REFRESH_MV"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1143
+            context: "@VarAttr field enableIncrementalRefreshMV = false"
+        thrift_propagation: null
+
+    - name: "enable_materialized_view_for_insert"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables materialized view rewrite for INSERT statements. When enabled,
+        the optimizer can use MVs to accelerate INSERT ... SELECT queries.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 782
+            context: "constant ENABLE_MATERIALIZED_VIEW_REWRITE_FOR_INSERT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2649
+            context: "@VarAttr field enableMaterializedViewRewriteForInsert = false"
+        thrift_propagation: null
+
+    - name: "query_excluding_mv_names"
+      type: String
+      default: ""
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Comma-separated list of materialized view names to exclude from query rewrite.
+        The optimizer will not consider these MVs when rewriting queries.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 803
+            context: "constant QUERY_EXCLUDING_MV_NAMES"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2777
+            context: "@VarAttr field queryExcludingMVNames = '', INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "query_including_mv_names"
+
+    - name: "query_including_mv_names"
+      type: String
+      default: ""
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Comma-separated list of materialized view names to include for query rewrite.
+        When set, only these MVs are considered for rewrite. Empty means all MVs
+        are considered.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 804
+            context: "constant QUERY_INCLUDING_MV_NAMES"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2780
+            context: "@VarAttr field queryIncludingMVNames = '', INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "query_excluding_mv_names"
+
+  mv_union_rewrite:
+
+    - name: "enable_materialized_view_union_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables union-based materialized view rewrite. When the MV only covers
+        a subset of the data (e.g., partial partitions), union rewrite combines
+        the MV scan with a base table scan for the remaining data.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 689
+            context: "constant ENABLE_MATERIALIZED_VIEW_UNION_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2655
+            context: "@VarAttr field enableMaterializedViewUnionRewrite = true"
+        thrift_propagation: null
+      related_variables:
+        - "materialized_view_union_rewrite_mode"
+        - "enable_materialized_view_transparent_union_rewrite"
+
+    - name: "enable_materialized_view_transparent_union_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables transparent union rewrite for materialized views. Treats the MV
+        as always-consistent and performs union rewrite without consistency checking,
+        useful for near-real-time scenarios where slight staleness is acceptable.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 691
+            context: "constant ENABLE_MATERIALIZED_VIEW_TRANSPARENT_UNION_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2668
+            context: "@VarAttr field enableMaterializedViewTransparentUnionRewrite = true"
+        thrift_propagation: null
+      related_variables:
+        - "enable_materialized_view_union_rewrite"
+
+  mv_partition_compensate:
+
+    - name: "enable_materialized_view_rewrite_partition_compensate"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables partition predicate compensation in MV rewrite. When enabled,
+        extra predicates are added to ensure data consistency between MV and base
+        table partitions. Disabling can allow more rewrite cases but may lose
+        consistency guarantees.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 694
+            context: "constant ENABLE_MATERIALIZED_VIEW_REWRITE_PARTITION_COMPENSATE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2677
+            context: "@VarAttr field enableMaterializedViewRewritePartitionCompensate = true, INVISIBLE"
+        thrift_propagation: null
+
+  mv_agg_pushdown:
+
+    - name: "enable_materialized_view_agg_pushdown_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables aggregate pushdown rewrite with materialized views. When enabled,
+        aggregations can be pushed down and computed using MV pre-aggregated data.
+        This is the alias/show name; the actual variable is the V2 variant.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 698
+            context: "constant ENABLE_MATERIALIZED_VIEW_AGG_PUSHDOWN_REWRITE_V2"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2683
+            context: "@VarAttr field enableMaterializedViewPushDownRewrite = true (alias: enable_materialized_view_agg_pushdown_rewrite)"
+        thrift_propagation: null
+      note: "V2 variable with alias/show name ENABLE_MATERIALIZED_VIEW_AGG_PUSHDOWN_REWRITE"
+      related_variables:
+        - "enable_materialized_view_timeseries_agg_pushdown_rewrite"
+
+    - name: "enable_materialized_view_timeseries_agg_pushdown_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables time-series aggregate pushdown rewrite with materialized views.
+        Optimizes time-series queries by pushing time-based aggregations to MVs.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 700
+            context: "constant ENABLE_MATERIALIZED_VIEW_TIMESERIES_AGG_PUSHDOWN_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2687
+            context: "@VarAttr field enableMaterializedViewTimeSeriesPushDownRewrite = true"
+        thrift_propagation: null
+      related_variables:
+        - "enable_materialized_view_agg_pushdown_rewrite"
+
+  mv_text_match:
+
+    - name: "enable_materialized_view_text_match_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables text-based query matching for MV rewrite. The optimizer compares
+        query text (or subquery text) against MV definitions to find rewrite
+        opportunities without full logical equivalence checking.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 703
+            context: "constant ENABLE_MATERIALIZED_VIEW_TEXT_MATCH_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2693
+            context: "@VarAttr field enableMaterializedViewTextMatchRewrite = true"
+        thrift_propagation: null
+      related_variables:
+        - "materialized_view_subquery_text_match_max_count"
+
+    - name: "materialized_view_subquery_text_match_max_count"
+      type: Integer
+      default: 4
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of subquery text matches to consider during MV text-based
+        rewrite. Limits the number of subquery-level text matching attempts.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 705
+            context: "constant MATERIALIZED_VIEW_SUBQUERY_TEXT_MATCH_MAX_COUNT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2696
+            context: "@VarAttr field materializedViewSubQueryTextMatchMaxCount = 4"
+        thrift_propagation: null
+      related_variables:
+        - "enable_materialized_view_text_match_rewrite"
+
+  mv_view_delta:
+
+    - name: "enable_materialized_view_view_delta_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables view-delta rewrite for materialized views. View-delta rewrite handles
+        cases where the query has fewer joins than the MV definition by compensating
+        with additional join predicates.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 788
+            context: "constant ENABLE_MATERIALIZED_VIEW_VIEW_DELTA_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2699
+            context: "@VarAttr field enableMaterializedViewViewDeltaRewrite = true"
+        thrift_propagation: null
+      related_variables:
+        - "enable_materialized_view_single_table_view_delta_rewrite"
+
+    - name: "enable_materialized_view_single_table_view_delta_rewrite"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables view-delta compensation for single-table queries against multi-table MVs.
+        When enabled, single-table queries can be rewritten using join-based MVs
+        where the extra joins are compensated. The plan is chosen by cost.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 798
+            context: "constant ENABLE_MATERIALIZED_VIEW_SINGLE_TABLE_VIEW_DELTA_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2719
+            context: "@VarAttr field enableMaterializedViewSingleTableViewDeltaRewrite = false, INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "enable_materialized_view_view_delta_rewrite"
+
+  mv_multi_stage_and_nesting:
+
+    - name: "enable_materialized_view_multi_stages_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables multi-stage materialized view rewrite. Allows the optimizer to
+        apply MV rewrite in multiple stages of query optimization.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 790
+            context: "constant ENABLE_MATERIALIZED_VIEW_MULTI_STAGES_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2702
+            context: "@VarAttr field enableMaterializedViewMultiStagesRewrite = true"
+        thrift_propagation: null
+
+    - name: "nested_mv_rewrite_max_level"
+      type: Integer
+      default: 3
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum nesting level for materialized view rewrite. Controls how many
+        levels of MV-on-MV rewrites the optimizer will attempt. Higher values
+        allow deeper chains of nested MV rewrites.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 687
+            context: "constant NESTED_MV_REWRITE_MAX_LEVEL"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2640
+            context: "@VarAttr field nestedMvRewriteMaxLevel = 3"
+        thrift_propagation: null
+
+    - name: "materialized_view_max_relation_mapping_size"
+      type: Integer
+      default: 10
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum size of relation mapping during MV rewrite. Limits the number
+        of table-to-table mappings considered when matching query tables to
+        MV tables.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 792
+            context: "constant MATERIALIZED_VIEW_MAX_RELATION_MAPPING_SIZE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2705
+            context: "@VarAttr field materializedViewMaxRelationMappingSize = 10"
+        thrift_propagation: null
+
+  mv_rewrite_mode_and_strategy:
+
+    - name: "materialized_view_rewrite_mode"
+      type: String
+      default: "MODE_DEFAULT"
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Controls the materialized view rewrite mode. See MaterializedViewRewriteMode
+        for available modes. MODE_DEFAULT applies standard rewrite behavior.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 780
+            context: "constant MATERIALIZED_VIEW_REWRITE_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2711
+            context: "@VarAttr field materializedViewRewriteMode = MaterializedViewRewriteMode.MODE_DEFAULT"
+        thrift_propagation: null
+
+    - name: "enable_materialized_view_rewrite_greedy_mode"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables greedy mode for MV rewrite to reduce optimizer time. In greedy mode,
+        plan caching is used when possible, and the max plan tree is used for view-delta
+        rewrites to avoid combinatorial explosion.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 805
+            context: "constant ENABLE_MATERIALIZED_VIEW_REWRITE_GREEDY_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2725
+            context: "@VarAttr field enableMaterializedViewRewriteGreedyMode = false"
+        thrift_propagation: null
+      related_variables:
+        - "enable_materialized_view_plan_cache"
+
+    - name: "enable_force_rule_based_mv_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables forced rule-based MV rewrite. When enabled, rule-based MV
+        rewrite is always attempted before CBO-based rewrite.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 785
+            context: "constant ENABLE_FORCE_RULE_BASED_MV_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2690
+            context: "@VarAttr field enableForceRuleBasedMvRewrite = true"
+        thrift_propagation: null
+
+    - name: "enable_view_based_mv_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables view-based materialized view rewrite. Allows the optimizer to
+        match queries against MVs through SQL view definitions.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 813
+            context: "constant ENABLE_VIEW_BASED_MV_REWRITE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2736
+            context: "@VarAttr field enableViewBasedMvRewrite = true"
+        thrift_propagation: null
+      related_variables:
+        - "enable_cbo_view_based_mv_rewrite"
+
+  mv_caching_and_concurrency:
+
+    - name: "enable_materialized_view_plan_cache"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables plan caching for materialized view rewrite. Cached MV plan
+        contexts are reused to reduce the cost of repeated MV rewrite operations.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 808
+            context: "constant ENABLE_MATERIALIZED_VIEW_PLAN_CACHE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2729
+            context: "@VarAttr field enableMaterializedViewPlanCache = true, INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "enable_materialized_view_rewrite_greedy_mode"
+
+    - name: "enable_materialized_view_concurrent_prepare"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables concurrent preparation of MV rewrite candidates. When enabled,
+        multiple MV candidates are prepared in parallel to reduce total MV rewrite
+        latency.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 810
+            context: "constant ENABLE_MATERIALIZED_VIEW_CONCURRENT_PREPARE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2733
+            context: "@VarAttr field enableMaterializedViewConcurrentPrepare = true"
+        thrift_propagation: null
+
+  mv_refresh:
+
+    - name: "enable_ivm_refresh"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables incremental view maintenance (IVM) refresh for materialized views.
+        IVM tracks changes to base tables and applies only delta changes to the MV
+        during refresh.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 818
+            context: "constant ENABLE_IVM_REFRESH"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2750
+            context: "@VarAttr field enableIVMRefresh = false, INVISIBLE"
+        thrift_propagation: null
+
+    - name: "tvr_target_mvid"
+      type: String
+      default: ""
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Target MV ID for time-varying relation (TVR) based incremental computation.
+        Used internally for IVM refresh scheduling.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 819
+            context: "constant TVR_TARGET_MVID"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2747
+            context: "@VarAttr field tvrTargetMvId = '', INVISIBLE"
+        thrift_propagation: null
+
+  mv_deprecated:
+
+    - name: "analyze_mv"
+      type: String
+      default: ""
+      scope: "FE session variable"
+      mutable: true
+      deprecated: true
+      description: >
+        Deprecated. Previously used to trigger analysis for a specific materialized view.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 802
+            context: "constant ANALYZE_FOR_MV (deprecated)"
+        thrift_propagation: null

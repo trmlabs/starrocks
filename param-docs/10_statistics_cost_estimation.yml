@@ -1,0 +1,363 @@
+# =============================================================================
+# StarRocks Statistics and Cost Estimation Parameters
+# Source: fe/.../qe/SessionVariable.java
+# =============================================================================
+
+session_variables:
+
+  # ---------------------------------------------------------------------------
+  # Statistics collection parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "statistic_collect_parallel"
+    type: int
+    default: 1
+    scope: "session"
+    mutable: true
+    description: >
+      Parallelism level for statistics collection tasks. Controls how
+      many columns are analyzed concurrently. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 613
+          context: "public static final String STATISTIC_COLLECT_PARALLEL = \"statistic_collect_parallel\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1948
+          context: "@VarAttr(name = STATISTIC_COLLECT_PARALLEL, flag = VariableMgr.INVISIBLE) private int statisticCollectParallelism = 1"
+      thrift_propagation: null
+
+  - name: "statistic_meta_collect_parallel"
+    type: int
+    default: 10
+    scope: "session"
+    mutable: true
+    description: >
+      Parallelism level for statistics metadata collection. Controls
+      concurrent metadata fetch operations. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 615
+          context: "public static final String STATISTIC_META_COLLECT_PARALLEL = \"statistic_meta_collect_parallel\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1951
+          context: "@VarAttr(name = STATISTIC_META_COLLECT_PARALLEL, flag = VariableMgr.INVISIBLE) private int statisticMetaCollectParallelism = 10"
+      thrift_propagation: null
+
+  - name: "enable_analyze_phase_prune_columns"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to prune columns during the analyze phase to reduce the
+      amount of statistics collected. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 617
+          context: "public static final String ENABLE_ANALYZE_PHASE_PRUNE_COLUMNS = \"enable_analyze_phase_prune_columns\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1954
+          context: "@VarAttr(name = ENABLE_ANALYZE_PHASE_PRUNE_COLUMNS, flag = VariableMgr.INVISIBLE) private boolean enableAnalyzePhasePruneColumns = false"
+      thrift_propagation: null
+
+  - name: "enable_query_trigger_analyze"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether queries can trigger automatic statistics collection when
+      statistics are missing or stale.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 547
+          context: "public static final String ENABLE_QUERY_TRIGGER_ANALYZE = \"enable_query_trigger_analyze\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3043
+          context: "@VarAttr(name = ENABLE_QUERY_TRIGGER_ANALYZE) private boolean enableQueryTriggerAnalyze = true"
+      thrift_propagation: null
+
+  - name: "enable_collect_table_level_scan_stats"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to collect table-level scan statistics during query
+      execution for use in cost estimation.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 929
+          context: "public static final String ENABLE_COLLECT_TABLE_LEVEL_SCAN_STATS = \"enable_collect_table_level_scan_stats\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2907
+          context: "@VarAttr(name = ENABLE_COLLECT_TABLE_LEVEL_SCAN_STATS) private boolean enableCollectTableLevelScanStats = true"
+      thrift_propagation: null
+
+  - name: "enable_labeled_column_statistic_output"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to output column statistics with labels in SHOW STATS
+      results for better readability.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1090
+          context: "public static final String ENABLE_LABELED_COLUMN_STATISTIC_OUTPUT = \"enable_labeled_column_statistic_output\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2300
+          context: "@VarAttr(name = ENABLE_LABELED_COLUMN_STATISTIC_OUTPUT) private boolean enableLabeledColumnStatisticOutput = false"
+      thrift_propagation: null
+
+  - name: "disable_table_stats_from_metadata_for_single_table"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to disable using table statistics from metadata for single
+      table queries, forcing use of collected statistics instead.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 544
+          context: "public static final String DISABLE_TABLE_STATS_FROM_METADATA_FOR_SINGLE_TABLE"
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3040
+          context: "@VarAttr(name = DISABLE_TABLE_STATS_FROM_METADATA_FOR_SINGLE_TABLE) private boolean disableTableStatsFromMetadataForSingleTable = true"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # External table statistics parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "hive_partition_stats_sample_size"
+    type: int
+    default: 3000
+    scope: "session"
+    mutable: true
+    description: >
+      Number of partitions to sample when estimating partition-level
+      statistics for Hive tables. In most cases, partition statistics
+      from Hive Metastore are empty.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 564
+          context: "public static final String HIVE_PARTITION_STATS_SAMPLE_SIZE = \"hive_partition_stats_sample_size\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1919
+          context: "@VariableMgr.VarAttr(name = HIVE_PARTITION_STATS_SAMPLE_SIZE) private int hivePartitionStatsSampleSize = 3000"
+      thrift_propagation: null
+
+  - name: "enable_hive_column_stats"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to use column statistics from Hive Metastore for
+      cost-based query optimization on Hive external tables.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 553
+          context: "public static final String ENABLE_HIVE_COLUMN_STATS = \"enable_hive_column_stats\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1910
+          context: "@VariableMgr.VarAttr(name = ENABLE_HIVE_COLUMN_STATS) private boolean enableHiveColumnStats = true"
+      thrift_propagation: null
+
+  - name: "enable_read_iceberg_puffin_ndv"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to read NDV (number of distinct values) statistics from
+      Iceberg Puffin files for cost-based optimization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 537
+          context: "public static final String ENABLE_READ_ICEBERG_PUFFIN_NDV = \"enable_read_iceberg_puffin_ndv\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3028
+          context: "@VarAttr(name = ENABLE_READ_ICEBERG_PUFFIN_NDV) private boolean enableReadIcebergPuffinNdv = true"
+      thrift_propagation: null
+
+  - name: "enable_iceberg_column_statistics"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to use Iceberg column-level statistics for cost-based
+      query optimization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 539
+          context: "public static final String ENABLE_ICEBERG_COLUMN_STATISTICS = \"enable_iceberg_column_statistics\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3031
+          context: "@VarAttr(name = ENABLE_ICEBERG_COLUMN_STATISTICS) private boolean enableIcebergColumnStatistics = false"
+      thrift_propagation: null
+
+  - name: "enable_delta_lake_column_statistics"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to use Delta Lake column-level statistics for cost-based
+      query optimization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 542
+          context: "public static final String ENABLE_DELTA_LAKE_COLUMN_STATISTICS = \"enable_delta_lake_column_statistics\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3037
+          context: "@VarAttr(name = ENABLE_DELTA_LAKE_COLUMN_STATISTICS) private boolean enableDeltaLakeColumnStatistics = false"
+      thrift_propagation: null
+
+  - name: "enable_paimon_column_statistics"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to use Paimon column-level statistics for cost-based
+      query optimization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 549
+          context: "public static final String ENABLE_PAIMON_COLUMN_STATISTICS = \"enable_paimon_column_statistics\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3046
+          context: "@VarAttr(name = ENABLE_PAIMON_COLUMN_STATISTICS) private boolean enablePaimonColumnStatistics = false"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Low cardinality optimization parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "cbo_enable_low_cardinality_optimize"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to enable low-cardinality optimization in the cost-based
+      optimizer. Uses dictionary encoding for string columns with few
+      distinct values to reduce memory and improve performance.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 417
+          context: "public static final String CBO_ENABLE_LOW_CARDINALITY_OPTIMIZE = \"cbo_enable_low_cardinality_optimize\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1763
+          context: "@VariableMgr.VarAttr(name = CBO_ENABLE_LOW_CARDINALITY_OPTIMIZE) private boolean enableLowCardinalityOptimize = true"
+      thrift_propagation: null
+
+  - name: "low_cardinality_optimize_v2"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to use version 2 of the low-cardinality optimization,
+      which provides improved dictionary encoding support.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 419
+          context: "public static final String LOW_CARDINALITY_OPTIMIZE_V2 = \"low_cardinality_optimize_v2\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1772
+          context: "@VariableMgr.VarAttr(name = LOW_CARDINALITY_OPTIMIZE_V2) private boolean useLowCardinalityOptimizeV2 = true"
+      thrift_propagation: null
+
+  - name: "low_cardinality_optimize_on_lake"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to apply low-cardinality optimization for queries on
+      lake (external) tables. Disabled by default due to different
+      data characteristics.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 420
+          context: "public static final String LOW_CARDINALITY_OPTIMIZE_ON_LAKE = \"low_cardinality_optimize_on_lake\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1775
+          context: "@VariableMgr.VarAttr(name = LOW_CARDINALITY_OPTIMIZE_ON_LAKE) private boolean useLowCardinalityOptimizeOnLake = false"
+      thrift_propagation: null
+
+  - name: "array_low_cardinality_optimize"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to apply low-cardinality optimization for ARRAY type
+      columns containing low-cardinality string elements.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 421
+          context: "public static final String ARRAY_LOW_CARDINALITY_OPTIMIZE = \"array_low_cardinality_optimize\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1778
+          context: "@VarAttr(name = ARRAY_LOW_CARDINALITY_OPTIMIZE) private boolean enableArrayLowCardinalityOptimize = true"
+      thrift_propagation: null
+
+  - name: "struct_low_cardinality_optimize"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to apply low-cardinality optimization for STRUCT type
+      columns containing low-cardinality string fields.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 422
+          context: "public static final String STRUCT_LOW_CARDINALITY_OPTIMIZE = \"struct_low_cardinality_optimize\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1781
+          context: "@VarAttr(name = STRUCT_LOW_CARDINALITY_OPTIMIZE) private boolean enableStructLowCardinalityOptimize = true"
+      thrift_propagation: null
+
+  - name: "enable_low_cardinality_optimize_for_union_all"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to apply low-cardinality optimization across UNION ALL
+      branches, propagating dictionary encoding through union operators.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 423
+          context: "public static final String ENABLE_LOW_CARDINALITY_OPTIMIZE_FOR_UNION_ALL"
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1769
+          context: "@VariableMgr.VarAttr(name = ENABLE_LOW_CARDINALITY_OPTIMIZE_FOR_UNION_ALL) private boolean enableLowCardinalityOptimizeForUnionAll = true"
+      thrift_propagation: null

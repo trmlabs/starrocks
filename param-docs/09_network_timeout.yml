@@ -1,0 +1,464 @@
+# =============================================================================
+# StarRocks Network and Timeout Parameters
+# Source: fe/.../qe/SessionVariable.java, be/src/common/config.h
+# =============================================================================
+
+session_variables:
+
+  - name: "query_timeout"
+    type: int
+    default: 300
+    scope: "session"
+    mutable: true
+    description: >
+      Maximum execution time in seconds for a query before it is
+      cancelled. Default is 5 minutes.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 157
+          context: "public static final String QUERY_TIMEOUT = \"query_timeout\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1231
+          context: "@VariableMgr.VarAttr(name = QUERY_TIMEOUT) private int queryTimeoutS = 300"
+      thrift_propagation: null
+
+  - name: "metadata_collect_query_timeout"
+    type: int
+    default: 60
+    scope: "session"
+    mutable: true
+    description: >
+      Timeout in seconds for metadata collection queries such as
+      ANALYZE and statistics gathering. Default is 1 minute.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 159
+          context: "public static final String METADATA_COLLECT_QUERY_TIMEOUT = \"metadata_collect_query_timeout\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1235
+          context: "@VariableMgr.VarAttr(name = METADATA_COLLECT_QUERY_TIMEOUT) private int metadataCollectQueryTimeoutS = 60"
+      thrift_propagation: null
+
+  - name: "query_delivery_timeout"
+    type: int
+    default: 300
+    scope: "session"
+    mutable: true
+    description: >
+      Timeout in seconds for delivering query fragments from FE to BE
+      nodes. Default is 5 minutes.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 168
+          context: "public static final String QUERY_DELIVERY_TIMEOUT = \"query_delivery_timeout\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1245
+          context: "@VariableMgr.VarAttr(name = QUERY_DELIVERY_TIMEOUT) private int queryDeliveryTimeoutS = 300"
+      thrift_propagation: null
+
+  - name: "insert_timeout"
+    type: int
+    default: 14400
+    scope: "session"
+    mutable: true
+    description: >
+      Timeout in seconds for INSERT operations. Default is 4 hours.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 229
+          context: "public static final String INSERT_TIMEOUT = \"insert_timeout\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1556
+          context: "@VariableMgr.VarAttr(name = INSERT_TIMEOUT) private int insertTimeoutS = 14400"
+      thrift_propagation: null
+
+  - name: "interactive_timeout"
+    type: int
+    default: 3600
+    scope: "session"
+    mutable: true
+    description: >
+      Number of seconds the server waits for activity on an interactive
+      connection before closing it. Default is 1 hour.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 208
+          context: "public static final String INTERACTIVE_TIMEOUT = \"interactive_timeout\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1357
+          context: "@VariableMgr.VarAttr(name = INTERACTIVE_TIMEOUT) private int interactiveTimeout = 3600"
+      thrift_propagation: null
+
+  - name: "wait_timeout"
+    type: int
+    default: 28800
+    scope: "session"
+    mutable: true
+    description: >
+      Number of seconds the server waits for activity on a non-interactive
+      connection before closing it. Default is 8 hours.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 209
+          context: "public static final String WAIT_TIMEOUT = \"wait_timeout\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1361
+          context: "@VariableMgr.VarAttr(name = WAIT_TIMEOUT) private int waitTimeout = 28800"
+      thrift_propagation: null
+
+  - name: "net_write_timeout"
+    type: int
+    default: 60
+    scope: "session"
+    mutable: true
+    description: >
+      Number of seconds to wait for a block to be written to a connection
+      before aborting the write.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 212
+          context: "public static final String NET_WRITE_TIMEOUT = \"net_write_timeout\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1365
+          context: "@VariableMgr.VarAttr(name = NET_WRITE_TIMEOUT) private int netWriteTimeout = 60"
+      thrift_propagation: null
+
+  - name: "net_read_timeout"
+    type: int
+    default: 60
+    scope: "session"
+    mutable: true
+    description: >
+      Number of seconds to wait for more data from a connection before
+      aborting the read.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 213
+          context: "public static final String NET_READ_TIMEOUT = \"net_read_timeout\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1369
+          context: "@VariableMgr.VarAttr(name = NET_READ_TIMEOUT) private int netReadTimeout = 60"
+      thrift_propagation: null
+
+  - name: "net_buffer_length"
+    type: int
+    default: 16384
+    scope: "session"
+    mutable: false
+    description: >
+      Buffer length for network communication. Read-only variable
+      for MySQL protocol compatibility. Default is 16 KB.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 217
+          context: "public static final String NET_BUFFER_LENGTH = \"net_buffer_length\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1386
+          context: "@VariableMgr.VarAttr(name = NET_BUFFER_LENGTH, flag = VariableMgr.READ_ONLY) private int netBufferLength = 16384"
+      thrift_propagation: null
+
+  - name: "max_allowed_packet"
+    type: int
+    default: 33554432
+    scope: "session"
+    mutable: true
+    description: >
+      Maximum size of a single network packet in bytes. Default is 32 MB.
+      Used for MySQL protocol compatibility.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 205
+          context: "public static final String MAX_ALLOWED_PACKET = \"max_allowed_packet\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1347
+          context: "@VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET) private int maxAllowedPacket = 33554432"
+      thrift_propagation: null
+
+  - name: "tx_visible_wait_timeout"
+    type: long
+    default: 10
+    scope: "session"
+    mutable: true
+    description: >
+      Maximum time in seconds to wait for a transaction to become visible
+      after commit. Used for read-after-write consistency.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 378
+          context: "public static final String TRANSACTION_VISIBLE_WAIT_TIMEOUT = \"tx_visible_wait_timeout\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1732
+          context: "@VariableMgr.VarAttr(name = TRANSACTION_VISIBLE_WAIT_TIMEOUT) private long transactionVisibleWaitTimeout = 10"
+      thrift_propagation: null
+
+  - name: "thrift_plan_protocol"
+    type: String
+    default: "binary"
+    scope: "session"
+    mutable: true
+    description: >
+      Thrift protocol used for serializing query plans sent from FE to BE.
+      Options: binary, compact.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 934
+          context: "public static final String THRIFT_PLAN_PROTOCOL = \"thrift_plan_protocol\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2079
+          context: "@VarAttr(name = THRIFT_PLAN_PROTOCOL) private String thriftPlanProtocol = \"binary\""
+      thrift_propagation: null
+
+# =============================================================================
+# BE Configs - Network and Timeout
+# =============================================================================
+
+be_configs:
+
+  - name: "thrift_port"
+    type: Int32
+    default: 0
+    scope: "BE"
+    mutable: false
+    description: >
+      Port for Thrift RPC service on BE. 0 means auto-assigned. Used
+      for FE-to-BE and BE-to-BE communication.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 44
+          context: "CONF_Int32(thrift_port, \"0\")"
+      thrift_propagation: null
+
+  - name: "brpc_port"
+    type: Int32
+    default: 8060
+    scope: "BE"
+    mutable: false
+    description: >
+      Port for bRPC service on BE. Used for high-performance inter-node
+      data exchange during query execution.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 47
+          context: "CONF_Int32(brpc_port, \"8060\")"
+      thrift_propagation: null
+
+  - name: "brpc_num_threads"
+    type: Int32
+    default: -1
+    scope: "BE"
+    mutable: false
+    description: >
+      Number of bRPC worker threads. -1 means auto (typically number
+      of CPU cores).
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 50
+          context: "CONF_Int32(brpc_num_threads, \"-1\")"
+      thrift_propagation: null
+
+  - name: "brpc_max_body_size"
+    type: Int64
+    default: 2147483648
+    scope: "BE"
+    mutable: false
+    description: >
+      Maximum body size in bytes for a single bRPC message. Default is 2 GB.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 848
+          context: "CONF_Int64(brpc_max_body_size, \"2147483648\")"
+      thrift_propagation: null
+
+  - name: "brpc_socket_max_unwritten_bytes"
+    type: Int64
+    default: 1073741824
+    scope: "BE"
+    mutable: false
+    description: >
+      Maximum number of unwritten bytes buffered in a bRPC socket before
+      applying backpressure. Default is 1 GB.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 850
+          context: "CONF_Int64(brpc_socket_max_unwritten_bytes, \"1073741824\")"
+      thrift_propagation: null
+
+  - name: "thrift_connect_timeout_seconds"
+    type: Int32
+    default: 3
+    scope: "BE"
+    mutable: false
+    description: >
+      Connection timeout in seconds for outgoing Thrift RPC connections.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 276
+          context: "CONF_Int32(thrift_connect_timeout_seconds, \"3\")"
+      thrift_propagation: null
+
+  - name: "thrift_rpc_timeout_ms"
+    type: Int32
+    default: 5000
+    scope: "BE"
+    mutable: true
+    description: >
+      Timeout in milliseconds for Thrift RPC calls. Default is 5 seconds.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 760
+          context: "CONF_mInt32(thrift_rpc_timeout_ms, \"5000\")"
+      thrift_propagation: null
+
+  - name: "rpc_connect_timeout_ms"
+    type: Int64
+    default: 30000
+    scope: "BE"
+    mutable: false
+    description: >
+      Connection timeout in milliseconds for general RPC connections.
+      Default is 30 seconds.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1196
+          context: "CONF_Int64(rpc_connect_timeout_ms, \"30000\")"
+      thrift_propagation: null
+
+  - name: "heartbeat_service_port"
+    type: Int32
+    default: 9050
+    scope: "BE"
+    mutable: false
+    description: >
+      Port for the heartbeat service on BE. Used by FE to monitor
+      BE liveness.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 115
+          context: "CONF_Int32(heartbeat_service_port, \"9050\")"
+      thrift_propagation: null
+
+  - name: "be_http_port"
+    type: Int32
+    default: 8040
+    scope: "BE"
+    mutable: false
+    description: >
+      Port for the HTTP service on BE. Used for web UI, metrics,
+      and REST API endpoints. Alias: webserver_port.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 506
+          context: "CONF_Int32(be_http_port, \"8040\")"
+      thrift_propagation: null
+
+  - name: "be_http_num_workers"
+    type: Int32
+    default: 48
+    scope: "BE"
+    mutable: false
+    description: >
+      Number of HTTP server worker threads on BE.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 509
+          context: "CONF_Int32(be_http_num_workers, \"48\")"
+      thrift_propagation: null
+
+  - name: "object_storage_connect_timeout_ms"
+    type: Int64
+    default: -1
+    scope: "BE"
+    mutable: false
+    description: >
+      Connection timeout in milliseconds for object storage. -1 uses
+      the SDK default.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1074
+          context: "CONF_Int64(object_storage_connect_timeout_ms, \"-1\")"
+      thrift_propagation: null
+
+  - name: "object_storage_request_timeout_ms"
+    type: Int64
+    default: -1
+    scope: "BE"
+    mutable: true
+    description: >
+      Request timeout in milliseconds for object storage operations.
+      -1 uses SDK default. Also aliased as
+      starlet_fslib_s3client_request_timeout_ms.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1082
+          context: "CONF_mInt64(object_storage_request_timeout_ms, \"-1\")"
+      thrift_propagation: null
+
+  - name: "tablet_writer_open_rpc_timeout_sec"
+    type: Int32
+    default: 300
+    scope: "BE"
+    mutable: true
+    description: >
+      Timeout in seconds for the RPC to open a tablet writer during
+      data loading. Actual timeout is min(this, load_timeout_sec / 2).
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 591
+          context: "CONF_mInt32(tablet_writer_open_rpc_timeout_sec, \"300\")"
+      thrift_propagation: null
+
+  - name: "txn_commit_rpc_timeout_ms"
+    type: Int32
+    default: 60000
+    scope: "BE"
+    mutable: true
+    description: >
+      Timeout in milliseconds for the transaction commit RPC call.
+      Default is 60 seconds.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 771
+          context: "CONF_mInt32(txn_commit_rpc_timeout_ms, \"60000\")"
+      thrift_propagation: null
+
+  - name: "jdbc_connection_idle_timeout_ms"
+    type: Int32
+    default: 600000
+    scope: "BE"
+    mutable: false
+    description: >
+      Idle timeout in milliseconds before a JDBC connection is evicted
+      from the connection pool. Default is 10 minutes.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1348
+          context: "CONF_Int32(jdbc_connection_idle_timeout_ms, \"600000\")"
+      thrift_propagation: null

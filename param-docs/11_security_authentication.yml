@@ -1,0 +1,166 @@
+# =============================================================================
+# StarRocks Security and Authentication Parameters
+# Source: fe/.../qe/SessionVariable.java, be/src/common/config.h
+# =============================================================================
+
+session_variables:
+
+  - name: "sql_mode"
+    type: long
+    default: 32
+    scope: "session"
+    mutable: true
+    description: >
+      SQL mode bitmask controlling SQL behavior (e.g., strict mode,
+      ANSI quotes). The default value (32) corresponds to
+      ONLY_FULL_GROUP_BY. Stored internally as sql_mode_v2 for
+      backwards compatibility after default value change.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 176
+          context: "public static final String SQL_MODE = \"sql_mode\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 183
+          context: "public static final String SQL_MODE_STORAGE_NAME = \"sql_mode_v2\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1264
+          context: "@VariableMgr.VarAttr(name = SQL_MODE_STORAGE_NAME, alias = SQL_MODE, show = SQL_MODE) private long sqlMode = 32L"
+      thrift_propagation: null
+
+  - name: "sql_safe_updates"
+    type: int
+    default: 0
+    scope: "session"
+    mutable: true
+    description: >
+      When enabled (non-zero), prevents UPDATE and DELETE statements that
+      do not use a key column in the WHERE clause, preventing accidental
+      bulk modifications.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 216
+          context: "public static final String SQL_SAFE_UPDATES = \"sql_safe_updates\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1382
+          context: "@VariableMgr.VarAttr(name = SQL_SAFE_UPDATES) private int sqlSafeUpdates = 0"
+      thrift_propagation: null
+
+  - name: "default_authentication_plugin"
+    type: String
+    default: "mysql_native_password"
+    scope: "session"
+    mutable: true
+    description: >
+      The default authentication plugin used for user authentication.
+      Controls the password hashing method for new user accounts.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 194
+          context: "public static final String DEFAULT_AUTHENTICATION_PLUGIN = \"default_authentication_plugin\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1315
+          context: "@VariableMgr.VarAttr(name = DEFAULT_AUTHENTICATION_PLUGIN) private String defaultAuthenticationPlugin = \"mysql_native_password\""
+      thrift_propagation: null
+
+  - name: "authentication_policy"
+    type: String
+    default: "*,,"
+    scope: "session"
+    mutable: true
+    description: >
+      Authentication policy controlling which authentication methods
+      are allowed. Comma-separated list of allowed methods, with
+      wildcards supported.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 195
+          context: "public static final String AUTHENTICATION_POLICY = \"authentication_policy\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1317
+          context: "@VariableMgr.VarAttr(name = AUTHENTICATION_POLICY) private String authenticationPolicy = \"*,,\""
+      thrift_propagation: null
+
+# =============================================================================
+# BE Configs - Security and SSL
+# =============================================================================
+
+be_configs:
+
+  - name: "enable_https"
+    type: boolean
+    default: false
+    scope: "BE"
+    mutable: false
+    description: >
+      Whether to enable HTTPS for the BE HTTP service. When enabled,
+      ssl_certificate_path and ssl_private_key_path must be configured.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 52
+          context: "CONF_Bool(enable_https, \"false\")"
+      thrift_propagation: null
+
+  - name: "ssl_certificate_path"
+    type: String
+    default: ""
+    scope: "BE"
+    mutable: false
+    description: >
+      File path to the SSL certificate (PEM format) used when HTTPS
+      is enabled for the BE HTTP service.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 54
+          context: "CONF_String(ssl_certificate_path, \"\")"
+      thrift_propagation: null
+
+  - name: "ssl_private_key_path"
+    type: String
+    default: ""
+    scope: "BE"
+    mutable: false
+    description: >
+      File path to the SSL private key (PEM format) used when HTTPS
+      is enabled for the BE HTTP service.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 56
+          context: "CONF_String(ssl_private_key_path, \"\")"
+      thrift_propagation: null
+
+  - name: "enable_token_check"
+    type: boolean
+    default: true
+    scope: "BE"
+    mutable: true
+    description: >
+      Whether to enable token-based authentication for internal RPC
+      calls between FE and BE nodes. Should be true in production.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 667
+          context: "CONF_mBool(enable_token_check, \"true\")"
+      thrift_propagation: null
+
+  - name: "object_storage_endpoint_use_https"
+    type: boolean
+    default: false
+    scope: "BE"
+    mutable: false
+    description: >
+      Whether to use HTTPS for object storage endpoint connections
+      (S3, GCS, etc.).
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1067
+          context: "CONF_Bool(object_storage_endpoint_use_https, \"false\")"
+      thrift_propagation: null
