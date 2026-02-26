@@ -269,12 +269,16 @@ public class HdfsFsManager {
     private static final String OBS_SCHEME = "obs";
     private static final String TOS_SCHEME = "tos";
 
-    private static final String ABFS_SCHEMA = "abfs";
-    private static final String ABFSS_SCHEMA = "abfss";
-    private static final String ADL_SCHEMA = "adl";
-    private static final String WASB_SCHEMA = "wasb";
-    private static final String WASBS_SCHEMA = "wasbs";
-    private static final String GCS_SCHEMA = "gs";
+    private static final String ABFS_SCHEME = "abfs";
+    private static final String ABFSS_SCHEME = "abfss";
+    private static final String ADL_SCHEME = "adl";
+    public static final String WASB_SCHEME = "wasb";
+    public static final String WASBS_SCHEME = "wasbs";
+    private static final String AZBLOB_SCHEME = "azblob";
+    private static final String ADLS2_SCHEME = "adls2";
+    private static final String HTTP_PREFIX = "http://";
+    private static final String HTTPS_PREFIX = "https://";
+    private static final String GCS_SCHEME = "gs";
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
     // arguments for ha hdfs
@@ -287,8 +291,8 @@ public class HdfsFsManager {
     // is closed by other thread.
 
     // arguments for s3a
-    protected static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
-    protected static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
+    public static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
+    public static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
     protected static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
     // This property is used like 'fs.hdfs.impl.disable.cache'
     protected static final String FS_S3A_IMPL_DISABLE_CACHE = "fs.s3a.impl.disable.cache";
@@ -298,8 +302,8 @@ public class HdfsFsManager {
     protected static final String FS_S3A_AWS_CRED_PROVIDER = "fs.s3a.aws.credentials.provider";
 
     // arguments for ks3
-    protected static final String FS_KS3_ACCESS_KEY = "fs.ks3.AccessKey";
-    protected static final String FS_KS3_SECRET_KEY = "fs.ks3.AccessSecret";
+    public static final String FS_KS3_ACCESS_KEY = "fs.ks3.AccessKey";
+    public static final String FS_KS3_SECRET_KEY = "fs.ks3.AccessSecret";
     protected static final String FS_KS3_ENDPOINT = "fs.ks3.endpoint";
     protected static final String FS_KS3_IMPL = "fs.ks3.impl";
     // This property is used like 'fs.ks3.impl.disable.cache'
@@ -307,8 +311,8 @@ public class HdfsFsManager {
     protected static final String FS_KS3_IMPL_DISABLE_CACHE = "fs.ks3.impl.disable.cache";
 
     // arguments for oss
-    protected static final String FS_OSS_ACCESS_KEY = "fs.oss.accessKeyId";
-    protected static final String FS_OSS_SECRET_KEY = "fs.oss.accessKeySecret";
+    public static final String FS_OSS_ACCESS_KEY = "fs.oss.accessKeyId";
+    public static final String FS_OSS_SECRET_KEY = "fs.oss.accessKeySecret";
     protected static final String FS_OSS_ENDPOINT = "fs.oss.endpoint";
     // This property is used like 'fs.hdfs.impl.disable.cache'
     protected static final String FS_OSS_IMPL_DISABLE_CACHE = "fs.oss.impl.disable.cache";
@@ -316,16 +320,18 @@ public class HdfsFsManager {
     protected static final String FS_OSS_IMPL = "fs.oss.impl";
 
     // arguments for cos
-    protected static final String FS_COS_ACCESS_KEY = "fs.cosn.userinfo.secretId";
-    protected static final String FS_COS_SECRET_KEY = "fs.cosn.userinfo.secretKey";
+    public static final String FS_COS_ACCESS_KEY = "fs.cosn.userinfo.secretId";
+    public static final String FS_COS_SECRET_KEY = "fs.cosn.userinfo.secretKey";
     protected static final String FS_COS_ENDPOINT = "fs.cosn.bucket.endpoint_suffix";
     protected static final String FS_COS_IMPL_DISABLE_CACHE = "fs.cosn.impl.disable.cache";
     protected static final String FS_COS_CONNECTION_SSL_ENABLED = "fs.cos.connection.ssl.enabled";
     protected static final String FS_COS_IMPL = "fs.cosn.impl";
 
     // arguments for obs
-    protected static final String FS_OBS_ACCESS_KEY = "fs.obs.access.key";
-    protected static final String FS_OBS_SECRET_KEY = "fs.obs.secret.key";
+    public static final String FS_OBS_ACCESS_KEY = "fs.obs.access.key";
+    public static final String FS_OBS_SECRET_KEY = "fs.obs.secret.key";
+    public static final String FS_OBS_ACCESS_KEY_UNDERSCORE = "fs.obs.access_key";
+    public static final String FS_OBS_SECRET_KEY_UNDERSCORE = "fs.obs.secret_key";
     protected static final String FS_OBS_ENDPOINT = "fs.obs.endpoint";
     // This property is used like 'fs.hdfs.impl.disable.cache'
     protected static final String FS_OBS_IMPL_DISABLE_CACHE = "fs.obs.impl.disable.cache";
@@ -339,8 +345,8 @@ public class HdfsFsManager {
     protected static final String FS_GS_IMPL_DISABLE_CACHE = "fs.gs.impl.disable.cache";
 
     // arguments for tos
-    protected static final String FS_TOS_ACCESS_KEY = "fs.tos.access.key";
-    protected static final String FS_TOS_SECRET_KEY = "fs.tos.secret.key";
+    public static final String FS_TOS_ACCESS_KEY = "fs.tos.access.key";
+    public static final String FS_TOS_SECRET_KEY = "fs.tos.secret.key";
     protected static final String FS_TOS_ENDPOINT = "fs.tos.endpoint";
     // This property is used like 'fs.hdfs.impl.disable.cache'
     protected static final String FS_TOS_IMPL_DISABLE_CACHE = "fs.tos.impl.disable.cache";
@@ -403,13 +409,19 @@ public class HdfsFsManager {
                 return getOBSFileSystem(path, loadProperties, tProperties);
             case TOS_SCHEME:
                 return getTOSFileSystem(path, loadProperties, tProperties);
-            case ABFS_SCHEMA:
-            case ABFSS_SCHEMA:
-            case ADL_SCHEMA:
-            case WASB_SCHEMA:
-            case WASBS_SCHEMA:
+            case ABFS_SCHEME:
+            case ABFSS_SCHEME:
+            case ADL_SCHEME:
+            case WASB_SCHEME:
+            case WASBS_SCHEME:
                 return getAzureFileSystem(path, loadProperties, tProperties);
-            case GCS_SCHEMA:
+            case AZBLOB_SCHEME:
+                // Translate storage-volume azblob path to Hadoop wasb/wasbs path with endpoint embedded.
+                return getAzureFileSystem(buildAzureBlobHadoopPath(pathUri, loadProperties), loadProperties, tProperties);
+            case ADLS2_SCHEME:
+                // Translate storage-volume adls2 path to Hadoop abfs/abfss path with endpoint embedded.
+                return getAzureFileSystem(buildAdls2HadoopPath(pathUri, loadProperties), loadProperties, tProperties);
+            case GCS_SCHEME:
                 return getGoogleFileSystem(path, loadProperties, tProperties);
             default:
                 // If all above match fails, then we will read the settings from hdfs-site.xml, core-site.xml of FE,
@@ -417,6 +429,53 @@ public class HdfsFsManager {
                 // SDK is compatible with nearly all file/object storage system
                 return getUniversalFileSystem(path, loadProperties, tProperties);
         }
+    }
+
+    private String buildAzureBlobHadoopPath(WildcardURI pathUri, Map<String, String> loadProperties)
+            throws StarRocksException {
+        String endpoint = loadProperties.get(CloudConfigurationConstants.AZURE_BLOB_ENDPOINT);
+        if (Strings.isNullOrEmpty(endpoint)) {
+            throw new StarRocksException("missing property azure.blob.endpoint for path: " + pathUri.getPath());
+        }
+        String newScheme = endpoint.toLowerCase().startsWith(HTTPS_PREFIX) ? WASBS_SCHEME : WASB_SCHEME;
+        // Hadoop Azure FS expects wasb[s]://<container>@<endpoint-without-scheme>/...
+        String endpointWithoutScheme = stripEndpointScheme(endpoint);
+        String container = pathUri.getUri().getAuthority();
+        if (Strings.isNullOrEmpty(container)) {
+            throw new StarRocksException("invalid azure path, container is empty: " + pathUri.getPath());
+        }
+        String rawPath = pathUri.getUri().getRawPath();
+        String normalizedPath = rawPath == null ? "" : rawPath;
+        return newScheme + "://" + container + "@" + endpointWithoutScheme + normalizedPath;
+    }
+
+    private String buildAdls2HadoopPath(WildcardURI pathUri, Map<String, String> loadProperties)
+            throws StarRocksException {
+        String endpoint = loadProperties.get(CloudConfigurationConstants.AZURE_ADLS2_ENDPOINT);
+        if (Strings.isNullOrEmpty(endpoint)) {
+            throw new StarRocksException("missing property azure.adls2.endpoint for path: " + pathUri.getPath());
+        }
+        String newScheme = endpoint.toLowerCase().startsWith(HTTPS_PREFIX) ? ABFSS_SCHEME : ABFS_SCHEME;
+        // Hadoop Azure FS expects abfs[s]://<container>@<endpoint-without-scheme>/...
+        String endpointWithoutScheme = stripEndpointScheme(endpoint);
+        String container = pathUri.getUri().getAuthority();
+        if (Strings.isNullOrEmpty(container)) {
+            throw new StarRocksException("invalid azure path, container is empty: " + pathUri.getPath());
+        }
+        String rawPath = pathUri.getUri().getRawPath();
+        String normalizedPath = rawPath == null ? "" : rawPath;
+        return newScheme + "://" + container + "@" + endpointWithoutScheme + normalizedPath;
+    }
+
+    private String stripEndpointScheme(String endpoint) throws StarRocksException {
+        String lowerEndpoint = endpoint.toLowerCase();
+        if (lowerEndpoint.startsWith(HTTPS_PREFIX)) {
+            return endpoint.substring(HTTPS_PREFIX.length());
+        }
+        if (lowerEndpoint.startsWith(HTTP_PREFIX)) {
+            return endpoint.substring(HTTP_PREFIX.length());
+        }
+        throw new StarRocksException("invalid azure endpoint, must start with http or https. endpoint: " + endpoint);
     }
 
     /**
@@ -656,8 +715,12 @@ public class HdfsFsManager {
         Preconditions.checkArgument(cloudConfiguration != null);
         WildcardURI pathUri = new WildcardURI(path);
 
-        String host = pathUri.getUri().getScheme() + "://" + pathUri.getUri().getHost();
-        HdfsFsIdentity fileSystemIdentity = new HdfsFsIdentity(host, cloudConfiguration.toConfString());
+        String scheme = pathUri.getUri().getScheme();
+        String authority = pathUri.getUri().getAuthority();
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(scheme), "URI scheme must not be null or empty: %s", path);
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(authority), "URI authority must not be null or empty: %s", path);
+        String uriIdentity = scheme + "://" + authority;
+        HdfsFsIdentity fileSystemIdentity = new HdfsFsIdentity(uriIdentity, cloudConfiguration.toConfString());
 
         cachedFileSystem.putIfAbsent(fileSystemIdentity, new HdfsFs(fileSystemIdentity));
         HdfsFs fileSystem = cachedFileSystem.get(fileSystemIdentity);
@@ -1311,7 +1374,7 @@ public class HdfsFsManager {
             Thread.interrupted(); // clear interrupted flag
             LOG.error("Interrupted while delete path: " + path, e);
             throw new StarRocksException("Failed to delete path: " + path, e); // throw unified user exception
-        } catch (IOException e) {
+        } catch (Exception e) {
             LOG.error("errors while delete path " + path, e);
             throw new StarRocksException("delete path " + path + "error", e);
         }
@@ -1346,7 +1409,7 @@ public class HdfsFsManager {
             LOG.error("Interrupted while rename path from " + srcPath + " to " + destPath, e);
             // throw unified user exception
             throw new StarRocksException("Failed to rename path from " + srcPath + " to " + destPath, e);
-        } catch (IOException e) {
+        } catch (Exception e) {
             LOG.error("errors while rename path from " + srcPath + " to " + destPath, e);
             throw new StarRocksException("errors while rename " + srcPath + "to " + destPath, e);
         }
@@ -1362,7 +1425,7 @@ public class HdfsFsManager {
             Thread.interrupted(); // clear interrupted flag
             LOG.error("Interrupted while check path exist: " + path, e);
             throw new StarRocksException("Failed to check path exist: " + path, e); // throw unified user exception
-        } catch (IOException e) {
+        } catch (Exception e) {
             LOG.error("errors while check path exist: " + path, e);
             throw new StarRocksException("errors while check if path " + path + " exist", e);
         }
@@ -1384,7 +1447,7 @@ public class HdfsFsManager {
             Thread.interrupted(); // clear interrupted flag
             LOG.error("Interrupted while open file " + path, e);
             throw new StarRocksException("Failed to open file " + path, e); // throw unified user exception
-        } catch (IOException e) {
+        } catch (Exception e) {
             LOG.error("errors while open path", e);
             throw new StarRocksException("could not open file " + path, e);
         }
@@ -1493,7 +1556,7 @@ public class HdfsFsManager {
             Thread.interrupted(); // clear interrupted flag
             LOG.error("Interrupted while open file " + path, e);
             throw new StarRocksException("Failed to open file " + path, e); // throw unified user exception
-        } catch (IOException e) {
+        } catch (Exception e) {
             LOG.error("errors while open path", e);
             throw new StarRocksException("could not open file " + path, e);
         }

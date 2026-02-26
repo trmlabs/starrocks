@@ -14,7 +14,6 @@
 
 package com.starrocks.lake.snapshot;
 
-import com.starrocks.analysis.BrokerDesc;
 import com.starrocks.common.StarRocksException;
 import com.starrocks.fs.HdfsUtil;
 import com.starrocks.server.GlobalStateMgr;
@@ -26,27 +25,27 @@ public class ClusterSnapshotUtils {
                 GlobalStateMgr.getCurrentState().getStarOSAgent().getRawServiceId(), "meta/image", snapshotName);
     }
 
-    public static void uploadAutomatedSnapshotToRemote(String snapshotName) throws StarRocksException {
+    public static void uploadClusterSnapshotToRemote(ClusterSnapshotJob job) throws StarRocksException {
+        String snapshotName = job.getSnapshotName();
         if (snapshotName == null || snapshotName.isEmpty()) {
             return;
         }
 
-        StorageVolume sv = GlobalStateMgr.getCurrentState().getClusterSnapshotMgr().getAutomatedSnapshotStorageVolume();
+        StorageVolume sv = GlobalStateMgr.getCurrentState().getClusterSnapshotMgr().getStorageVolumeBySnapshotJob(job);
         String snapshotImagePath = getSnapshotImagePath(sv, snapshotName);
-        String localImagePath = GlobalStateMgr.getServingState().getImageDir();
+        String localImagePath = GlobalStateMgr.getImageDirPath();
 
         HdfsUtil.copyFromLocal(localImagePath, snapshotImagePath, sv.getProperties());
     }
 
-    public static void clearAutomatedSnapshotFromRemote(String snapshotName) throws StarRocksException {
+    public static void clearClusterSnapshotFromRemote(ClusterSnapshotJob job) throws StarRocksException {
+        String snapshotName = job.getSnapshotName();
         if (snapshotName == null || snapshotName.isEmpty()) {
             return;
         }
 
-        StorageVolume sv = GlobalStateMgr.getCurrentState().getClusterSnapshotMgr().getAutomatedSnapshotStorageVolume();
-        BrokerDesc brokerDesc = new BrokerDesc(sv.getProperties());
+        StorageVolume sv = GlobalStateMgr.getCurrentState().getClusterSnapshotMgr().getStorageVolumeBySnapshotJob(job);
         String snapshotImagePath = getSnapshotImagePath(sv, snapshotName);
-
-        HdfsUtil.deletePath(snapshotImagePath, brokerDesc);
+        HdfsUtil.deletePath(snapshotImagePath, sv.getProperties());
     }
 }

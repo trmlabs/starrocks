@@ -76,6 +76,7 @@ import com.starrocks.common.MetaNotFoundException;
 import com.starrocks.common.NotImplementedException;
 import com.starrocks.common.Pair;
 import com.starrocks.common.StarRocksException;
+import com.starrocks.common.util.PartitionKeySerializer;
 import com.starrocks.common.util.concurrent.lock.LockTimeoutException;
 import com.starrocks.common.util.concurrent.lock.LockType;
 import com.starrocks.common.util.concurrent.lock.Locker;
@@ -157,6 +158,7 @@ import com.starrocks.transaction.TransactionState.LoadJobSourceType;
 import com.starrocks.transaction.TransactionState.TxnCoordinator;
 import com.starrocks.transaction.TransactionState.TxnSourceType;
 import com.starrocks.transaction.TxnCommitAttachment;
+import com.starrocks.type.TypeSerializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -478,7 +480,7 @@ public class LeaderImpl {
         try {
             long dbId = task.getDbId();
             long tableId = task.getTableId();
-            long indexId = task.getIndexId();
+            long indexMetaId = task.getIndexId();
             long backendId = task.getBackendId();
             Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb(dbId);
             if (db != null) {
@@ -488,7 +490,7 @@ public class LeaderImpl {
                     OlapTable olapTable = (OlapTable) GlobalStateMgr.getCurrentState().getLocalMetastore()
                                 .getTable(db.getId(), tableId);
                     if (olapTable != null) {
-                        MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
+                        MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByMetaId(indexMetaId);
                         if (indexMeta != null) {
                             indexMeta.removeUpdateSchemaBackend(backendId);
                         }
@@ -605,7 +607,6 @@ public class LeaderImpl {
                 }
                 for (int i = 0; i < tabletMetaList.size(); i++) {
                     TabletMeta tabletMeta = tabletMetaList.get(i);
-                    checkReplica(finishTabletInfos.get(i), tabletMeta);
                     long tabletId = tabletIds.get(i);
                     Replica replica =
                             findRelatedReplica(olapTable, physicalPartition, backendId, tabletId, tabletMeta.getIndexId());
@@ -623,32 +624,6 @@ public class LeaderImpl {
             LOG.warn("finish push replica error", e);
         } finally {
             locker.unLockDatabase(db.getId(), LockType.WRITE);
-        }
-    }
-
-    private void checkReplica(TTabletInfo tTabletInfo, TabletMeta tabletMeta)
-            throws MetaNotFoundException {
-        long tabletId = tTabletInfo.getTablet_id();
-        int schemaHash = tTabletInfo.getSchema_hash();
-        // during finishing stage, index's schema hash switched, when old schema hash finished
-        // current index hash != old schema hash and alter job's new schema hash != old schema hash
-        // the check replica will fail
-        // should use tabletid not pushTabletid because in rollup state, the push tabletid != tabletid
-        // and tablet meta will not contain rollup index's schema hash
-        if (tabletMeta == null || tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
-            // rollup may be dropped
-            throw new MetaNotFoundException("tablet " + tabletId + " does not exist");
-        }
-
-        // lake tablet not need to compare schemaHash
-        if (tabletMeta.isLakeTablet()) {
-            return;
-        }
-
-        if (!tabletMeta.containsSchemaHash(schemaHash)) {
-            throw new MetaNotFoundException("tablet[" + tabletId
-                    + "] schemaHash is not equal to index's switchSchemaHash. "
-                    + tabletMeta + " vs. " + schemaHash);
         }
     }
 
@@ -963,7 +938,7 @@ public class LeaderImpl {
                     tableMeta.addToBloomfilter_columns(bfColumn);
                 }
             }
-            tableMeta.setBase_index_id(olapTable.getBaseIndexId());
+            tableMeta.setBase_index_id(olapTable.getBaseIndexMetaId());
             tableMeta.setColocate_group(olapTable.getColocateGroup());
             tableMeta.setKey_type(olapTable.getKeysType().name());
 
@@ -992,9 +967,7 @@ public class LeaderImpl {
                 partitionMeta.setIs_temp(olapTable.getPartition(partition.getName(), true) != null);
                 tableMeta.addToPartitions(partitionMeta);
                 short replicaNum = partitionInfo.getReplicationNum(partition.getId());
-                boolean inMemory = partitionInfo.getIsInMemory(partition.getId());
                 basePartitionDesc.putToReplica_num_map(partition.getId(), replicaNum);
-                basePartitionDesc.putToIn_memory_map(partition.getId(), inMemory);
                 DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
                 TDataProperty thriftDataProperty = new TDataProperty();
                 thriftDataProperty.setStorage_medium(dataProperty.getStorageMedium());
@@ -1010,7 +983,7 @@ public class LeaderImpl {
                 for (Column column : rangePartitionInfo.getPartitionColumns(olapTable.getIdToColumn())) {
                     TColumnMeta columnMeta = new TColumnMeta();
                     columnMeta.setColumnName(column.getName());
-                    columnMeta.setColumnType(column.getType().toThrift());
+                    columnMeta.setColumnType(TypeSerializer.toThrift(column.getType()));
                     columnMeta.setKey(column.isKey());
                     if (column.getAggregationType() != null) {
                         columnMeta.setAggregationType(column.getAggregationType().name());
@@ -1026,12 +999,12 @@ public class LeaderImpl {
                     tRange.setPartition_id(range.getKey());
                     ByteArrayOutputStream output = new ByteArrayOutputStream();
                     DataOutputStream stream = new DataOutputStream(output);
-                    range.getValue().lowerEndpoint().write(stream);
+                    PartitionKeySerializer.write(stream, range.getValue().lowerEndpoint());
                     tRange.setStart_key(output.toByteArray());
 
                     output = new ByteArrayOutputStream();
                     stream = new DataOutputStream(output);
-                    range.getValue().upperEndpoint().write(stream);
+                    PartitionKeySerializer.write(stream, range.getValue().upperEndpoint());
                     tRange.setEnd_key(output.toByteArray());
                     tRange.setBase_desc(basePartitionDesc);
                     tRange.setIs_temp(tempRanges.containsKey(range.getKey()));
@@ -1063,7 +1036,7 @@ public class LeaderImpl {
 
             for (Partition partition : olapTable.getAllPartitions()) {
                 List<MaterializedIndex> indexes =
-                        partition.getDefaultPhysicalPartition().getMaterializedIndices(IndexExtState.ALL);
+                        partition.getDefaultPhysicalPartition().getLatestMaterializedIndices(IndexExtState.ALL);
                 for (MaterializedIndex index : indexes) {
                     TIndexMeta indexMeta = new TIndexMeta();
                     indexMeta.setIndex_id(index.getId());
@@ -1073,7 +1046,7 @@ public class LeaderImpl {
                     indexMeta.setRollup_index_id(-1L);
                     indexMeta.setRollup_finished_version(-1L);
                     TSchemaMeta schemaMeta = new TSchemaMeta();
-                    MaterializedIndexMeta materializedIndexMeta = olapTable.getIndexMetaByIndexId(index.getId());
+                    MaterializedIndexMeta materializedIndexMeta = olapTable.getIndexMetaByMetaId(index.getMetaId());
                     schemaMeta.setSchema_version(materializedIndexMeta.getSchemaVersion());
                     schemaMeta.setSchema_hash(materializedIndexMeta.getSchemaHash());
                     schemaMeta.setShort_key_col_count(materializedIndexMeta.getShortKeyColumnCount());
@@ -1082,7 +1055,7 @@ public class LeaderImpl {
                     for (Column column : materializedIndexMeta.getSchema()) {
                         TColumnMeta columnMeta = new TColumnMeta();
                         columnMeta.setColumnName(column.getName());
-                        columnMeta.setColumnType(column.getType().toThrift());
+                        columnMeta.setColumnType(TypeSerializer.toThrift(column.getType()));
                         columnMeta.setKey(column.isKey());
                         columnMeta.setAllowNull(column.isAllowNull());
                         if (column.getAggregationType() != null) {
@@ -1153,8 +1126,6 @@ public class LeaderImpl {
         tTabletMeta.setPartition_id(tabletMeta.getPhysicalPartitionId());
         tTabletMeta.setIndex_id(tabletMeta.getIndexId());
         tTabletMeta.setStorage_medium(tabletMeta.getStorageMedium());
-        tTabletMeta.setOld_schema_hash(tabletMeta.getOldSchemaHash());
-        tTabletMeta.setNew_schema_hash(tabletMeta.getNewSchemaHash());
     }
 
     @NotNull
@@ -1259,11 +1230,12 @@ public class LeaderImpl {
 
         long txnId;
         try {
+            // TODO(ComputeResource): support more better compute resource acquiring.
             txnId = GlobalStateMgr.getCurrentState().getGlobalTransactionMgr().beginTransaction(db.getId(),
                     request.getTable_ids(), request.getLabel(),
                     new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     LoadJobSourceType.valueOf(request.getSource_type()), request.getTimeout_second(),
-                    WarehouseManager.DEFAULT_WAREHOUSE_ID);
+                    WarehouseManager.DEFAULT_RESOURCE);
         } catch (Exception e) {
             LOG.warn("begin remote txn failed, label {}", request.getLabel(), e);
             TStatus status = new TStatus(TStatusCode.INTERNAL_ERROR);

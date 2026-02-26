@@ -19,8 +19,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.starrocks.analysis.LabelName;
-import com.starrocks.analysis.ParseNode;
 import com.starrocks.common.AnalysisException;
 import com.starrocks.common.Config;
 import com.starrocks.common.ErrorCode;
@@ -35,14 +33,17 @@ import com.starrocks.load.routineload.KafkaProgress;
 import com.starrocks.load.routineload.LoadDataSourceType;
 import com.starrocks.load.routineload.PulsarRoutineLoadJob;
 import com.starrocks.load.routineload.RoutineLoadJob;
+import com.starrocks.persist.OriginStatementInfo;
 import com.starrocks.qe.ConnectContext;
-import com.starrocks.qe.OriginStatement;
 import com.starrocks.qe.SessionVariable;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.Subquery;
 import com.starrocks.sql.parser.NodePosition;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -458,7 +459,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return dataSourceProperties;
     }
 
-    public static RoutineLoadDesc getLoadDesc(OriginStatement origStmt, Map<String, String> sessionVariables) {
+    public static RoutineLoadDesc getLoadDesc(OriginStatementInfo origStmt, Map<String, String> sessionVariables) {
 
         // parse the origin stmt to get routine load desc
         try {
@@ -488,7 +489,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         RowDelimiter rowDelimiter = null;
         ImportColumnsStmt importColumnsStmt = null;
         ImportWhereStmt importWhereStmt = null;
-        PartitionNames partitionNames = null;
+        PartitionRef partitionNames = null;
         for (ParseNode parseNode : loadPropertyList) {
             if (parseNode instanceof ColumnSeparator) {
                 // check column separator
@@ -514,16 +515,24 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     throw new AnalysisException("repeat setting of where predicate");
                 }
                 importWhereStmt = (ImportWhereStmt) parseNode;
-                if (importWhereStmt.isContainSubquery()) {
+
+                ArrayList<Expr> matched = new ArrayList<>();
+                importWhereStmt.getExpr().collect(Subquery.class, matched);
+                if (matched.size() != 0) {
                     throw new AnalysisException("the predicate cannot contain subqueries");
                 }
-            } else if (parseNode instanceof PartitionNames) {
+            } else if (parseNode instanceof PartitionRef) {
                 // check partition names
                 if (partitionNames != null) {
                     throw new AnalysisException("repeat setting of partition names");
                 }
-                partitionNames = (PartitionNames) parseNode;
-                partitionNames.analyze(null);
+                partitionNames = (PartitionRef) parseNode;
+                if (partitionNames.getPartitionNames().isEmpty()) {
+                    throw new AnalysisException("No partition specifed in partition lists");
+                }
+                if (partitionNames.getPartitionNames().stream().anyMatch(Strings::isNullOrEmpty)) {
+                    throw new AnalysisException("there are empty partition name");
+                }
             }
         }
         return new RoutineLoadDesc(columnSeparator, rowDelimiter, importColumnsStmt, importWhereStmt,
@@ -697,13 +706,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(kafkaBrokerList)) {
             throw new AnalysisException(KAFKA_BROKER_LIST_PROPERTY + " is a required property");
         }
-        String[] kafkaBrokerList = this.kafkaBrokerList.split(",");
-        for (String broker : kafkaBrokerList) {
-            if (!Pattern.matches(ENDPOINT_REGEX, broker)) {
-                throw new AnalysisException(KAFKA_BROKER_LIST_PROPERTY + ":" + broker
-                        + " not match pattern " + ENDPOINT_REGEX);
-            }
-        }
+        validateKafkaBrokerList(kafkaBrokerList);
 
         // check topic
         kafkaTopic = Strings.nullToEmpty(dataSourceProperties.get(KAFKA_TOPIC_PROPERTY)).replaceAll(" ", "");
@@ -826,6 +829,23 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         // check kafka_default_offsets
         if (customKafkaProperties.containsKey(KAFKA_DEFAULT_OFFSETS)) {
             getKafkaOffset(customKafkaProperties.get(KAFKA_DEFAULT_OFFSETS));
+        }
+    }
+
+    public static void validateKafkaBrokerList(String brokerList) throws AnalysisException {
+        if (Strings.isNullOrEmpty(brokerList)) {
+            throw new AnalysisException("kafka_broker_list cannot be empty");
+        }
+
+        String cleanBrokerList = brokerList.replaceAll(" ", "");
+        String[] brokers = cleanBrokerList.split(",");
+
+        for (String broker : brokers) {
+            if (!Pattern.matches(ENDPOINT_REGEX, broker)) {
+                throw new AnalysisException(
+                    String.format("%s: %s does not match pattern %s",
+                        KAFKA_BROKER_LIST_PROPERTY, broker, ENDPOINT_REGEX));
+            }
         }
     }
 
@@ -1006,6 +1026,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     @Override
     public <R, C> R accept(AstVisitor<R, C> visitor, C context) throws RuntimeException {
-        return visitor.visitCreateRoutineLoadStatement(this, context);
+        return ((AstVisitorExtendInterface<R, C>) visitor).visitCreateRoutineLoadStatement(this, context);
     }
 }

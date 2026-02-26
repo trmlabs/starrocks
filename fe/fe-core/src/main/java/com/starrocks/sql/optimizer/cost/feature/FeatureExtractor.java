@@ -15,7 +15,6 @@
 package com.starrocks.sql.optimizer.cost.feature;
 
 import com.google.common.collect.Lists;
-import com.starrocks.catalog.Table;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.sql.optimizer.ExpressionContext;
 import com.starrocks.sql.optimizer.OptExpression;
@@ -32,6 +31,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static com.starrocks.server.WarehouseManager.DEFAULT_WAREHOUSE_ID;
+
 /**
  * Extract features from physical plan
  */
@@ -46,8 +47,8 @@ public class FeatureExtractor {
         List<OperatorFeatures.ScanOperatorFeatures> scanNodes = Lists.newArrayList();
         root.collect(OperatorFeatures.ScanOperatorFeatures.class, scanNodes);
         if (CollectionUtils.isNotEmpty(scanNodes)) {
-            Set<Table> tables = scanNodes.stream()
-                    .map(OperatorFeatures.ScanOperatorFeatures::getTable)
+            Set<OperatorFeatures.TableFeature> tables = scanNodes.stream()
+                    .map(OperatorFeatures.ScanOperatorFeatures::getTableFeature)
                     .collect(Collectors.toSet());
             planFeatures.addTableFeatures(tables);
         }
@@ -56,13 +57,18 @@ public class FeatureExtractor {
         var sumVector = PlanFeatures.aggregate(root);
         planFeatures.addOperatorFeatures(sumVector);
 
+        ConnectContext ctx = ConnectContext.get();
+        long warehouseId = DEFAULT_WAREHOUSE_ID;
+        if (ctx != null && ctx.getCurrentWarehouseIdAllowNull() != null) {
+            warehouseId = ctx.getCurrentWarehouseIdAllowNull();
+        }
+
         // environment
-        planFeatures.setAvgCpuCoreOfBe(BackendResourceStat.getInstance().getAvgNumHardwareCoresOfBe());
-        planFeatures.setNumBeNodes(BackendResourceStat.getInstance().getNumBes());
-        planFeatures.setMemCapacityOfBE(BackendResourceStat.getInstance().getAvgMemLimitBytes());
+        planFeatures.setAvgCpuCoreOfBe(BackendResourceStat.getInstance().getAvgNumCoresOfBe(warehouseId));
+        planFeatures.setNumBeNodes(BackendResourceStat.getInstance().getNumBes(warehouseId));
+        planFeatures.setMemCapacityOfBE(BackendResourceStat.getInstance().getAvgMemLimitBytes(warehouseId));
 
         // variables
-        ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
             planFeatures.setDop(ctx.getSessionVariable().getPipelineDop());
         }

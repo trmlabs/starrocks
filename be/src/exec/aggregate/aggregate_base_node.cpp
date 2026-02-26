@@ -14,7 +14,8 @@
 
 #include "exec/aggregate/aggregate_base_node.h"
 
-#include "gutil/strings/substitute.h"
+#include "exec/aggregator.h"
+#include "exprs/expr_factory.h"
 
 namespace starrocks {
 
@@ -29,11 +30,19 @@ AggregateBaseNode::~AggregateBaseNode() {
 
 Status AggregateBaseNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.agg_node.grouping_exprs, &_group_by_expr_ctxs, state, true));
+    RETURN_IF_ERROR(
+            ExprFactory::create_expr_trees(_pool, tnode.agg_node.grouping_exprs, &_group_by_expr_ctxs, state, true));
     for (auto& expr : _group_by_expr_ctxs) {
         auto& type_desc = expr->root()->type();
         if (!type_desc.support_groupby()) {
             return Status::NotSupported(fmt::format("group by type {} is not supported", type_desc.debug_string()));
+        }
+    }
+    if (tnode.agg_node.__isset.build_runtime_filters) {
+        for (const auto& desc : tnode.agg_node.build_runtime_filters) {
+            auto* rf_desc = _pool->add(new RuntimeFilterBuildDescriptor());
+            RETURN_IF_ERROR(rf_desc->init(_pool, desc, state));
+            _build_runtime_filters.emplace_back(rf_desc);
         }
     }
     return Status::OK();
@@ -45,7 +54,7 @@ Status AggregateBaseNode::prepare(RuntimeState* state) {
 
     // Avoid partial-prepared Aggregator, which is dangerous to close
     auto aggregator = std::make_shared<Aggregator>(std::move(params));
-    RETURN_IF_ERROR(aggregator->prepare(state, _pool, runtime_profile()));
+    RETURN_IF_ERROR(aggregator->prepare(state, runtime_profile()));
     _aggregator = std::move(aggregator);
     return Status::OK();
 }

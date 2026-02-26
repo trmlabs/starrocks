@@ -20,16 +20,25 @@
 #include <random>
 #include <set>
 
-#include "cache/block_cache/block_cache.h"
-#include "cache/object_cache/starcache_module.h"
+#include "base/testutil/assert.h"
+#include "cache/disk_cache/block_cache.h"
+#include "cache/disk_cache/starcache_engine.h"
+#include "cache/disk_cache/test_cache_utils.h"
+#include "cache/mem_cache/lrucache_engine.h"
+#include "column/array_column.h"
+#include "column/binary_column.h"
 #include "column/column_helper.h"
 #include "column/fixed_length_column.h"
+#include "column/nullable_column.h"
+#include "column/struct_column.h"
 #include "common/logging.h"
-#include "exec/hdfs_scanner.h"
+#include "common/util/thrift_util.h"
+#include "exec/hdfs_scanner/hdfs_scanner.h"
 #include "exprs/binary_predicate.h"
 #include "exprs/expr_context.h"
+#include "exprs/expr_executor.h"
+#include "exprs/expr_factory.h"
 #include "exprs/in_const_predicate.hpp"
-#include "exprs/runtime_filter.h"
 #include "formats/parquet/column_chunk_reader.h"
 #include "formats/parquet/metadata.h"
 #include "formats/parquet/page_reader.h"
@@ -39,12 +48,14 @@
 #include "fs/fs.h"
 #include "io/shared_buffered_input_stream.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/global_dict/fragment_dict_state.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/types.h"
-#include "testutil/assert.h"
+#include "runtime/runtime_filter.h"
 #include "testutil/column_test_helper.h"
 #include "testutil/exprs_test_helper.h"
-#include "util/thrift_util.h"
+#include "types/type_descriptor.h"
+#include "types/variant.h"
+#include "util/variant_encoder.h"
 
 namespace starrocks::parquet {
 
@@ -55,6 +66,8 @@ class FileReaderTest : public testing::Test {
 public:
     void SetUp() override {
         _runtime_state = _pool.add(new RuntimeState(TQueryGlobals()));
+        _fragment_dict_state = std::make_unique<FragmentDictState>();
+        _runtime_state->set_fragment_dict_state(_fragment_dict_state.get());
         _rf_probe_collector = _pool.add(new RuntimeFilterProbeCollector());
     }
     void TearDown() override {}
@@ -318,6 +331,7 @@ protected:
 
     std::shared_ptr<RowDescriptor> _row_desc = nullptr;
     RuntimeState* _runtime_state = nullptr;
+    std::unique_ptr<FragmentDictState> _fragment_dict_state;
     ObjectPool _pool;
 
     const size_t _chunk_size = 4096;
@@ -359,7 +373,7 @@ StatusOr<RuntimeFilterProbeDescriptor*> FileReaderTest::gen_runtime_filter_desc(
     tRuntimeFilterDescription.__set_filter_id(1);
     tRuntimeFilterDescription.__set_has_remote_targets(false);
     tRuntimeFilterDescription.__set_build_plan_node_id(1);
-    tRuntimeFilterDescription.__set_build_join_mode(TRuntimeFilterBuildJoinMode::BORADCAST);
+    tRuntimeFilterDescription.__set_build_join_mode(TRuntimeFilterBuildJoinMode::BROADCAST);
     tRuntimeFilterDescription.__set_filter_type(TRuntimeFilterBuildType::TOPN_FILTER);
 
     TExpr col_ref = ExprsTestHelper::create_column_ref_t_expr<TYPE_INT>(slot_id, true);
@@ -383,7 +397,7 @@ DataCacheOptions FileReaderTest::_mock_datacache_options() {
                             .enable_datacache_async_populate_mode = true,
                             .enable_datacache_io_adaptor = true,
                             .modification_time = 100000,
-                            .datacache_evict_probability = 0,
+                            .datacache_evict_probability = 100,
                             .datacache_priority = 0,
                             .datacache_ttl_seconds = 0};
 }
@@ -974,9 +988,9 @@ void FileReaderTest::_create_int_conjunct_ctxs(TExprOpcode::type opcode, SlotId 
     std::vector<TExpr> t_conjuncts;
     ParquetUTBase::append_int_conjunct(opcode, slot_id, value, &t_conjuncts);
 
-    ASSERT_OK(Expr::create_expr_trees(&_pool, t_conjuncts, conjunct_ctxs, nullptr));
-    ASSERT_OK(Expr::prepare(*conjunct_ctxs, _runtime_state));
-    ASSERT_OK(Expr::open(*conjunct_ctxs, _runtime_state));
+    ASSERT_OK(ExprFactory::create_expr_trees(&_pool, t_conjuncts, conjunct_ctxs, nullptr));
+    ASSERT_OK(ExprExecutor::prepare(*conjunct_ctxs, _runtime_state));
+    ASSERT_OK(ExprExecutor::open(*conjunct_ctxs, _runtime_state));
 }
 
 void FileReaderTest::_create_string_conjunct_ctxs(TExprOpcode::type opcode, SlotId slot_id, const std::string& value,
@@ -997,9 +1011,9 @@ void FileReaderTest::_create_string_conjunct_ctxs(TExprOpcode::type opcode, Slot
     std::vector<TExpr> t_conjuncts;
     t_conjuncts.emplace_back(t_expr);
 
-    ASSERT_OK(Expr::create_expr_trees(&_pool, t_conjuncts, conjunct_ctxs, nullptr));
-    ASSERT_OK(Expr::prepare(*conjunct_ctxs, _runtime_state));
-    ASSERT_OK(Expr::open(*conjunct_ctxs, _runtime_state));
+    ASSERT_OK(ExprFactory::create_expr_trees(&_pool, t_conjuncts, conjunct_ctxs, nullptr));
+    ASSERT_OK(ExprExecutor::prepare(*conjunct_ctxs, _runtime_state));
+    ASSERT_OK(ExprExecutor::open(*conjunct_ctxs, _runtime_state));
 }
 
 void FileReaderTest::_create_struct_subfield_predicate_conjunct_ctxs(TExprOpcode::type opcode, SlotId slot_id,
@@ -1052,9 +1066,9 @@ void FileReaderTest::_create_struct_subfield_predicate_conjunct_ctxs(TExprOpcode
     std::vector<TExpr> t_conjuncts;
     t_conjuncts.emplace_back(t_expr);
 
-    ASSERT_OK(Expr::create_expr_trees(&_pool, t_conjuncts, conjunct_ctxs, nullptr));
-    ASSERT_OK(Expr::prepare(*conjunct_ctxs, _runtime_state));
-    ASSERT_OK(Expr::open(*conjunct_ctxs, _runtime_state));
+    ASSERT_OK(ExprFactory::create_expr_trees(&_pool, t_conjuncts, conjunct_ctxs, nullptr));
+    ASSERT_OK(ExprExecutor::prepare(*conjunct_ctxs, _runtime_state));
+    ASSERT_OK(ExprExecutor::open(*conjunct_ctxs, _runtime_state));
 }
 
 THdfsScanRange* FileReaderTest::_create_scan_range(const std::string& file_path, size_t scan_length) {
@@ -2827,7 +2841,7 @@ TEST_F(FileReaderTest, TestStructSubfieldZonemap) {
             {""},
     };
     TupleDescriptor* tuple_desc = Utils::create_tuple_descriptor(_runtime_state, &_pool, slot_descs);
-    // RETURN_IF_ERROR(Expr::clone_if_not_exists(state, &_pool, _min_max_conjunct_ctxs, &cloned_conjunct_ctxs));
+    // RETURN_IF_ERROR(ExprExecutor::clone_if_not_exists(state, &_pool, _min_max_conjunct_ctxs, &cloned_conjunct_ctxs));
     ParquetUTBase::setup_conjuncts_manager(ctx->conjunct_ctxs_by_slot[3], nullptr, tuple_desc, _runtime_state, ctx);
     for (const auto& [cid, col_children] : ctx->predicate_tree.root().col_children_map()) {
         for (const auto& child : col_children) {
@@ -2963,7 +2977,8 @@ TEST_F(FileReaderTest, bloom_filter_reader_test_hit) {
 
 TEST_F(FileReaderTest, read_parquet_bloom_filter_by_parquet_hadoop) {
     Utils::SlotDesc slot_descs[] = {{"c0", TYPE_VARCHAR_DESC}, {"c1", TYPE_INT_DESC}, {"c2", TYPE_DATETIME_DESC}, {""}};
-    const std::string bloom_filter_file = "./be/test/formats/parquet/test_data/data_20200601.parquet";
+    const std::string bloom_filter_file =
+            "./be/test/formats/parquet/test_data/bloom_filter_by_parquet_hadoop_1.parquet";
     auto file_reader = _create_file_reader(bloom_filter_file);
     auto ctx = _create_file_random_read_context(bloom_filter_file, slot_descs);
     Status status = file_reader->init(ctx);
@@ -3006,7 +3021,8 @@ TEST_F(FileReaderTest, read_parquet_bloom_filter_by_parquet_hadoop) {
 TEST_F(FileReaderTest, read_parquet_bloom_filter_by_parquet_hadoop2) {
     Utils::SlotDesc slot_descs[] = {
             {"c0", TYPE_VARCHAR_DESC}, {"myInteger", TYPE_INT_DESC}, {"c2", TYPE_DATETIME_DESC}, {""}};
-    const std::string bloom_filter_file = "./be/test/formats/parquet/test_data/data_20200601_120000.parquet";
+    const std::string bloom_filter_file =
+            "./be/test/formats/parquet/test_data/bloom_filter_by_parquet_hadoop_2.parquet";
 
     auto ctx = _create_scan_context(slot_descs, slot_descs, bloom_filter_file);
 
@@ -3088,7 +3104,8 @@ TEST_F(FileReaderTest, read_parquet_bloom_filter_by_parquet_hadoop2) {
 TEST_F(FileReaderTest, read_parquet_bloom_filter_by_parquet_hadoop3) {
     Utils::SlotDesc slot_descs[] = {
             {"c0", TYPE_VARCHAR_DESC}, {"myInteger", TYPE_INT_DESC}, {"c2", TYPE_DATETIME_DESC}, {""}};
-    const std::string bloom_filter_file = "./be/test/formats/parquet/test_data/data_20200601_120000.parquet";
+    const std::string bloom_filter_file =
+            "./be/test/formats/parquet/test_data/bloom_filter_by_parquet_hadoop_2.parquet";
 
     auto ctx = _create_scan_context(slot_descs, slot_descs, bloom_filter_file);
 
@@ -3235,9 +3252,9 @@ TEST_F(FileReaderTest, read_parquet_bloom_filter_by_parquet_hadoop4) {
     std::vector<TExpr> t_conjuncts;
     t_conjuncts.emplace_back(t_expr);
 
-    ASSERT_OK(Expr::create_expr_trees(&_pool, t_conjuncts, &expr_ctxs, nullptr));
-    ASSERT_OK(Expr::prepare(expr_ctxs, _runtime_state));
-    ASSERT_OK(Expr::open(expr_ctxs, _runtime_state));
+    ASSERT_OK(ExprFactory::create_expr_trees(&_pool, t_conjuncts, &expr_ctxs, nullptr));
+    ASSERT_OK(ExprExecutor::prepare(expr_ctxs, _runtime_state));
+    ASSERT_OK(ExprExecutor::open(expr_ctxs, _runtime_state));
 
     auto ctx = _create_scan_context(slot_descs, slot_descs, bloom_filter_file);
     ctx->conjunct_ctxs_by_slot.insert({3, expr_ctxs});
@@ -3343,26 +3360,21 @@ TEST_F(FileReaderTest, TestStructSubfieldNoDecodeNotOutput) {
 }
 
 TEST_F(FileReaderTest, TestReadFooterCache) {
-    auto block_cache = std::make_shared<BlockCache>();
-    CacheOptions options;
-    options.mem_space_size = 100 * 1024 * 1024;
-    options.max_concurrent_inserts = 100000;
-    options.engine = "starcache";
-    Status status = block_cache->init(options);
-    ASSERT_TRUE(status.ok());
-    auto cache = std::make_shared<StarCacheModule>(block_cache->starcache_instance());
+    MemCacheOptions options{.mem_space_size = 100 * MB};
+    auto local_cache = std::make_shared<LRUCacheEngine>();
+    ASSERT_OK(local_cache->init(options));
+    auto cache = std::make_shared<StoragePageCache>(local_cache.get());
 
     auto file = _create_file(_file1_path);
     auto file_reader = std::make_shared<FileReader>(config::vector_chunk_size, file.get(),
                                                     std::filesystem::file_size(_file1_path), _mock_datacache_options());
     file_reader->_cache = cache.get();
 
-    // first init, populcate footer cache
+    // first init, populate footer cache
     auto* ctx = _create_file1_base_context();
     ctx->stats->footer_cache_read_count = 0;
     ctx->stats->footer_cache_write_count = 0;
-    status = file_reader->init(ctx);
-    ASSERT_TRUE(status.ok());
+    ASSERT_OK(file_reader->init(ctx));
     ASSERT_EQ(ctx->stats->footer_cache_read_count, 0);
     ASSERT_EQ(ctx->stats->footer_cache_write_count, 1);
 
@@ -4322,6 +4334,193 @@ TEST_F(FileReaderTest, test_data_page_v2) {
         }
     }
     EXPECT_EQ(4, total_row_nums);
+}
+
+TEST_F(FileReaderTest, test_read_variant) {
+    const std::string variant_file_path = "./be/test/exec/test_data/parquet_data/variant.parquet";
+    auto file_reader = _create_file_reader(variant_file_path);
+
+    // --------------init context---------------
+    TypeDescriptor variant_type = TypeDescriptor::from_logical_type(LogicalType::TYPE_VARIANT);
+    Utils::SlotDesc slot_descs[] = {
+            {"name", TYPE_VARCHAR_DESC}, {"col_variant", variant_type}, {"json_col", TYPE_VARCHAR_DESC}, {""}};
+    auto ctx = _create_scan_context(slot_descs, variant_file_path);
+    // --------------finish init context---------------
+
+    Status status = file_reader->init(ctx);
+    ASSERT_TRUE(status.ok()) << "Failed to initialize file reader: " << status.message();
+
+    EXPECT_EQ(file_reader->row_group_size(), 1);
+    std::vector<io::SharedBufferedInputStream::IORange> ranges;
+    int64_t end_offset = 0;
+    file_reader->_row_group_readers[0]->collect_io_ranges(&ranges, &end_offset);
+
+    // Should have 4 IO ranges: name, col_variant.metadata, col_variant.value, json_col
+    EXPECT_EQ(ranges.size(), 4);
+
+    auto chunk = std::make_shared<Chunk>();
+    chunk->append_column(ColumnHelper::create_column(TYPE_VARCHAR_DESC, true), chunk->num_columns());
+    chunk->append_column(ColumnHelper::create_column(variant_type, true), chunk->num_columns());
+    chunk->append_column(ColumnHelper::create_column(TYPE_VARCHAR_DESC, true), chunk->num_columns());
+
+    status = file_reader->get_next(&chunk);
+    ASSERT_TRUE(status.ok()) << "Failed to read variant data: " << status.message();
+
+    chunk->check_or_die();
+
+    std::vector<std::string> expected_rows = {
+            R"(['object_primitive', {"boolean_false_field":false,"boolean_true_field":true,"double_field":1.23456789,"int_field":1,"null_field":null,"string_field":"Apache Parquet","timestamp_field":"2025-04-16T12:34:56.78"}, '{"boolean_false_field":false,"boolean_true_field":true,"double_field":1.23456789,"int_field":1,"null_field":null,"string_field":"Apache Parquet","timestamp_field":"2025-04-16T12:34:56.78"}'])",
+            R"(['primitive_string', "This string is longer than 64 bytes and therefore does not fit in a short_string and it also includes several non ascii characters such as 🐢, 💖, ♥️, 🎣 and 🤦!!", '"This string is longer than 64 bytes and therefore does not fit in a short_string and it also includes several non ascii characters such as 🐢, 💖, ♥️, 🎣 and 🤦!!"'])",
+            R"(['object_nested', {"id":1,"observation":{"location":"In the Volcano","time":"12:34:56","value":{"humidity":456,"temperature":123}},"species":{"name":"lava monster","population":6789}}, '{"id":1,"observation":{"location":"In the Volcano","time":"12:34:56","value":{"humidity":456,"temperature":123}},"species":{"name":"lava monster","population":6789}}'])",
+            R"(['array_nested', [{"id":1,"thing":{"names":["Contrarian","Spider"]}},null,{"id":2,"names":["Apple","Ray",null],"type":"if"}], '[{"id":1,"thing":{"names":["Contrarian","Spider"]}},null,{"id":2,"names":["Apple","Ray",null],"type":"if"}]'])",
+            R"==(['short_string', "Less than 64 bytes (❤️ with utf8)", '"Less than 64 bytes (❤️ with utf8)"'])==",
+            R"(['primitive_decimal16', 12345678912345678.9, '12345678912345678.9'])",
+            R"(['primitive_timestampntz', "2025-04-16 12:34:56.780000", '"2025-04-16 12:34:56.78"'])",
+            R"(['primitive_timestamp', "2025-04-16 04:34:56.78+00:00", '"2025-04-16 12:34:56.78+08:00"'])",
+            R"(['array_primitive', [2,1,5,9], '[2,1,5,9]'])",
+            R"(['primitive_binary', "AxM33q2+78r+", '"AxM33q2+78r+"'])",
+            R"(['primitive_decimal8', 12345678.9, '12345678.9'])",
+            R"(['primitive_double', 1234567890.1234, '1.2345678901234E9'])",
+            R"(['primitive_int64', 1234567890123456789, '1234567890123456789'])",
+            R"(['primitive_boolean_true', true, 'true'])",
+            R"(['primitive_decimal4', 12.34, '12.34'])",
+            R"(['primitive_boolean_false', false, 'false'])",
+            R"(['primitive_date', "2025-04-16", '"2025-04-16"'])",
+            R"(['primitive_int32', 123456, '123456'])",
+            R"(['primitive_float', 1.23456794e+09, '1.23456794E9'])",
+            R"(['primitive_int16', 1234, '1234'])",
+            R"(['primitive_int8', 42, '42'])",
+            R"(['object_empty', {}, '{}'])",
+            R"(['array_empty', [], '[]'])",
+            R"(['primitive_null', NULL, NULL])"};
+
+    for (size_t i = 0; i < chunk->num_rows(); ++i) {
+        ASSERT_EQ(chunk->debug_row(i), expected_rows[i]) << "Row " << i << " does not match";
+    }
+
+    ColumnPtr variant_column = chunk->get_column_by_index(1);
+    ASSERT_TRUE(variant_column->is_variant()) << "Column should be variant type";
+
+    size_t total_rows = chunk->num_rows();
+    while (true) {
+        chunk->reset();
+        status = file_reader->get_next(&chunk);
+        if (status.is_end_of_file()) {
+            break;
+        }
+        ASSERT_TRUE(status.ok()) << "Error reading subsequent chunks: " << status.message();
+        total_rows += chunk->num_rows();
+    }
+
+    ASSERT_EQ(total_rows, 24) << "Should have read all 24 rows from the variant parquet file";
+}
+
+TEST_F(FileReaderTest, test_read_variant_shredding_age) {
+    const std::string shred_file_path = "./be/test/formats/parquet/test_data/variant_shredding.parquet";
+    auto file_reader = _create_file_reader(shred_file_path);
+
+    // Read only data.typed_value.age.typed_value (INT32) from a shredded variant.
+    TypeDescriptor age_struct = TypeDescriptor::create_struct_type({"typed_value"}, {TYPE_INT_DESC});
+    TypeDescriptor typed_value_struct = TypeDescriptor::create_struct_type({"age"}, {age_struct});
+    TypeDescriptor data_struct = TypeDescriptor::create_struct_type({"typed_value"}, {typed_value_struct});
+
+    Utils::SlotDesc slot_descs[] = {{"data", data_struct}, {""}};
+    auto ctx = _create_scan_context(slot_descs, shred_file_path);
+
+    Status status = file_reader->init(ctx);
+    ASSERT_TRUE(status.ok()) << "Failed to initialize file reader: " << status.message();
+    ASSERT_EQ(file_reader->row_group_size(), 1);
+
+    std::vector<io::SharedBufferedInputStream::IORange> ranges;
+    int64_t end_offset = 0;
+    file_reader->_row_group_readers[0]->collect_io_ranges(&ranges, &end_offset);
+    // Only the "data.typed_value.age.typed_value" leaf column should be read.
+    EXPECT_EQ(ranges.size(), 1);
+
+    auto chunk = std::make_shared<Chunk>();
+    chunk->append_column(ColumnHelper::create_column(data_struct, true), chunk->num_columns());
+
+    status = file_reader->get_next(&chunk);
+    ASSERT_TRUE(status.ok()) << "Failed to read shredded variant data: " << status.message();
+    ASSERT_EQ(chunk->num_rows(), 5);
+    const Column* data_col = ColumnHelper::get_data_column(chunk->get_column_by_index(0));
+    const auto* data_struct_col = down_cast<const StructColumn*>(data_col);
+    const Column* typed_value_col =
+            ColumnHelper::get_data_column(data_struct_col->field_column_raw_ptr("typed_value").value());
+    const auto* typed_value_struct_col = down_cast<const StructColumn*>(typed_value_col);
+    const Column* age_col = ColumnHelper::get_data_column(typed_value_struct_col->field_column_raw_ptr("age").value());
+    const auto* age_struct_col = down_cast<const StructColumn*>(age_col);
+    const Column* age_typed_col =
+            ColumnHelper::get_data_column(age_struct_col->field_column_raw_ptr("typed_value").value());
+
+    const auto* age_values = down_cast<const FixedLengthColumn<int32_t>*>(age_typed_col);
+    ASSERT_EQ(age_values->size(), chunk->num_rows());
+    for (size_t i = 0; i < age_values->size(); ++i) {
+        EXPECT_EQ(20 + static_cast<int32_t>(i), age_values->get_data()[i]);
+    }
+}
+
+TEST_F(FileReaderTest, test_read_variant_shredding_profile_rank_partial) {
+    const std::string shred_file_path = "./be/test/formats/parquet/test_data/variant_shredding.parquet";
+    auto file_reader = _create_file_reader(shred_file_path);
+
+    // Read only data.typed_value.profile.typed_value.rank.typed_value (INT32).
+    TypeDescriptor rank_struct = TypeDescriptor::create_struct_type({"typed_value"}, {TYPE_INT_DESC});
+    TypeDescriptor profile_typed_struct = TypeDescriptor::create_struct_type({"rank"}, {rank_struct});
+    TypeDescriptor profile_struct = TypeDescriptor::create_struct_type({"typed_value"}, {profile_typed_struct});
+    TypeDescriptor typed_value_struct = TypeDescriptor::create_struct_type({"profile"}, {profile_struct});
+    TypeDescriptor data_struct = TypeDescriptor::create_struct_type({"typed_value"}, {typed_value_struct});
+
+    Utils::SlotDesc slot_descs[] = {{"data", data_struct}, {""}};
+    auto ctx = _create_scan_context(slot_descs, shred_file_path);
+
+    Status status = file_reader->init(ctx);
+    ASSERT_TRUE(status.ok()) << "Failed to initialize file reader: " << status.message();
+    ASSERT_EQ(file_reader->row_group_size(), 1);
+
+    std::vector<io::SharedBufferedInputStream::IORange> ranges;
+    int64_t end_offset = 0;
+    file_reader->_row_group_readers[0]->collect_io_ranges(&ranges, &end_offset);
+    // Only rank.typed_value should be read.
+    EXPECT_EQ(ranges.size(), 1);
+
+    auto chunk = std::make_shared<Chunk>();
+    chunk->append_column(ColumnHelper::create_column(data_struct, true), chunk->num_columns());
+
+    status = file_reader->get_next(&chunk);
+    ASSERT_TRUE(status.ok()) << "Failed to read shredded variant data: " << status.message();
+    ASSERT_EQ(chunk->num_rows(), 5);
+
+    const Column* data_col = ColumnHelper::get_data_column(chunk->get_column_by_index(0).get());
+    const auto* data_struct_col = down_cast<const StructColumn*>(data_col);
+    const Column* typed_value_col =
+            ColumnHelper::get_data_column(data_struct_col->field_column_raw_ptr("typed_value").value());
+    const auto* typed_value_struct_col = down_cast<const StructColumn*>(typed_value_col);
+    const Column* profile_col =
+            ColumnHelper::get_data_column(typed_value_struct_col->field_column_raw_ptr("profile").value());
+    const auto* profile_struct_col = down_cast<const StructColumn*>(profile_col);
+    const Column* profile_typed_col =
+            ColumnHelper::get_data_column(profile_struct_col->field_column_raw_ptr("typed_value").value());
+    const auto* profile_typed_struct_col = down_cast<const StructColumn*>(profile_typed_col);
+    const Column* rank_col = profile_typed_struct_col->field_column_raw_ptr("rank").value();
+    const auto* rank_struct_col = down_cast<const StructColumn*>(ColumnHelper::get_data_column(rank_col));
+
+    const Column* rank_typed_col = rank_struct_col->field_column_raw_ptr("typed_value").value();
+    ASSERT_TRUE(rank_typed_col->is_nullable());
+
+    const auto* rank_typed_nullable = down_cast<const NullableColumn*>(rank_typed_col);
+    const auto* rank_typed_data =
+            down_cast<const FixedLengthColumn<int32_t>*>(rank_typed_nullable->data_column().get());
+
+    for (size_t i = 0; i < chunk->num_rows(); ++i) {
+        int32_t expected = static_cast<int32_t>(i + 1);
+        if (i % 2 == 0) {
+            EXPECT_FALSE(rank_typed_nullable->is_null(i));
+            EXPECT_EQ(rank_typed_data->get_data()[i], expected);
+        } else {
+            EXPECT_TRUE(rank_typed_nullable->is_null(i));
+        }
+    }
 }
 
 } // namespace starrocks::parquet

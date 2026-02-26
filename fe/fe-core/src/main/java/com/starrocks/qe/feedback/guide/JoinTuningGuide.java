@@ -14,8 +14,8 @@
 
 package com.starrocks.qe.feedback.guide;
 
-import com.starrocks.analysis.JoinOperator;
 import com.starrocks.qe.feedback.skeleton.JoinNode;
+import com.starrocks.sql.ast.JoinOperator;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.base.DistributionProperty;
 import com.starrocks.sql.optimizer.base.DistributionSpec;
@@ -24,6 +24,8 @@ import com.starrocks.sql.optimizer.base.HashDistributionSpec;
 import com.starrocks.sql.optimizer.base.PhysicalPropertySet;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalDistributionOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalHashJoinOperator;
+
+import java.util.Objects;
 
 import static com.starrocks.sql.optimizer.rule.transformation.JoinCommutativityRule.JOIN_COMMUTATIVITY_MAP;
 
@@ -97,5 +99,19 @@ public abstract class JoinTuningGuide implements TuningGuide {
         LEFT_INPUT_OVERESTIMATED,
         RIGHT_INPUT_UNDERESTIMATED,
         RIGHT_INPUT_OVERESTIMATED
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        JoinTuningGuide that = (JoinTuningGuide) o;
+        return type == that.type;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(type);
     }
 }

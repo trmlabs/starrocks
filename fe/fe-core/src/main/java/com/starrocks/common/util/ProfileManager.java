@@ -39,8 +39,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.starrocks.common.Config;
-import com.starrocks.common.Pair;
 import com.starrocks.memory.MemoryTrackable;
+import com.starrocks.memory.estimate.Estimator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,7 +53,6 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
-import java.util.stream.Collectors;
 
 /*
  * if you want to visit the atrribute(such as queryID,defaultDb)
@@ -75,20 +74,20 @@ public class ProfileManager implements MemoryTrackable {
     public static final String QUERY_TYPE = "Query Type";
     public static final String QUERY_STATE = "Query State";
     public static final String SQL_STATEMENT = "Sql Statement";
+    public static final String SQL_DIALECT = "Sql Dialect";
     public static final String USER = "User";
     public static final String DEFAULT_DB = "Default Db";
     public static final String VARIABLES = "Variables";
     public static final String PROFILE_COLLECT_TIME = "Collect Profile Time";
     public static final String LOAD_TYPE = "Load Type";
+    public static final String WAREHOUSE_CNGROUP = "Warehouse";
 
     public static final String LOAD_TYPE_STREAM_LOAD = "STREAM_LOAD";
     public static final String LOAD_TYPE_ROUTINE_LOAD = "ROUTINE_LOAD";
 
-    private static final int MEMORY_PROFILE_SAMPLES = 10;
-
     public static final ArrayList<String> PROFILE_HEADERS = new ArrayList<>(
             Arrays.asList(QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
-                    START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE));
+                    START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, WAREHOUSE_CNGROUP, SQL_DIALECT));
 
     public static class ProfileElement {
         public Map<String, String> infoStrings = Maps.newHashMap();
@@ -177,15 +176,19 @@ public class ProfileManager implements MemoryTrackable {
                     + "may be forget to insert 'QUERY_ID' column into infoStrings");
         }
 
+        String removedQueryId = null;
         writeLock.lock();
         try {
             profileMap.put(queryId, element);
             if (profileMap.size() > Config.profile_info_reserved_num) {
-                profileMap.remove(profileMap.keySet().iterator().next());
+                removedQueryId = profileMap.keySet().iterator().next();
+                profileMap.remove(removedQueryId);
             }
         } finally {
             writeLock.unlock();
         }
+
+        LOG.debug("push profile for query: {}, remove profile for query: {}", queryId, removedQueryId);
 
         return profileString;
     }
@@ -276,19 +279,19 @@ public class ProfileManager implements MemoryTrackable {
 
     @Override
     public Map<String, Long> estimateCount() {
-        return ImmutableMap.of("QueryProfile", (long) profileMap.size());
+        readLock.lock();
+        try {
+            return ImmutableMap.of("QueryProfile", (long) profileMap.size());
+        } finally {
+            readLock.unlock();
+        }
     }
 
     @Override
-    public List<Pair<List<Object>, Long>> getSamples() {
+    public long estimateSize() {
         readLock.lock();
         try {
-            List<Object> profileSamples = profileMap.values()
-                    .stream()
-                    .limit(MEMORY_PROFILE_SAMPLES)
-                    .collect(Collectors.toList());
-
-            return Lists.newArrayList(Pair.create(profileSamples, (long) profileMap.size()));
+            return Estimator.estimate(profileMap, 10);
         } finally {
             readLock.unlock();
         }

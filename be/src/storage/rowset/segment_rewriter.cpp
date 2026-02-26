@@ -2,6 +2,10 @@
 
 #include "segment_rewriter.h"
 
+#include "base/container/raw_container.h"
+#include "base/path/filesystem_util.h"
+#include "base/string/slice.h"
+#include "base/testutil/sync_point.h"
 #include "column/chunk.h"
 #include "column/column.h"
 #include "column/schema.h"
@@ -13,10 +17,6 @@
 #include "storage/rowset/segment.h"
 #include "storage/rowset/segment_options.h"
 #include "storage/rowset/segment_writer.h"
-#include "testutil/sync_point.h"
-#include "util/filesystem_util.h"
-#include "util/raw_container.h"
-#include "util/slice.h"
 
 namespace starrocks {
 
@@ -30,7 +30,7 @@ Status SegmentRewriter::rewrite_partial_update(const FileInfo& src, FileInfo* de
     if (UNLIKELY(column_ids.empty())) {
         // In shared-nothing mode, this size can be null, and we don't need it so it's ok to return zero;
         dest->size = src.size.value_or(0);
-        return fs::copy_file(src.path, dest->path, kBufferSize);
+        return fs::copy_file(src.path, dest->path, kBufferSize).status();
     }
     ASSIGN_OR_RETURN(auto fs, FileSystem::CreateSharedFromString(dest->path));
     RandomAccessFileOptions ropts;
@@ -40,7 +40,7 @@ Status SegmentRewriter::rewrite_partial_update(const FileInfo& src, FileInfo* de
         wopts.encryption_info = ropts.encryption_info;
         dest->encryption_meta = src.encryption_meta;
     }
-    ASSIGN_OR_RETURN(auto rfile, fs->new_random_access_file(ropts, src));
+    ASSIGN_OR_RETURN(auto rfile, fs->new_random_access_file_with_bundling(ropts, src));
     ASSIGN_OR_RETURN(auto wfile, fs->new_writable_file(wopts, dest->path));
 
     SegmentFooterPB footer;

@@ -38,6 +38,7 @@ keywords: ['fuzai', 'ziyuan', 'ziyuanzu']
 | cpu_weight                 | 该资源组在一个 BE 节点上调度 CPU 的权重。                           | (0, `avg_be_cpu_cores`] (大于 0 时生效)       | 0      |
 | exclusive_cpu_cores        | 该资源组的 CPU 硬隔离参数。                                  | (0, `min_be_cpu_cores - 1`] (大于 0 时生效)   | 0      |
 | mem_limit                  | 该资源组在当前 BE 节点可使用于查询的内存的比例。                 | (0, 1] (必填项)                              | -      |
+| mem_pool                   | 将资源组进行分组以共享内存限制。                 | 字符串                                     | default_mem_pool |
 | spill_mem_limit_threshold  | 该资源组触发落盘的内存占用阈值。                               | (0, 1]                                      | 1.0    |
 | concurrency_limit          | 该资源组中并发查询数的上限。                                  | 整数 (大于 0 才生效)                           | 0      |
 | big_query_cpu_second_limit | 该资源组的大查询任务在每个 BE 上可以使用 CPU 的时间上限。         | 整数 (大于 0 才生效)                          | 0      |
@@ -89,6 +90,30 @@ UPDATE information_schema.be_configs SET VALUE = "false" WHERE NAME = "enable_re
 
 该资源组在当前 BE 节点可使用于查询的内存（query_pool）占总内存的百分比（%）。取值范围为 (0,1]。 有关 `query_pool` 的查看方式，参见 [内存管理](Memory_management.md)。
 
+##### `mem_pool`
+
+自 v4.0 起，该参数用于指定一个共享内存池标识符。具有相同 `mem_pool` 标识符的资源组会从同一个共享内存池中获取内存，并共同受到 `mem_limit` 的限制。如果未指定，资源组将被分配给 `default_mem_pool`，其内存使用仅受其自身的 `mem_limit` 限制。
+
+所有共享同一个 `mem_pool` 的资源组必须配置相同的 `mem_limit`。
+
+如需限制两个资源组共同使用 50% 的内存，可以如下定义：
+
+```SQL
+CREATE RESOURCE GROUP rg1
+TO (db='db1')
+WITH (
+    'mem_limit' = '50%',
+    'mem_pool' = 'shared_pool'
+);
+
+CREATE RESOURCE GROUP rg2
+TO (db='db1')
+WITH (
+    'mem_limit' = '50%',
+    'mem_pool' = 'shared_pool'
+);
+```
+
 ##### `spill_mem_limit_threshold`
 
 该资源组触发落盘的内存占用阈值（百分比）。取值范围：(0,1)，默认值为 1，即不生效。该参数自 v3.1.7 版本引入。
@@ -136,7 +161,7 @@ UPDATE information_schema.be_configs SET VALUE = "false" WHERE NAME = "enable_re
 
 如果普通查询受资源组管理，但是没有匹配到分类器，系统将默认为其分配 `default_wg`。该资源组的默认资源配置如下：
 
-- `cpu_core_limit`：1 (&le;2.3.7 版本) 或 BE 的 CPU 核数（&gt;2.3.7版本）。
+- `cpu_weight`：BE 的 CPU 核数。
 - `mem_limit`：100%。
 - `concurrency_limit`：0。
 - `big_query_cpu_second_limit`：0。
@@ -148,7 +173,7 @@ UPDATE information_schema.be_configs SET VALUE = "false" WHERE NAME = "enable_re
 
 如果创建异步物化视图时没有通过 `resource_group` 属性指定资源组，该物化视图刷新时，系统将默认为其分配 `default_mv_wg`。该资源组的默认资源配置如下：
 
-- `cpu_core_limit`：1。
+- `cpu_weight`：1。
 - `mem_limit`：80%。
 - `concurrency_limit`: 0。
 - `spill_mem_limit_threshold`: 80%。
@@ -224,12 +249,6 @@ classifier F (db='db2')
 SET enable_pipeline_engine = true;
 -- 全局启用 Pipeline 引擎。
 SET GLOBAL enable_pipeline_engine = true;
-```
-
-对于导入任务，还需要开启 FE 配置项 `enable_pipeline_load` 来为导入任务启用 Pipeline 引擎。该参数自 v2.5.0 起支持。
-
-```sql
-ADMIN SET FRONTEND CONFIG ("enable_pipeline_load" = "true");
 ```
 
 > **说明**

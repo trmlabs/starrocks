@@ -38,10 +38,10 @@
 #include <utility>
 #include <vector>
 
+#include "base/uid_util.h"
 #include "fs/fs.h"
 #include "storage/lake/location_provider.h"
 #include "storage/olap_define.h"
-#include "util/uid_util.h"
 
 namespace starrocks {
 
@@ -57,7 +57,8 @@ struct StorePath {
 // parse a single root path of storage_root_path
 Status parse_root_path(const std::string& root_path, StorePath* path);
 
-Status parse_conf_store_paths(const std::string& config_path, std::vector<StorePath>* path);
+Status parse_conf_store_paths(const std::string& config_path, std::vector<StorePath>* path,
+                              std::string_view configvar_name = "config::storage_root_path");
 
 Status parse_conf_datacache_paths(const std::string& config_path, std::vector<std::string>* paths);
 

@@ -17,7 +17,7 @@ Currently, StarRocks supports scalar UDFs, user-defined aggregate functions (UDA
 
 - You have installed [Apache Maven](https://maven.apache.org/download.cgi), so you can create and compile Java projects.
 
-- You have installed JDK 1.8 on your servers.
+- You have installed JDK 17 on your servers.
 
 - The Java UDF feature is enabled. You can set the FE configuration item `enable_udf` to `true` in the FE configuration file **fe/conf/fe.conf** to enable this feature, and then restart the FE nodes to make the settings take effect. For more information, see [Parameter configuration](../../administration/management/FE_configuration.md).
 
@@ -56,8 +56,8 @@ Add the following dependencies to the **pom.xml** file:
     <version>1.0-SNAPSHOT</version>
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
     </properties>
 
     <dependencies>
@@ -536,7 +536,9 @@ For more information, see [DROP FUNCTION](../sql-statements/Function/DROP_FUNCTI
 
 ## Mapping between SQL data types and Java data types
 
-Only non-nested Arrays/Maps are now supported.
+> **NOTE**
+>
+> Currently, only non-nested ARRAY and MAP parameter/return types are supported for Scalar UDFs.
 
 | SQL TYPE       | Java TYPE         |
 | -------------- | ----------------- |
@@ -553,12 +555,10 @@ Only non-nested Arrays/Maps are now supported.
 
 ## Parameter settings
 
-Configure the following environment variable in the **be/conf/be.conf** file of each Java virtual machine (JVM) in your StarRocks cluster to control memory usage. If you use JDK 8, configure `JAVA_OPTS`. If you use JDK 9 or later, configure `JAVA_OPTS_FOR_JDK_9_AND_LATER`.
+Configure the following environment variable in the **be/conf/be.conf** file of each Java virtual machine (JVM) in your StarRocks cluster to control memory usage.
 
 ```Bash
 JAVA_OPTS="-Xmx12G"
-
-JAVA_OPTS_FOR_JDK_9_AND_LATER="-Xmx12G"
 ```
 
 ## FAQ

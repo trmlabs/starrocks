@@ -18,6 +18,7 @@
 #include <condition_variable>
 #include <mutex>
 
+#include "base/phmap/phmap_fwd_decl.h"
 #include "column/column_access_path.h"
 #include "exec/olap_scan_prepare.h"
 #include "exec/pipeline/context_with_dependency.h"
@@ -26,7 +27,6 @@
 #include "exec/pipeline/schedule/observer.h"
 #include "runtime/global_dict/parser.h"
 #include "storage/rowset/rowset.h"
-#include "util/phmap/phmap_fwd_decl.h"
 
 namespace starrocks {
 
@@ -47,7 +47,7 @@ using OlapScanContextFactoryPtr = std::shared_ptr<OlapScanContextFactory>;
 
 class ConcurrentJitRewriter {
 public:
-    ConcurrentJitRewriter(int32_t dop) : _dop(dop), _barrier(), _errors(0), _id(0) {}
+    ConcurrentJitRewriter() : _barrier(), _errors(0), _id(0) {}
     Status rewrite(std::vector<ExprContext*>& expr_ctxs, ObjectPool* pool, bool enable_jit);
 
 private:
@@ -76,7 +76,6 @@ private:
         std::mutex _mutex;
         std::condition_variable _cv;
     };
-    const int32_t _dop;
     Barrier _barrier;
     std::atomic_int _errors;
     std::atomic_int _id = 0;
@@ -103,6 +102,9 @@ public:
                            RuntimeFilterProbeCollector* runtime_bloom_filters, int32_t driver_sequence);
 
     OlapScanNode* scan_node() const { return _scan_node; }
+    // Returns the next unique ID. only used in flat json column access path.
+    size_t next_unique_id() const;
+
     ScanConjunctsManager& conjuncts_manager() { return *_conjuncts_manager; }
     const std::vector<ExprContext*>& not_push_down_conjuncts() const { return _not_push_down_conjuncts; }
     const std::vector<std::unique_ptr<OlapScanRange>>& key_ranges() const { return _key_ranges; }
@@ -186,7 +188,7 @@ public:
               _chunk_buffer(shared_scan ? BalanceStrategy::kRoundRobin : BalanceStrategy::kDirect, dop,
                             std::move(chunk_buffer_limiter)),
               _contexts(shared_morsel_queue ? 1 : dop),
-              _jit_rewriter(dop) {}
+              _jit_rewriter() {}
 
     OlapScanContextPtr get_or_create(int32_t driver_sequence);
 

@@ -23,6 +23,9 @@
 #include <unordered_map>
 #include <utility>
 
+#include "base/container/raw_container.h"
+#include "base/uid_util.h"
+#include "base/utility/defer_op.h"
 #include "block_manager.h"
 #include "common/config.h"
 #include "common/status.h"
@@ -31,14 +34,11 @@
 #include "fmt/format.h"
 #include "fs/fs.h"
 #include "gutil/casts.h"
-#include "io/input_stream.h"
+#include "io/core/input_stream.h"
 #include "io/io_profiler.h"
 #include "runtime/exec_env.h"
 #include "storage/options.h"
-#include "util/defer_op.h"
-#include "util/raw_container.h"
 #include "util/stack_util.h"
-#include "util/uid_util.h"
 
 namespace starrocks::spill {
 class LogBlockContainer {
@@ -275,7 +275,7 @@ StatusOr<BlockPtr> LogBlockManager::acquire_block(const AcquireBlockOptions& opt
 
     ASSIGN_OR_RETURN(auto block_container,
                      get_or_create_container(dir, opts.fragment_instance_id, opts.plan_node_id, opts.name,
-                                             opts.direct_io, opts.affinity_group, opts.block_size));
+                                             opts.direct_io, opts.block_size, opts.affinity_group));
     auto res = std::make_shared<LogBlock>(block_container, block_container->size());
     res->set_is_remote(dir->is_remote());
     res->set_affinity_group(opts.affinity_group);
@@ -316,7 +316,7 @@ Status LogBlockManager::release_affinity_group(const BlockAffinityGroup affinity
 
 StatusOr<LogBlockContainerPtr> LogBlockManager::get_or_create_container(
         const DirPtr& dir, const TUniqueId& fragment_instance_id, int32_t plan_node_id,
-        const std::string& plan_node_name, bool direct_io, BlockAffinityGroup affinity_group, size_t block_size) {
+        const std::string& plan_node_name, bool direct_io, size_t block_size, BlockAffinityGroup affinity_group) {
     TRACE_SPILL_LOG << "get_or_create_container at dir: " << dir->dir()
                     << ". fragment instance: " << print_id(fragment_instance_id) << ", plan node:" << plan_node_id
                     << ", " << plan_node_name;

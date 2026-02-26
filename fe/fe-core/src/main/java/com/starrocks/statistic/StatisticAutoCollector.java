@@ -16,6 +16,7 @@ package com.starrocks.statistic;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
+import com.starrocks.common.AlreadyExistsException;
 import com.starrocks.common.Config;
 import com.starrocks.common.FeConstants;
 import com.starrocks.common.util.DateUtils;
@@ -45,7 +46,7 @@ public class StatisticAutoCollector extends FrontendDaemon {
     public static final String DEFAULT_JOB_FLAG = "default_job_flag";
 
     public StatisticAutoCollector() {
-        super("AutoStatistic", Config.statistic_collect_interval_sec * 1000);
+        super("auto-statistic", Config.statistic_collect_interval_sec * 1000);
     }
 
     @Override
@@ -65,6 +66,7 @@ public class StatisticAutoCollector extends FrontendDaemon {
 
         // check statistic table state
         if (!StatisticUtils.checkStatisticTableStateNormal()) {
+            LOG.warn("Statistic table state check failed, skip auto collection");
             return;
         }
 
@@ -92,8 +94,9 @@ public class StatisticAutoCollector extends FrontendDaemon {
             List<StatisticsCollectJob> jobs = nativeAnalyzeJob.instantiateJobs();
             result.addAll(jobs);
             ConnectContext statsConnectCtx = StatisticUtils.buildConnectContext();
-            statsConnectCtx.setThreadLocalInfo();
-            nativeAnalyzeJob.run(statsConnectCtx, STATISTIC_EXECUTOR, jobs);
+            try (var scope = statsConnectCtx.bindScope()) {
+                nativeAnalyzeJob.run(statsConnectCtx, STATISTIC_EXECUTOR, jobs);
+            }
         }
         LOG.info("auto collect statistic on analyze job[{}] end", analyzeJobIds);
 
@@ -107,10 +110,11 @@ public class StatisticAutoCollector extends FrontendDaemon {
             LOG.info("auto collect external statistic on analyze job[{}] start", jobIds);
             for (ExternalAnalyzeJob externalAnalyzeJob : allExternalAnalyzeJobs) {
                 ConnectContext statsConnectCtx = StatisticUtils.buildConnectContext();
-                statsConnectCtx.setThreadLocalInfo();
-                List<StatisticsCollectJob> jobs = externalAnalyzeJob.instantiateJobs();
-                result.addAll(jobs);
-                externalAnalyzeJob.run(statsConnectCtx, STATISTIC_EXECUTOR, jobs);
+                try (var scope = statsConnectCtx.bindScope()) {
+                    List<StatisticsCollectJob> jobs = externalAnalyzeJob.instantiateJobs();
+                    result.addAll(jobs);
+                    externalAnalyzeJob.run(statsConnectCtx, STATISTIC_EXECUTOR, jobs);
+                }
             }
             LOG.info("auto collect external statistic on analyze job[{}] end", jobIds);
         }
@@ -134,7 +138,11 @@ public class StatisticAutoCollector extends FrontendDaemon {
         }
 
         NativeAnalyzeJob job = createDefaultJobAnalyzeAll();
-        GlobalStateMgr.getCurrentState().getAnalyzeMgr().addAnalyzeJob(job);
+        try {
+            GlobalStateMgr.getCurrentState().getAnalyzeMgr().addAnalyzeJob(job);
+        } catch (AlreadyExistsException e) {
+            LOG.info("analyze job already exists");
+        }
     }
 
     /**

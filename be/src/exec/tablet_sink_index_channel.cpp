@@ -16,26 +16,29 @@
 
 #include <utility>
 
+#include "base/failpoint/fail_point.h"
+#include "base/testutil/sync_point.h"
 #include "column/chunk.h"
 #include "column/column_viewer.h"
 #include "column/nullable_column.h"
+#include "common/brpc_helper.h"
+#include "common/config.h"
 #include "common/statusor.h"
 #include "common/tracer.h"
+#include "common/util/thrift_util.h"
 #include "common/utils.h"
-#include "config.h"
 #include "exec/tablet_sink.h"
 #include "exprs/expr_context.h"
 #include "gutil/strings/fastmem.h"
 #include "gutil/strings/join.h"
 #include "runtime/current_thread.h"
+#include "runtime/global_dict/fragment_dict_state.h"
+#include "runtime/load_fail_point.h"
 #include "runtime/runtime_state.h"
 #include "serde/protobuf_serde.h"
-#include "testutil/sync_point.h"
 #include "util/brpc_stub_cache.h"
 #include "util/compression/compression_utils.h"
-#include "util/failpoint/fail_point.h"
 #include "util/thrift_rpc_helper.h"
-#include "util/thrift_util.h"
 
 namespace starrocks {
 
@@ -72,12 +75,7 @@ NodeChannel::~NodeChannel() noexcept {
         _rpc_request.mutable_requests(i)->release_id();
     }
     _rpc_request.release_id();
-    if (_diagnose_closure) {
-        if (_diagnose_closure->unref()) {
-            delete _diagnose_closure;
-        }
-        _diagnose_closure = nullptr;
-    }
+    _release_diagnose_closure();
 }
 
 Status NodeChannel::init(RuntimeState* state) {
@@ -193,6 +191,8 @@ void NodeChannel::_open(int64_t index_id, RefCountClosure<PTabletWriterOpenResul
         // If the OlapTableSink node is responsible for writing the txn log, then the tablet writer
         // does not need to write the txn log again.
         request.mutable_lake_tablet_params()->set_write_txn_log(!_parent->_write_txn_log);
+        request.mutable_lake_tablet_params()->set_enable_data_file_bundling(_parent->_enable_data_file_bundling);
+        request.mutable_lake_tablet_params()->set_is_multi_statements_txn(_parent->_is_multi_statements_txn);
     }
     request.set_is_replicated_storage(_parent->_enable_replicated_storage);
     request.set_node_id(_node_id);
@@ -221,8 +221,10 @@ void NodeChannel::_open(int64_t index_id, RefCountClosure<PTabletWriterOpenResul
     request.mutable_load_channel_profile_config()->CopyFrom(_parent->_load_channel_profile_config);
 
     // set global dict
-    const auto& global_dict = _runtime_state->get_load_global_dict_map();
-    const auto& dict_version = _runtime_state->load_dict_versions();
+    const auto* fragment_dict_state = _runtime_state->fragment_dict_state();
+    DCHECK(fragment_dict_state != nullptr);
+    const auto& global_dict = fragment_dict_state->load_global_dicts();
+    const auto& dict_version = fragment_dict_state->load_dict_versions();
     for (size_t i = 0; i < request.schema().slot_descs_size(); i++) {
         auto slot = request.mutable_schema()->mutable_slot_descs(i);
         auto it = global_dict.find(slot->id());
@@ -253,10 +255,14 @@ void NodeChannel::_open(int64_t index_id, RefCountClosure<PTabletWriterOpenResul
             LOG(ERROR) << res.status().message();
             return;
         }
+        FAIL_POINT_TRIGGER_EXECUTE(load_tablet_writer_open,
+                                   TABLET_WRITER_OPEN_FP_ACTION(_node_info->host, open_closure, request));
         res.value()->tablet_writer_open(&open_closure->cntl, &request, &open_closure->result, open_closure);
         VLOG(2) << "NodeChannel::_open() issue a http rpc, request size = " << request.ByteSizeLong();
     } else {
 #ifndef BE_TEST
+        FAIL_POINT_TRIGGER_EXECUTE(load_tablet_writer_open,
+                                   TABLET_WRITER_OPEN_FP_ACTION(_node_info->host, open_closure, request));
         _stub->tablet_writer_open(&open_closure->cntl, &request, &open_closure->result, open_closure);
 #else
         std::pair<PTabletWriterOpenRequest*, RefCountClosure<PTabletWriterOpenResult>*> rpc_pair{&request,
@@ -657,13 +663,13 @@ Status NodeChannel::_send_request(bool eos, bool finished) {
     AddMultiChunkReq add_chunk = std::move(_request_queue.front());
     _request_queue.pop_front();
 
-    auto chunk = std::move(add_chunk.first);
+    const auto& chunk = add_chunk.first;
 
     // reset mem tracker since we don't want to send the brpc request under query_mem_tracker
     // and the memory usage of the request is recorded by the olap_sink's mem tracker
     SCOPED_THREAD_LOCAL_MEM_TRACKER_SETTER(nullptr);
 
-    auto request = add_chunk.second;
+    auto& request = add_chunk.second;
 
     _mem_tracker->release(chunk->memory_usage());
 
@@ -727,10 +733,15 @@ Status NodeChannel::_send_request(bool eos, bool finished) {
             }
             auto closure = _add_batch_closures[_current_request_index];
             serialize_to_iobuf<PTabletWriterAddChunksRequest>(request, &closure->cntl.request_attachment());
+            FAIL_POINT_TRIGGER_EXECUTE(load_tablet_writer_add_chunks,
+                                       TABLET_WRITER_ADD_CHUNKS_FP_ACTION(_node_info->host, closure, request));
             res.value()->tablet_writer_add_chunks_via_http(&closure->cntl, nullptr, &closure->result, closure);
             VLOG(2) << "NodeChannel::_send_request() issue a http rpc, request size = "
                     << closure->cntl.request_attachment().size();
         } else {
+            FAIL_POINT_TRIGGER_EXECUTE(load_tablet_writer_add_chunks,
+                                       TABLET_WRITER_ADD_CHUNKS_FP_ACTION(
+                                               _node_info->host, _add_batch_closures[_current_request_index], request));
             _stub->tablet_writer_add_chunks(&_add_batch_closures[_current_request_index]->cntl, &request,
                                             &_add_batch_closures[_current_request_index]->result,
                                             _add_batch_closures[_current_request_index]);
@@ -749,18 +760,23 @@ Status NodeChannel::_send_request(bool eos, bool finished) {
             auto closure = _add_batch_closures[_current_request_index];
             serialize_to_iobuf<PTabletWriterAddChunkRequest>(*request.mutable_requests(0),
                                                              &closure->cntl.request_attachment());
+            FAIL_POINT_TRIGGER_EXECUTE(load_tablet_writer_add_chunks,
+                                       TABLET_WRITER_ADD_CHUNKS_FP_ACTION(_node_info->host, closure, request));
             res.value()->tablet_writer_add_chunk_via_http(&closure->cntl, nullptr, &closure->result, closure);
             VLOG(2) << "NodeChannel::_send_request() issue a http rpc, request size = "
                     << closure->cntl.request_attachment().size();
         } else {
 #ifndef BE_TEST
+            FAIL_POINT_TRIGGER_EXECUTE(load_tablet_writer_add_chunks,
+                                       TABLET_WRITER_ADD_CHUNKS_FP_ACTION(
+                                               _node_info->host, _add_batch_closures[_current_request_index], request));
             _stub->tablet_writer_add_chunk(
                     &_add_batch_closures[_current_request_index]->cntl, request.mutable_requests(0),
                     &_add_batch_closures[_current_request_index]->result, _add_batch_closures[_current_request_index]);
 #else
-            std::pair<PTabletWriterAddChunksRequest*, ReusableClosure<PTabletWriterAddBatchResult>*> rpc_pair{
-                    &request, _add_batch_closures[_current_request_index]};
-            TEST_SYNC_POINT_CALLBACK("NodeChannel::rpc::add_chunk_send", &rpc_pair);
+            std::tuple<int64_t, PTabletWriterAddChunksRequest*, ReusableClosure<PTabletWriterAddBatchResult>*>
+                    rpc_tuple{_node_id, &request, _add_batch_closures[_current_request_index]};
+            TEST_SYNC_POINT_CALLBACK("NodeChannel::rpc::add_chunk_send", &rpc_tuple);
 #endif
         }
     }
@@ -787,7 +803,7 @@ Status NodeChannel::_wait_request(ReusableClosure<PTabletWriterAddBatchResult>* 
 #endif
     _mem_tracker->release(closure->request_size);
 
-    _ts_profile->client_rpc_timer->update(closure->latency());
+    COUNTER_UPDATE(_ts_profile->client_rpc_timer, closure->latency());
 
     if (closure->cntl.Failed()) {
         _cancelled = true;
@@ -904,6 +920,7 @@ Status NodeChannel::_wait_all_prev_request() {
     if (_next_packet_seq == 0) {
         return Status::OK();
     }
+
     for (auto closure : _add_batch_closures) {
         RETURN_IF_ERROR(_wait_request(closure));
     }
@@ -969,21 +986,38 @@ Status NodeChannel::_wait_one_prev_request() {
     return Status::OK();
 }
 
-Status NodeChannel::try_close() {
-    if (_cancelled || _closed) {
+Status NodeChannel::_try_send_eos_and_process_all_response() {
+    if (_cancelled) {
         return _err_st;
     }
 
-    if (_check_prev_request_done()) {
-        auto st = _send_request(true /* eos */, false /* finished */);
-        if (!st.ok()) {
-            _cancelled = true;
-            _err_st = st;
-            return _err_st;
+    if (!_closed) {
+        if (_check_prev_request_done()) {
+            auto st = _send_request(true /* eos */, false /* finished */);
+            if (!st.ok()) {
+                _cancelled = true;
+                _err_st = st;
+            }
         }
+        return _err_st;
     }
 
-    return Status::OK();
+    // check the result of requests, and fail the channel if error happens as soon as possible
+    if (_check_all_prev_request_done() && !_all_response_processed) {
+        _all_response_processed = true;
+        auto st = _wait_all_prev_request();
+        if (!_cancelled && !st.ok()) {
+            _cancelled = true;
+            _err_st = st;
+        }
+    }
+    return _err_st;
+}
+
+Status NodeChannel::try_close() {
+    auto st = _try_send_eos_and_process_all_response();
+    // if the error triggers a diagnose, should return the error until the diagnose finishes
+    return _is_diagnose_done() ? st : Status::OK();
 }
 
 Status NodeChannel::try_finish() {
@@ -1004,7 +1038,7 @@ Status NodeChannel::try_finish() {
 }
 
 bool NodeChannel::is_close_done() {
-    return ((_closed && _check_all_prev_request_done()) || _cancelled) && _is_diagnose_done();
+    return (_all_response_processed || _cancelled) && _is_diagnose_done();
 }
 
 bool NodeChannel::is_finished() {
@@ -1016,14 +1050,6 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     if (_cancelled) {
         return _err_st;
     }
-
-    // 1. send eos request to commit write util finish
-    while (!_closed) {
-        RETURN_IF_ERROR(_send_request(true /* eos */));
-    }
-
-    // 2. wait eos request finish
-    RETURN_IF_ERROR(_wait_all_prev_request());
 
     // assign tablet dict infos
     if (!_tablet_commit_infos.empty()) {
@@ -1053,6 +1079,10 @@ Status NodeChannel::close_wait(RuntimeState* state) {
 void NodeChannel::cancel(const Status& err_st) {
     if (_cancel_finished) return;
 
+    if (_is_diagnose_done()) {
+        _wait_diagnose(_runtime_state);
+    }
+
     // cancel rpc request, accelerate the release of related resources
     for (auto closure : _add_batch_closures) {
         closure->cancel();
@@ -1079,12 +1109,15 @@ void NodeChannel::_cancel(int64_t index_id, const Status& err_st) {
     request.set_sender_id(_parent->_sender_id);
     request.set_txn_id(_parent->_txn_id);
     request.set_sink_id(_parent->_sink_id);
+    request.set_reason(err_st.to_string());
 
     auto closure = new RefCountClosure<PTabletWriterCancelResult>();
 
     closure->ref();
     closure->cntl.set_timeout_ms(_rpc_timeout_ms);
     SET_IGNORE_OVERCROWDED(closure->cntl, load);
+    FAIL_POINT_TRIGGER_EXECUTE(load_tablet_writer_cancel,
+                               TABLET_WRITER_CANCEL_FP_ACTION(_node_info->host, closure, closure->cntl, request));
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
     request.release_id();
 }
@@ -1117,13 +1150,14 @@ void NodeChannel::_try_diagnose(const std::string& error_text) {
 #ifndef BE_TEST
     _stub->load_diagnose(&_diagnose_closure->cntl, &request, &_diagnose_closure->result, _diagnose_closure);
 #else
-    std::pair<PLoadDiagnoseRequest*, RefCountClosure<PLoadDiagnoseResult>*> rpc_pair{&request, _diagnose_closure};
-    TEST_SYNC_POINT_CALLBACK("NodeChannel::rpc::load_diagnose_send", &rpc_pair);
+    std::tuple<int64_t, PLoadDiagnoseRequest*, RefCountClosure<PLoadDiagnoseResult>*> rpc_tuple{_node_id, &request,
+                                                                                                _diagnose_closure};
+    TEST_SYNC_POINT_CALLBACK("NodeChannel::rpc::load_diagnose_send", &rpc_tuple);
 #endif
     request.release_id();
-    VLOG(2) << "NodeChannel[" << _load_info << "] send diagnose request to [" << _node_info->host << ":"
-            << _node_info->brpc_port << "], rpc_timeout_ms: " << _rpc_timeout_ms
-            << ", enable_profile: " << enable_profile << ", enable_stack_trace: " << enable_stack_trace;
+    LOG(INFO) << "NodeChannel[" << _load_info << "] send diagnose request to [" << _node_info->host << ":"
+              << _node_info->brpc_port << "], rpc_timeout_ms: " << _rpc_timeout_ms
+              << ", enable_profile: " << enable_profile << ", enable_stack_trace: " << enable_stack_trace;
 }
 
 bool NodeChannel::_is_diagnose_done() {
@@ -1134,6 +1168,7 @@ void NodeChannel::_wait_diagnose(RuntimeState* state) {
     if (_diagnose_closure == nullptr) {
         return;
     }
+    DeferOp defer([&]() { _release_diagnose_closure(); });
 #ifndef BE_TEST
     _diagnose_closure->join();
 #else
@@ -1156,8 +1191,8 @@ void NodeChannel::_wait_diagnose(RuntimeState* state) {
             has_stack_trace = true;
         }
     }
-    VLOG(2) << "NodeChannel[" << _load_info << "] diagnose success, node: [" << _node_info->host << ":"
-            << _node_info->brpc_port << "], has_profile: " << has_profile << ", has_stack_trace: " << has_stack_trace;
+    LOG(INFO) << "NodeChannel[" << _load_info << "] diagnose success, node: [" << _node_info->host << ":"
+              << _node_info->brpc_port << "], has_profile: " << has_profile << ", has_stack_trace: " << has_stack_trace;
 }
 
 bool NodeChannel::_process_diagnose_profile(RuntimeState* state, PLoadDiagnoseResult& result) {
@@ -1195,6 +1230,15 @@ bool NodeChannel::_process_diagnose_profile(RuntimeState* state, PLoadDiagnoseRe
     return has_profile;
 }
 
+void NodeChannel::_release_diagnose_closure() {
+    if (_diagnose_closure) {
+        if (_diagnose_closure->unref()) {
+            delete _diagnose_closure;
+        }
+        _diagnose_closure = nullptr;
+    }
+}
+
 IndexChannel::~IndexChannel() {
     if (_where_clause != nullptr) {
         _where_clause->close(_parent->_state);
@@ -1202,45 +1246,52 @@ IndexChannel::~IndexChannel() {
 }
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<PTabletWithPartition>& tablets, bool is_incremental) {
-    for (const auto& tablet : tablets) {
-        auto* location = _parent->_location->find_tablet(tablet.tablet_id());
-        if (location == nullptr) {
-            auto msg = fmt::format("Not found tablet: {}", tablet.tablet_id());
-            return Status::NotFound(msg);
-        }
-        auto node_ids_size = location->node_ids.size();
-        for (size_t i = 0; i < node_ids_size; ++i) {
-            auto& node_id = location->node_ids[i];
-            NodeChannel* channel = nullptr;
-            auto it = _node_channels.find(node_id);
-            if (it == std::end(_node_channels)) {
-                auto channel_ptr = std::make_unique<NodeChannel>(_parent, node_id, is_incremental, _where_clause);
-                channel = channel_ptr.get();
-                _node_channels.emplace(node_id, std::move(channel_ptr));
-                if (is_incremental) {
-                    _has_incremental_node_channel = true;
+    {
+        std::unique_lock<std::shared_mutex> lock(_node_channels_mutex);
+        for (const auto& tablet : tablets) {
+            auto* location = _parent->_location->find_tablet(tablet.tablet_id());
+            if (location == nullptr) {
+                auto msg = fmt::format("Not found tablet: {}", tablet.tablet_id());
+                return Status::NotFound(msg);
+            }
+            auto node_ids_size = location->node_ids.size();
+            for (size_t i = 0; i < node_ids_size; ++i) {
+                auto& node_id = location->node_ids[i];
+                NodeChannel* channel = nullptr;
+                auto it = _node_channels.find(node_id);
+                if (it == std::end(_node_channels)) {
+                    auto channel_ptr = std::make_unique<NodeChannel>(_parent, node_id, is_incremental, _where_clause);
+                    channel = channel_ptr.get();
+                    _node_channels.emplace(node_id, std::move(channel_ptr));
+                    if (is_incremental) {
+                        _has_incremental_node_channel = true;
+                    }
+                } else {
+                    channel = it->second.get();
                 }
-            } else {
-                channel = it->second.get();
-            }
-            channel->add_tablet(_index_id, tablet);
-            if (_parent->_enable_replicated_storage && i == 0) {
-                channel->set_has_primary_replica(true);
+                channel->add_tablet(_index_id, tablet);
+                if (_parent->_enable_replicated_storage && i == 0) {
+                    channel->set_has_primary_replica(true);
+                }
             }
         }
-    }
-    for (auto& it : _node_channels) {
-        RETURN_IF_ERROR(it.second->init(state));
+        for (auto& it : _node_channels) {
+            RETURN_IF_ERROR(it.second->init(state));
+        }
     }
     if (_where_clause != nullptr) {
         RETURN_IF_ERROR(_where_clause->prepare(_parent->_state));
         RETURN_IF_ERROR(_where_clause->open(_parent->_state));
     }
-    _write_quorum_type = _parent->_write_quorum_type;
+    {
+        std::unique_lock<std::shared_mutex> lock(_failure_state_mutex);
+        _write_quorum_type = _parent->_write_quorum_type;
+    }
     return Status::OK();
 }
 
 void IndexChannel::mark_as_failed(const NodeChannel* ch) {
+    std::unique_lock<std::shared_mutex> lock(_failure_state_mutex);
     // primary replica use for replicated storage
     // if primary replica failed, we should mark this index as failed
     if (ch->has_primary_replica()) {
@@ -1250,6 +1301,7 @@ void IndexChannel::mark_as_failed(const NodeChannel* ch) {
 }
 
 bool IndexChannel::has_intolerable_failure() {
+    std::shared_lock<std::shared_mutex> lock(_failure_state_mutex);
     if (_has_intolerable_failure) {
         return _has_intolerable_failure;
     }

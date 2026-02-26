@@ -16,13 +16,13 @@ package com.starrocks.sql.plan;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
-import com.starrocks.analysis.DescriptorTable;
-import com.starrocks.analysis.Expr;
 import com.starrocks.common.FeConstants;
 import com.starrocks.common.IdGenerator;
 import com.starrocks.common.util.ProfilingExecPlan;
+import com.starrocks.planner.DescriptorTable;
 import com.starrocks.planner.ExecGroup;
 import com.starrocks.planner.HashJoinNode;
+import com.starrocks.planner.IcebergMetadataDeleteNode;
 import com.starrocks.planner.PlanFragment;
 import com.starrocks.planner.PlanFragmentId;
 import com.starrocks.planner.PlanNodeId;
@@ -31,6 +31,7 @@ import com.starrocks.plugin.AuditEvent;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.sql.Explain;
 import com.starrocks.sql.ast.StatementBase;
+import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.base.ColumnRefFactory;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalHashJoinOperator;
@@ -125,6 +126,15 @@ public class ExecPlan {
 
     public PlanFragment getTopFragment() {
         return fragments.get(0);
+    }
+
+    /**
+     * Check if this plan is for Iceberg metadata-level delete operation.
+     * Metadata delete is performed without generating position delete files.
+     */
+    public boolean isIcebergMetadataDelete() {
+        return fragments.size() == 1
+                && fragments.get(0).getPlanRoot() instanceof IcebergMetadataDeleteNode;
     }
 
     public DescriptorTable getDescTbl() {

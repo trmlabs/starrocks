@@ -14,20 +14,23 @@
 
 package com.starrocks.planner;
 
-import com.starrocks.analysis.ParseNode;
+import com.starrocks.catalog.MaterializedView;
+import com.starrocks.sql.ast.ParseNode;
 import com.starrocks.sql.common.QueryDebugOptions;
 import com.starrocks.sql.optimizer.CachingMvPlanContextBuilder;
 import com.starrocks.sql.optimizer.rule.transformation.materialization.MvUtils;
 import com.starrocks.sql.plan.PlanTestBase;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
+
+import java.util.Set;
 
 @TestMethodOrder(MethodOrderer.MethodName.class)
 public class MaterializedViewTextBasedRewriteTest extends MaterializedViewTestBase {
-    @BeforeClass
+    @BeforeAll
     public static void beforeClass() throws Exception {
         MaterializedViewTestBase.beforeClass();
         connectContext.getSessionVariable().setEnableMaterializedViewTextMatchRewrite(true);
@@ -224,11 +227,11 @@ public class MaterializedViewTextBasedRewriteTest extends MaterializedViewTestBa
                 "order by user_id, time;";
         ParseNode parseNode1 = MvUtils.getQueryAst(query, connectContext);
         ParseNode parseNode2 = MvUtils.getQueryAst(query, connectContext);
-        Assert.assertFalse(parseNode2.equals(parseNode1));
+        Assertions.assertFalse(parseNode2.equals(parseNode1));
 
         CachingMvPlanContextBuilder.AstKey astKey1 = new CachingMvPlanContextBuilder.AstKey(parseNode1);
         CachingMvPlanContextBuilder.AstKey astKey2 = new CachingMvPlanContextBuilder.AstKey(parseNode2);
-        Assert.assertTrue(astKey2.equals(astKey1));
+        Assertions.assertTrue(astKey2.equals(astKey1));
     }
 
     @Test
@@ -395,5 +398,35 @@ public class MaterializedViewTextBasedRewriteTest extends MaterializedViewTestBa
                             "     PREAGGREGATION: ON\n" +
                             "     PREDICATES: CAST(6: user_id AS VARCHAR(1048576)) != 'xxxx'");
                 });
+    }
+
+    @Test
+    public void testGetMvsByAstReturnsNullForNullAst() {
+        Assertions.assertNull(CachingMvPlanContextBuilder.getInstance().getMvsByAst(null));
+    }
+
+    @Test
+    public void testGetMvsByAstReturnsEmptySetWhenNotInMap() throws Exception {
+        String query = "select user_id, time, sum(tag_id) from user_tags group by user_id, time order by user_id, time;";
+
+        ParseNode parseNode = MvUtils.getQueryAst(query, connectContext);
+        CachingMvPlanContextBuilder.AstKey astKey = new CachingMvPlanContextBuilder.AstKey(parseNode);
+        {
+            Set<MaterializedView> result =
+                    CachingMvPlanContextBuilder.getInstance().getMvsByAst(astKey);
+            Assertions.assertNotNull(result);
+            Assertions.assertTrue(result.isEmpty());
+        }
+
+        {
+            starRocksAssert.withMaterializedView("create materialized view test_mv0 " +
+                    "distributed by random refresh manual as " + query);
+            Set<MaterializedView> result =
+                    CachingMvPlanContextBuilder.getInstance().getMvsByAst(astKey);
+            Assertions.assertNotNull(result);
+            MaterializedView actualMV = result.iterator().next();
+            MaterializedView expectedMV = getMv(MATERIALIZED_DB_NAME, "test_mv0");
+            Assertions.assertEquals(expectedMV, actualMV);
+        }
     }
 }

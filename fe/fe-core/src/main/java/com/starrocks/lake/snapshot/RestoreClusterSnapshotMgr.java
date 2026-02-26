@@ -14,17 +14,16 @@
 
 package com.starrocks.lake.snapshot;
 
-import com.starrocks.analysis.BrokerDesc;
 import com.starrocks.common.Config;
 import com.starrocks.common.StarRocksException;
 import com.starrocks.fs.HdfsUtil;
 import com.starrocks.ha.FrontendNodeType;
 import com.starrocks.journal.bdbje.BDBEnvironment;
+import com.starrocks.persist.ImageLoader;
 import com.starrocks.persist.Storage;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.NodeMgr;
 import com.starrocks.server.StorageVolumeMgr;
-import com.starrocks.server.WarehouseManager;
 import com.starrocks.staros.StarMgrServer;
 import com.starrocks.system.Backend;
 import com.starrocks.system.ComputeNode;
@@ -55,13 +54,11 @@ public class RestoreClusterSnapshotMgr {
         updateConfig();
     }
 
-    public static void init(String clusterSnapshotYamlFile, String[] args) throws StarRocksException {
-        for (String arg : args) {
-            if (arg.equalsIgnoreCase("-cluster_snapshot")) {
-                LOG.info("FE start to restore from a cluster snapshot (-cluster_snapshot)");
-                instance = new RestoreClusterSnapshotMgr(clusterSnapshotYamlFile);
-                return;
-            }
+    public static void init(String clusterSnapshotYamlFile, boolean startFromSnapshot) throws StarRocksException {
+        if (startFromSnapshot) {
+            LOG.info("FE start to restore from a cluster snapshot (--cluster_snapshot)");
+            instance = new RestoreClusterSnapshotMgr(clusterSnapshotYamlFile);
+            return;
         }
 
         String restoreClusterSnapshotEnv = System.getenv("RESTORE_CLUSTER_SNAPSHOT");
@@ -127,6 +124,7 @@ public class RestoreClusterSnapshotMgr {
     private void downloadSnapshot() throws StarRocksException {
         ClusterSnapshotConfig.ClusterSnapshot clusterSnapshot = config.getClusterSnapshot();
         if (clusterSnapshot == null) {
+            collectSnapshotInfoFromLocalImage();
             return;
         }
 
@@ -146,7 +144,7 @@ public class RestoreClusterSnapshotMgr {
         if (snapshotImagePath.endsWith("/meta")) {
             String pathPattern = snapshotImagePath + "/image/" + ClusterSnapshotMgr.AUTOMATED_NAME_PREFIX + '*';
             List<FileStatus> fileStatusList = HdfsUtil.listFileMeta(pathPattern,
-                    new BrokerDesc(clusterSnapshot.getStorageVolume().getProperties()), false);
+                    clusterSnapshot.getStorageVolume().getProperties(), false);
             if (fileStatusList.isEmpty() || fileStatusList.get(0).isFile()) {
                 throw new StarRocksException("No cluster snapshot found in path " + pathPattern);
             }
@@ -156,24 +154,16 @@ public class RestoreClusterSnapshotMgr {
         LOG.info("Download cluster snapshot {} to local dir {}", snapshotImagePath, localImagePath);
         HdfsUtil.copyToLocal(snapshotImagePath, localImagePath, clusterSnapshot.getStorageVolume().getProperties());
 
-        collectSnapshotInfoAfterDownloaded(snapshotImagePath, localImagePath);
+        collectSnapshotInfoAfterDownloaded(snapshotImagePath);
     }
 
-    private void collectSnapshotInfoAfterDownloaded(String snapshotImagePath, String localImagePath)
-            throws StarRocksException {
-        long feImageJournalId = 0L;
-        long starMgrImageJournalId = 0L;
+    private void collectSnapshotInfoFromLocalImage() throws StarRocksException {
+        restoredSnapshotInfo = buildRestoredSnapshotInfo(null);
+        LOG.info("Use local image for cluster snapshot restore, FE image version: {}, StarMgr image version: {}",
+                restoredSnapshotInfo.getFeJournalId(), restoredSnapshotInfo.getStarMgrJournalId());
+    }
 
-        try {
-            Storage storageFe = new Storage(localImagePath);
-            Storage storageStarMgr = new Storage(localImagePath + StarMgrServer.IMAGE_SUBDIR);
-            // get image version
-            feImageJournalId = storageFe.getImageJournalId();
-            starMgrImageJournalId = storageStarMgr.getImageJournalId();
-        } catch (Exception e) {
-            throw new StarRocksException("Failed to get local image version", e);
-        }
-
+    private void collectSnapshotInfoAfterDownloaded(String snapshotImagePath) throws StarRocksException {
         int lastSlashIndex = snapshotImagePath.lastIndexOf('/');
         if (lastSlashIndex < 0) {
             throw new StarRocksException("Failed to get snapshot name from snapshot path " + snapshotImagePath);
@@ -181,11 +171,22 @@ public class RestoreClusterSnapshotMgr {
 
         String restoredSnapshotName = snapshotImagePath.substring(lastSlashIndex + 1);
 
-        restoredSnapshotInfo = new RestoredSnapshotInfo(restoredSnapshotName,
-                feImageJournalId, starMgrImageJournalId);
+        restoredSnapshotInfo = buildRestoredSnapshotInfo(restoredSnapshotName);
 
         LOG.info("Downloaded cluster snapshot {} successfully, FE image version: {}, StarMgr image version: {}",
-                restoredSnapshotName, feImageJournalId, starMgrImageJournalId);
+                restoredSnapshotName, restoredSnapshotInfo.getFeJournalId(), restoredSnapshotInfo.getStarMgrJournalId());
+    }
+
+    private RestoredSnapshotInfo buildRestoredSnapshotInfo(String snapshotName) throws StarRocksException {
+        try {
+            String localImagePath = GlobalStateMgr.getImageDirPath();
+            // Get image version, use image loader to support v2 image format
+            long feImageJournalId = new ImageLoader(localImagePath).getImageJournalId();
+            long starMgrImageJournalId = new Storage(localImagePath + StarMgrServer.IMAGE_SUBDIR).getImageJournalId();
+            return new RestoredSnapshotInfo(snapshotName, feImageJournalId, starMgrImageJournalId);
+        } catch (Exception e) {
+            throw new StarRocksException("Failed to get local image version for restore", e);
+        }
     }
 
     private void updateFrontends() throws StarRocksException {
@@ -216,24 +217,22 @@ public class RestoreClusterSnapshotMgr {
         }
 
         SystemInfoService systemInfoService = GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo();
+        // Drop old backend nodes
         for (Backend be : systemInfoService.getIdToBackend().values()) {
             LOG.info("Drop old backend {}", be);
-            systemInfoService.dropBackend(be.getHost(), be.getHeartbeatPort(),
-                    WarehouseManager.DEFAULT_WAREHOUSE_NAME, false);
+            systemInfoService.dropBackend(be.getHost(), be.getHeartbeatPort(), null, null, false);
         }
 
         // Drop old compute nodes
         for (ComputeNode cn : systemInfoService.getIdComputeNode().values()) {
             LOG.info("Drop old compute node {}", cn);
-            systemInfoService.dropComputeNode(cn.getHost(), cn.getHeartbeatPort(),
-                    WarehouseManager.DEFAULT_WAREHOUSE_NAME);
+            systemInfoService.dropComputeNode(cn.getHost(), cn.getHeartbeatPort(), null, null);
         }
 
         // Add new compute nodes
         for (ClusterSnapshotConfig.ComputeNode cn : computeNodes) {
             LOG.info("Add new compute node {}", cn);
-            systemInfoService.addComputeNode(cn.getHost(), cn.getHeartbeatServicePort(),
-                    WarehouseManager.DEFAULT_WAREHOUSE_NAME);
+            systemInfoService.addComputeNode(cn.getHost(), cn.getHeartbeatServicePort(), cn.getWarehouse(), cn.getCNGroup());
         }
     }
 

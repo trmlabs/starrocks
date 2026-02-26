@@ -112,7 +112,10 @@ bool InMemoryMultiCastLocalExchanger::can_pull_chunk(int32_t mcast_consumer_inde
     DCHECK(mcast_consumer_index < _consumer_number);
 
     std::unique_lock l(_mutex);
-    DCHECK(_progress[mcast_consumer_index] != nullptr);
+    // to avoid crash, return false if the consumer is closed.
+    if (_progress[mcast_consumer_index] == nullptr) {
+        return false;
+    }
     if (_opened_sink_number == 0) return true;
     auto* cell = _progress[mcast_consumer_index];
     if (cell->next != nullptr) {
@@ -165,6 +168,11 @@ void InMemoryMultiCastLocalExchanger::open_sink_operator() {
 void InMemoryMultiCastLocalExchanger::close_sink_operator() {
     std::unique_lock l(_mutex);
     _opened_sink_number--;
+}
+
+bool InMemoryMultiCastLocalExchanger::is_all_sources_finished() const {
+    std::unique_lock l(_mutex);
+    return _opened_source_number == 0;
 }
 
 void InMemoryMultiCastLocalExchanger::_closer_consumer(int32_t mcast_consumer_index) {

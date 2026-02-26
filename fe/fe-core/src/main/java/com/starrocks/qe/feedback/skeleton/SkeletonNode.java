@@ -14,8 +14,8 @@
 
 package com.starrocks.qe.feedback.skeleton;
 
-import com.starrocks.common.TreeNode;
 import com.starrocks.qe.feedback.NodeExecStats;
+import com.starrocks.sql.ast.TreeNode;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.operator.Operator;
 import com.starrocks.sql.optimizer.operator.OperatorType;
@@ -25,7 +25,6 @@ import com.starrocks.sql.optimizer.statistics.Statistics;
 import java.util.Objects;
 
 public class SkeletonNode extends TreeNode<SkeletonNode> {
-
     protected final int operatorId;
 
     // nodeId is not used in `hashCode` and `equals`, because rewrite phase has not set nodeIds to physical operators.
@@ -35,7 +34,7 @@ public class SkeletonNode extends TreeNode<SkeletonNode> {
 
     protected final long limit;
 
-    protected final ScalarOperator predicate;
+    protected ScalarOperator predicate;
 
     protected final Statistics statistics;
 
@@ -76,6 +75,18 @@ public class SkeletonNode extends TreeNode<SkeletonNode> {
 
     public Statistics getStatistics() {
         return statistics;
+    }
+
+    public ScalarOperator getPredicate() {
+        return predicate;
+    }
+
+    public long getLimit() {
+        return limit;
+    }
+
+    public OperatorType getType() {
+        return type;
     }
 
     @Override

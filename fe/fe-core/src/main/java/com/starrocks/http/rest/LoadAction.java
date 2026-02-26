@@ -37,6 +37,7 @@ package com.starrocks.http.rest;
 import com.google.common.base.Strings;
 import com.starrocks.authorization.AccessDeniedException;
 import com.starrocks.authorization.PrivilegeType;
+import com.starrocks.catalog.UserIdentity;
 import com.starrocks.common.DdlException;
 import com.starrocks.http.ActionController;
 import com.starrocks.http.BaseRequest;
@@ -47,6 +48,7 @@ import com.starrocks.load.batchwrite.TableId;
 import com.starrocks.load.streamload.StreamLoadHttpHeader;
 import com.starrocks.load.streamload.StreamLoadKvParams;
 import com.starrocks.qe.ConnectContext;
+import com.starrocks.qe.SimpleScheduler;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.RunMode;
 import com.starrocks.server.WarehouseManager;
@@ -54,6 +56,9 @@ import com.starrocks.sql.analyzer.Authorizer;
 import com.starrocks.system.ComputeNode;
 import com.starrocks.system.SystemInfoService;
 import com.starrocks.thrift.TNetworkAddress;
+import com.starrocks.warehouse.Utils;
+import com.starrocks.warehouse.cngroup.CRAcquireContext;
+import com.starrocks.warehouse.cngroup.ComputeResource;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpUtil;
@@ -68,6 +73,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 public class LoadAction extends RestBaseAction {
     private static final Logger LOG = LogManager.getLogger(LoadAction.class);
@@ -80,6 +86,37 @@ public class LoadAction extends RestBaseAction {
         controller.registerHandler(HttpMethod.PUT,
                 "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load",
                 new LoadAction(controller));
+    }
+
+    public static List<Long> selectNodes(ComputeResource computeResource) throws DdlException {
+        // Choose a backend sequentially, or choose a cn in shared_data mode
+        List<Long> nodeIds = new ArrayList<>();
+        if (RunMode.isSharedDataMode()) {
+            final WarehouseManager warehouseManager = GlobalStateMgr.getCurrentState().getWarehouseMgr();
+            final List<Long> computeIds = warehouseManager.getAllComputeNodeIds(computeResource);
+            for (long nodeId : computeIds) {
+                ComputeNode node = GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo().getBackendOrComputeNode(nodeId);
+                if (node != null && node.isAvailable()) {
+                    nodeIds.add(nodeId);
+                }
+            }
+        } else {
+            SystemInfoService systemInfoService = GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo();
+            nodeIds = systemInfoService.getAvailableBackends().stream().map(be -> be.getId()).collect(Collectors.toList());
+        }
+
+        List<Long> filterNodeIds = nodeIds.stream()
+                .filter(id -> !SimpleScheduler.isInBlocklist(id)).collect(Collectors.toList());
+        if (filterNodeIds != null && !filterNodeIds.isEmpty()) {
+            nodeIds = filterNodeIds;
+        }
+
+        if (CollectionUtils.isEmpty(nodeIds)) {
+            throw new DdlException("No backend alive.");
+        }
+
+        Collections.shuffle(nodeIds);
+        return nodeIds;
     }
 
     @Override
@@ -126,8 +163,7 @@ public class LoadAction extends RestBaseAction {
         // affect subsequent requests processing.
         response.setForceCloseConnection(true);
 
-        boolean enableBatchWrite = "true".equalsIgnoreCase(
-                request.getRequest().headers().get(StreamLoadHttpHeader.HTTP_ENABLE_BATCH_WRITE));
+        boolean enableBatchWrite = StreamLoadHttpHeader.isEnabledBatchWrite(request);
         if (enableBatchWrite && redirectToLeader(request, response)) {
             return;
         }
@@ -155,31 +191,23 @@ public class LoadAction extends RestBaseAction {
             BaseRequest request, BaseResponse response, String dbName, String tableName) throws DdlException {
         String label = request.getRequest().headers().get(LABEL_KEY);
 
+        final WarehouseManager warehouseManager = GlobalStateMgr.getCurrentState().getWarehouseMgr();
         String warehouseName = WarehouseManager.DEFAULT_WAREHOUSE_NAME;
         if (request.getRequest().headers().contains(WAREHOUSE_KEY)) {
             warehouseName = request.getRequest().headers().get(WAREHOUSE_KEY);
-        }
-
-        // Choose a backend sequentially, or choose a cn in shared_data mode
-        List<Long> nodeIds = new ArrayList<>();
-        if (RunMode.isSharedDataMode()) {
-            List<Long> computeIds = GlobalStateMgr.getCurrentState().getWarehouseMgr().getAllComputeNodeIds(warehouseName);
-            for (long nodeId : computeIds) {
-                ComputeNode node = GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo().getBackendOrComputeNode(nodeId);
-                if (node != null && node.isAvailable()) {
-                    nodeIds.add(nodeId);
+        } else {
+            ConnectContext ctx = request.getConnectContext();
+            if (ctx != null) {
+                Optional<String> userWarehouseName = Utils.getUserDefaultWarehouse(ctx.getCurrentUserIdentity());
+                if (userWarehouseName.isPresent() && warehouseManager.warehouseExists(userWarehouseName.get())) {
+                    warehouseName = userWarehouseName.get();
                 }
             }
-            Collections.shuffle(nodeIds);
-        } else {
-            SystemInfoService systemInfoService = GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo();
-            nodeIds = systemInfoService.getNodeSelector().seqChooseBackendIds(1, true, false, null);
         }
+        final CRAcquireContext acquireContext = CRAcquireContext.of(warehouseName);
+        final ComputeResource computeResource = warehouseManager.acquireComputeResource(acquireContext);
 
-        if (CollectionUtils.isEmpty(nodeIds)) {
-            throw new DdlException("No backend alive.");
-        }
-
+        final List<Long> nodeIds = LoadAction.selectNodes(computeResource);
         // TODO: need to refactor after be split into cn + dn
         ComputeNode node = GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo().getBackendOrComputeNode(nodeIds.get(0));
         if (node == null) {
@@ -197,8 +225,10 @@ public class LoadAction extends RestBaseAction {
             BaseRequest request, BaseResponse response, String dbName, String tableName) throws DdlException {
         TableId tableId = new TableId(dbName, tableName);
         StreamLoadKvParams params = StreamLoadKvParams.fromHttpHeaders(request.getRequest().headers());
-        RequestCoordinatorBackendResult result = GlobalStateMgr.getCurrentState()
-                .getBatchWriteMgr().requestCoordinatorBackends(tableId, params);
+        ConnectContext ctx = request.getConnectContext();
+        UserIdentity userIdentity = ctx != null ? ctx.getCurrentUserIdentity() : null;
+        RequestCoordinatorBackendResult result = GlobalStateMgr.getCurrentState().getBatchWriteMgr().requestCoordinatorBackends(
+                tableId, params, userIdentity);
         if (!result.isOk()) {
             BatchWriteResponseResult responseResult = new BatchWriteResponseResult(
                     result.getStatus().status_code.name(), ActionStatus.FAILED,

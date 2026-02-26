@@ -20,7 +20,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import com.starrocks.analysis.LiteralExpr;
 import com.starrocks.common.AnalysisException;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.Pair;
@@ -32,10 +31,14 @@ import com.starrocks.sql.ast.PartitionDesc;
 import com.starrocks.sql.ast.PartitionValue;
 import com.starrocks.sql.ast.SingleItemListPartitionDesc;
 import com.starrocks.sql.ast.SinglePartitionDesc;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.LiteralExpr;
+import com.starrocks.sql.ast.expression.SlotRef;
 import com.starrocks.sql.common.MetaUtils;
 import com.starrocks.sql.optimizer.operator.scalar.ConstantOperator;
 import com.starrocks.sql.optimizer.transformer.SqlToScalarOperatorTranslator;
 import com.starrocks.thrift.TStorageMedium;
+import com.starrocks.type.Type;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.NotImplementedException;
@@ -362,6 +365,19 @@ public class ListPartitionInfo extends PartitionInfo {
 
     @Override
     public String toSql(OlapTable table, List<Long> partitionId) {
+        return toSql(table, automaticPartition, true);
+    }
+
+    /**
+     * Generate the SQL statement for creating a list partition
+     * @param table : table
+     * @param isAutomaticPartition : whether the partition type is automatic or by values. If true, only generate partition-by
+     *                             columns without partition values.
+     * @param useGeneratedColumnNameAsExpr : whether to use the generated column name as the expression, if false, use the
+     *                                     generated expression sql as the expression sql rather than the column name.
+     * @return : SQL statement for the list partition
+     */
+    public String toSql(OlapTable table, boolean isAutomaticPartition, boolean useGeneratedColumnNameAsExpr) {
         String replicationNumStr = table.getTableProperty()
                 .getProperties().get(PROPERTIES_REPLICATION_NUM);
         short tableReplicationNum = replicationNumStr == null ?
@@ -369,15 +385,22 @@ public class ListPartitionInfo extends PartitionInfo {
 
         StringBuilder sb = new StringBuilder();
         sb.append("PARTITION BY ");
-        if (!automaticPartition) {
+        if (!isAutomaticPartition) {
             sb.append("LIST");
         }
         sb.append("(");
         sb.append(MetaUtils.getColumnsByColumnIds(table, partitionColumnIds).stream()
-                .map(item -> "`" + item.getName() + "`")
+                .map(item -> {
+                    if (useGeneratedColumnNameAsExpr) {
+                        return  "`" + item.getName() + "`";
+                    } else {
+                        // if the column is generated, we need to use the expression sometimes, eg: mv's active/inactive.
+                        return MetaUtils.getPartitionColumnToSql(item);
+                    }
+                })
                 .collect(Collectors.joining(",")));
         sb.append(")");
-        if (!automaticPartition) {
+        if (!isAutomaticPartition) {
             List<Long> partitionIds = getPartitionIds(false);
             sb.append("(\n");
             if (!idToValues.isEmpty()) {
@@ -390,6 +413,24 @@ public class ListPartitionInfo extends PartitionInfo {
             sb.append("\n)");
         }
         return sb.toString();
+    }
+
+    /**
+     * Get the partition expression for the partition info
+     * @param tableName: table name of the partitioned table
+     * @param idToColumn: map of column id to column
+     * @return: list of defined partition expressions for the table
+     */
+    public List<Expr> getPartitionExprs(TableName tableName, Map<ColumnId, Column> idToColumn) {
+        List<Expr> partitionExprs = Lists.newArrayList();
+        for (Column column : MetaUtils.getColumnsByColumnIds(idToColumn, partitionColumnIds)) {
+            if (column.isGeneratedColumn()) {
+                partitionExprs.add(column.getGeneratedColumnExpr(idToColumn));
+            } else {
+                partitionExprs.add(new SlotRef(tableName, column.getName()));
+            }
+        }
+        return partitionExprs;
     }
 
     private String singleListPartitionSql(OlapTable table, List<Long> partitionIds, short tableReplicationNum) {
@@ -518,8 +559,7 @@ public class ListPartitionInfo extends PartitionInfo {
                     }
                     this.idToIsTempPartition.put(partitionId, isTempPartition);
                     super.addPartition(partitionId, partitionDesc.getPartitionDataProperty(),
-                            partitionDesc.getReplicationNum(), partitionDesc.isInMemory(),
-                            partitionDesc.getDataCacheInfo());
+                            partitionDesc.getReplicationNum(), partitionDesc.getDataCacheInfo());
                 }
             }
         } catch (Exception e) {
@@ -534,8 +574,7 @@ public class ListPartitionInfo extends PartitionInfo {
         long partitionId = partition.getId();
         this.idToIsTempPartition.put(partitionId, partitionPersistInfo.isTempPartition());
         super.addPartition(partitionId, partitionPersistInfo.getDataProperty(),
-                partitionPersistInfo.getReplicationNum(), partitionPersistInfo.isInMemory(),
-                partitionPersistInfo.getDataCacheInfo());
+                partitionPersistInfo.getReplicationNum(), partitionPersistInfo.getDataCacheInfo());
 
         List<List<String>> multiValues = partitionPersistInfo.getMultiValues();
         if (multiValues != null && multiValues.size() > 0) {
@@ -567,9 +606,9 @@ public class ListPartitionInfo extends PartitionInfo {
     }
 
     public void addPartition(Map<ColumnId, Column> idToColumn, long partitionId, DataProperty dataProperty,
-                             short replicationNum, boolean isInMemory, DataCacheInfo dataCacheInfo, List<String> values,
+                             short replicationNum, DataCacheInfo dataCacheInfo, List<String> values,
                              List<List<String>> multiValues) throws AnalysisException {
-        super.addPartition(partitionId, dataProperty, replicationNum, isInMemory, dataCacheInfo);
+        super.addPartition(partitionId, dataProperty, replicationNum, dataCacheInfo);
         if (multiValues != null && !multiValues.isEmpty()) {
             this.idToMultiValues.put(partitionId, multiValues);
             this.setMultiLiteralExprValues(idToColumn, partitionId, multiValues);
@@ -590,7 +629,7 @@ public class ListPartitionInfo extends PartitionInfo {
             idToValues.put(partitionId, Collections.emptyList());
             idToLiteralExprValues.put(partitionId, Collections.emptyList());
         }
-        super.addPartition(partitionId, new DataProperty(TStorageMedium.HDD), Short.valueOf(replicateNum), false,
+        super.addPartition(partitionId, new DataProperty(TStorageMedium.HDD), Short.valueOf(replicateNum),
                 new DataCacheInfo(true, false));
     }
 

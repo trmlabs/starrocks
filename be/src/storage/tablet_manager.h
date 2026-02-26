@@ -44,6 +44,7 @@
 #include <vector>
 
 #include "agent/status.h"
+#include "base/concurrency/spinlock.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/BackendService_types.h"
@@ -54,7 +55,6 @@
 #include "storage/olap_define.h"
 #include "storage/options.h"
 #include "storage/tablet.h"
-#include "util/spinlock.h"
 
 namespace starrocks {
 
@@ -155,7 +155,9 @@ public:
                                 const std::string& schema_hash_path, bool force = false, bool restore = false);
 
     Status create_tablet_from_meta_snapshot(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
-                                            const std::string& schema_hash_path, bool restore = false);
+                                            const std::string& schema_hash_path, bool restore = false,
+                                            bool need_rebuild_pk_index = false,
+                                            int32_t rebuild_pk_index_wait_seconds = 0);
 
     void release_schema_change_lock(TTabletId tablet_id);
 
@@ -168,8 +170,8 @@ public:
     // Prevent schema change executed concurrently.
     bool try_schema_change_lock(TTabletId tablet_id);
 
-    void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
-                                       const string& tablet_id_path);
+    Status try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
+                                         const string& tablet_id_path);
 
     void update_root_path_info(std::map<std::string, DataDirInfo>* path_map, size_t* tablet_counter);
 
@@ -278,6 +280,7 @@ private:
     void sweep_shutdown_tablet(const DroppedTabletInfo& info, std::vector<DroppedTabletInfo>& finished_tablets);
 
     std::vector<TabletSharedPtr> _get_all_tablets_from_shard(const TabletsShard& shard);
+    std::vector<TabletSharedPtr> _get_all_tablets_from_shard(const TabletsShard& shard, KeysType keys_type);
 
     static Status _remove_tablet_meta(const TabletSharedPtr& tablet);
     static Status _remove_tablet_directories(const TabletSharedPtr& tablet);

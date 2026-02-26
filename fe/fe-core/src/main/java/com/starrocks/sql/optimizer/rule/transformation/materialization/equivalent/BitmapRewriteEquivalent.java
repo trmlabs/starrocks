@@ -14,20 +14,23 @@
 package com.starrocks.sql.optimizer.rule.transformation.materialization.equivalent;
 
 import com.google.common.collect.ImmutableSet;
-import com.starrocks.analysis.Expr;
 import com.starrocks.catalog.FunctionSet;
-import com.starrocks.catalog.Type;
 import com.starrocks.common.Pair;
 import com.starrocks.qe.SessionVariable;
+import com.starrocks.sql.ast.expression.ExprUtils;
 import com.starrocks.sql.optimizer.operator.scalar.CallOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ColumnRefOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
+import com.starrocks.type.BitmapType;
+import com.starrocks.type.IntegerType;
+import com.starrocks.type.Type;
 
 import java.util.Arrays;
 
 import static com.starrocks.catalog.Function.CompareMode.IS_IDENTICAL;
 import static com.starrocks.catalog.FunctionSet.BITMAP_AGG;
 import static com.starrocks.catalog.FunctionSet.BITMAP_HASH;
+import static com.starrocks.catalog.FunctionSet.BITMAP_HASH64;
 import static com.starrocks.catalog.FunctionSet.BITMAP_UNION;
 import static com.starrocks.catalog.FunctionSet.BITMAP_UNION_COUNT;
 import static com.starrocks.catalog.FunctionSet.MULTI_DISTINCT_COUNT;
@@ -62,6 +65,9 @@ public class BitmapRewriteEquivalent extends IAggregateRewriteEquivalent {
                 } else if (call0.getFnName().equals(FunctionSet.BITMAP_HASH)) {
                     // bitmap_union(bitmap_hash()) can be used for rewrite
                     return new RewriteEquivalentContext(call0.getChild(0), op);
+                } else if (call0.getFnName().equals(FunctionSet.BITMAP_HASH64)) {
+                    // bitmap_union(bitmap_hash64()) can be used for rewrite
+                    return new RewriteEquivalentContext(call0.getChild(0), op);
                 }
             } else {
                 return new RewriteEquivalentContext(arg0, op);
@@ -77,20 +83,20 @@ public class BitmapRewriteEquivalent extends IAggregateRewriteEquivalent {
     }
 
     private CallOperator makeBitmapUnionCountFunc(ScalarOperator arg0) {
-        return new CallOperator(BITMAP_UNION_COUNT, Type.BIGINT,
-                Arrays.asList(arg0), Expr.getBuiltinFunction(BITMAP_UNION_COUNT, new Type[] {Type.BITMAP},
+        return new CallOperator(BITMAP_UNION_COUNT, IntegerType.BIGINT,
+                Arrays.asList(arg0), ExprUtils.getBuiltinFunction(BITMAP_UNION_COUNT, new Type[] {BitmapType.BITMAP},
                         IS_IDENTICAL));
     }
 
     private CallOperator makeBitmapUnionFunc(ScalarOperator arg0) {
-        return new CallOperator(BITMAP_UNION, Type.BITMAP,
-                Arrays.asList(arg0), Expr.getBuiltinFunction(BITMAP_UNION, new Type[] {Type.BITMAP},
+        return new CallOperator(BITMAP_UNION, BitmapType.BITMAP,
+                Arrays.asList(arg0), ExprUtils.getBuiltinFunction(BITMAP_UNION, new Type[] {BitmapType.BITMAP},
                         IS_IDENTICAL));
     }
 
     private CallOperator makeBitmapCountFunc(ScalarOperator arg0) {
-        return new CallOperator(FunctionSet.BITMAP_COUNT, Type.BIGINT,
-                Arrays.asList(arg0), Expr.getBuiltinFunction(FunctionSet.BITMAP_COUNT, new Type[] {Type.BITMAP},
+        return new CallOperator(FunctionSet.BITMAP_COUNT, IntegerType.BIGINT,
+                Arrays.asList(arg0), ExprUtils.getBuiltinFunction(FunctionSet.BITMAP_COUNT, new Type[] {BitmapType.BITMAP},
                         IS_IDENTICAL));
     }
 
@@ -146,7 +152,8 @@ public class BitmapRewriteEquivalent extends IAggregateRewriteEquivalent {
             }
             if (eqArg instanceof CallOperator) {
                 CallOperator arg00 = (CallOperator) eqArg;
-                if (!arg00.getFnName().equals(TO_BITMAP) && !arg00.getFnName().equals(BITMAP_HASH)) {
+                if (!arg00.getFnName().equals(TO_BITMAP) && !arg00.getFnName().equals(BITMAP_HASH)
+                        && !arg00.getFnName().equals(BITMAP_HASH64)) {
                     return null;
                 }
                 eqArg = arg00.getChild(0);

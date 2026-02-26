@@ -39,18 +39,20 @@
 
 #include <memory>
 
-#include "common/closure_guard.h"
+#include "base/concurrency/stopwatch.hpp"
+#include "common/system/cpu_info.h"
+#include "common/thread/thread.h"
 #include "fs/key_cache.h"
 #include "gutil/strings/substitute.h"
+#include "runtime/closure_guard.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_channel.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/starrocks_metrics.h"
 #include "runtime/tablets_channel.h"
 #include "storage/lake/tablet_manager.h"
 #include "storage/utils.h"
-#include "util/starrocks_metrics.h"
-#include "util/stopwatch.hpp"
-#include "util/thread.h"
+#include "util/global_metrics_registry.h"
 
 namespace starrocks {
 
@@ -61,7 +63,7 @@ public:
 
     ~ChannelOpenTask() override {
         if (!_is_done) {
-            cancel(Status::ServiceUnavailable("Thread pool was shut down"));
+            cancel_task(Status::ServiceUnavailable("Thread pool was shut down"));
         }
     }
 
@@ -71,7 +73,7 @@ public:
         }
     }
 
-    void cancel(const Status& status) {
+    void cancel_task(const Status& status) {
         if (_try_mark_done()) {
             ClosureGuard closure_guard(_open_context.done);
             status.to_protobuf(_open_context.response->mutable_status());
@@ -126,7 +128,7 @@ void LoadChannelMgr::close() {
     _async_rpc_pool->shutdown();
     std::lock_guard l(_lock);
     for (auto iter = _load_channels.begin(); iter != _load_channels.end();) {
-        iter->second->cancel();
+        iter->second->cancel("load channel manager closed");
         iter->second->abort();
         iter = _load_channels.erase(iter);
     }
@@ -164,7 +166,7 @@ void LoadChannelMgr::open(brpc::Controller* cntl, const PTabletWriterOpenRequest
     auto task = std::make_shared<ChannelOpenTask>(this, std::move(open_context));
     Status status = _async_rpc_pool->submit(task);
     if (!status.ok()) {
-        task->cancel(status);
+        task->cancel_task(status);
     }
 }
 
@@ -189,6 +191,17 @@ void LoadChannelMgr::_open(LoadChannelOpenContext open_context) {
         auto it = _load_channels.find(load_id);
         if (it != _load_channels.end()) {
             channel = it->second;
+        } else if (const auto& aborted_iter = _aborted_load_channels.find(load_id);
+                   aborted_iter != _aborted_load_channels.end()) {
+            // IMPORTANT:
+            // Reject new _open/_incremental_open requests for aborted load channels.
+            // Prevent the load channel from being recreated after being aborted,
+            // which may cause some unexpected issues.
+            // NOTE: cannot call _fail_rpc_request here, because the lock is held.
+            const auto& reason = aborted_iter->second.second;
+            response->mutable_status()->set_status_code(TStatusCode::ABORTED);
+            response->mutable_status()->add_error_msgs(reason);
+            return;
         } else if (!is_tracker_hit_hard_limit(_mem_tracker, config::load_process_max_memory_hard_limit_ratio) ||
                    config::enable_new_load_on_memory_limit_exceeded) {
             // When loading memory usage is larger than hard limit, we will reject new loading task.
@@ -224,8 +237,7 @@ void LoadChannelMgr::add_chunk(const PTabletWriterAddChunkRequest& request, PTab
     if (channel != nullptr) {
         channel->add_chunk(request, response);
     } else {
-        response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
-        response->mutable_status()->add_error_msgs("no associated load channel " + print_id(request.id()));
+        _fail_rpc_request(load_id, response->mutable_status());
     }
 }
 
@@ -236,8 +248,7 @@ void LoadChannelMgr::add_chunks(const PTabletWriterAddChunksRequest& request, PT
     if (channel != nullptr) {
         channel->add_chunks(request, response);
     } else {
-        response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
-        response->mutable_status()->add_error_msgs("no associated load channel " + print_id(request.id()));
+        _fail_rpc_request(load_id, response->mutable_status());
     }
 }
 
@@ -250,8 +261,7 @@ void LoadChannelMgr::add_segment(brpc::Controller* cntl, const PTabletWriterAddS
         channel->add_segment(cntl, request, response, done);
         closure_guard.release();
     } else {
-        response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
-        response->mutable_status()->add_error_msgs("no associated load channel " + print_id(request->id()));
+        _fail_rpc_request(load_id, response->mutable_status());
     }
 }
 
@@ -276,10 +286,28 @@ void LoadChannelMgr::cancel(brpc::Controller* cntl, const PTabletWriterCancelReq
                            request.reason());
         }
     } else {
-        if (auto channel = remove_load_channel(load_id); channel != nullptr) {
-            channel->cancel();
+        if (auto channel = _abort_load_channel(load_id, request.reason()); channel != nullptr) {
+            channel->cancel(request.reason());
             channel->abort();
         }
+    }
+}
+
+void LoadChannelMgr::get_load_replica_status(brpc::Controller* cntl, const PLoadReplicaStatusRequest* request,
+                                             PLoadReplicaStatusResult* response, google::protobuf::Closure* done) {
+    ClosureGuard done_guard(done);
+    UniqueId load_id(request->load_id());
+    auto channel = _find_load_channel(load_id);
+    if (channel == nullptr) {
+        for (int64_t tablet_id : request->tablet_ids()) {
+            auto replica_status = response->add_replica_statuses();
+            replica_status->set_tablet_id(tablet_id);
+            replica_status->set_state(LoadReplicaStatePB::NOT_PRESENT);
+            replica_status->set_message("can't find load channel");
+        }
+    } else {
+        std::string remote_ip = butil::ip2str(cntl->remote_side().ip).c_str();
+        channel->get_load_replica_status(remote_ip, request, response);
     }
 }
 
@@ -299,8 +327,8 @@ void LoadChannelMgr::load_diagnose(brpc::Controller* cntl, const PLoadDiagnoseRe
         }
     } else {
         std::string remote_ip = butil::ip2str(cntl->remote_side().ip).c_str();
-        VLOG(2) << "receive load diagnose, load_id: " << load_id << ", txn_id: " << request->txn_id()
-                << ", remote: " << remote_ip;
+        LOG(INFO) << "receive load diagnose, load_id: " << print_id(load_id) << ", txn_id: " << request->txn_id()
+                  << ", remote: " << remote_ip;
         channel->diagnose(remote_ip, request, response);
     }
 }
@@ -330,13 +358,28 @@ Status LoadChannelMgr::_start_bg_worker() {
 }
 
 void LoadChannelMgr::_start_load_channels_clean() {
-    std::vector<std::shared_ptr<LoadChannel>> timeout_channels;
-
     time_t now = time(nullptr);
+    { // clean aborted load channels record
+        time_t expired_time_deadline = now - config::load_channel_abort_clean_up_delay_seconds;
+        std::lock_guard l(_lock);
+        auto iter = _aborted_load_channels.begin();
+        while (iter != _aborted_load_channels.end()) {
+            if (iter->second.first <= expired_time_deadline) {
+                iter = _aborted_load_channels.erase(iter);
+            } else {
+                ++iter;
+            }
+        }
+    }
+
+    std::vector<std::shared_ptr<LoadChannel>> timeout_channels;
     {
         std::lock_guard l(_lock);
         for (auto it = _load_channels.begin(); it != _load_channels.end(); /**/) {
             if (difftime(now, it->second->last_updated_time()) >= it->second->timeout()) {
+                std::string detailed_reason = fmt::format("load channel: {} was timed out at {}, reason: timeout",
+                                                          print_id(it->second->load_id()), now);
+                _aborted_load_channels.insert({it->first, std::make_pair(now, detailed_reason)});
                 timeout_channels.emplace_back(std::move(it->second));
                 it = _load_channels.erase(it);
             } else {
@@ -349,11 +392,12 @@ void LoadChannelMgr::_start_load_channels_clean() {
     // otherwise some object may be invalid before trying to visit it.
     // eg: MemTracker in load channel
     for (auto& channel : timeout_channels) {
-        channel->cancel();
+        channel->cancel("load channel timeout");
     }
     for (auto& channel : timeout_channels) {
         channel->abort();
-        LOG(INFO) << "Deleted timeout channel. load id=" << channel->load_id() << " timeout=" << channel->timeout();
+        LOG(INFO) << "Deleted timeout channel. load id=" << print_id(channel->load_id())
+                  << " timeout=" << channel->timeout();
     }
 
     // clean load in writing data size
@@ -377,21 +421,58 @@ std::shared_ptr<LoadChannel> LoadChannelMgr::_find_load_channel(int64_t txn_id) 
 }
 
 std::shared_ptr<LoadChannel> LoadChannelMgr::remove_load_channel(const UniqueId& load_id) {
+    return _remove_load_channel(load_id, false, "");
+}
+
+std::shared_ptr<LoadChannel> LoadChannelMgr::_remove_load_channel(const UniqueId& load_id, bool is_abort,
+                                                                  const std::string& abort_reason) {
     std::lock_guard l(_lock);
     if (auto it = _load_channels.find(load_id); it != _load_channels.end()) {
         auto ret = it->second;
         _load_channels.erase(it);
+        if (is_abort) {
+            auto now = time(nullptr);
+            std::string detailed_reason =
+                    fmt::format("load channel: {} was aborted at {}, reason: {}", print_id(load_id), now, abort_reason);
+            _aborted_load_channels.insert({load_id, std::make_pair(now, std::move(detailed_reason))});
+        }
         return ret;
     }
     return nullptr;
 }
 
-void LoadChannelMgr::abort_txn(int64_t txn_id) {
+std::shared_ptr<LoadChannel> LoadChannelMgr::_abort_load_channel(const UniqueId& load_id,
+                                                                 const std::string& abort_reason) {
+    return _remove_load_channel(load_id, true, abort_reason);
+}
+
+std::pair<bool, std::string> LoadChannelMgr::_is_load_channel_aborted(const UniqueId& load_id) const {
+    std::lock_guard l(_lock);
+    if (auto it = _aborted_load_channels.find(load_id); it != _aborted_load_channels.end()) {
+        return {true, it->second.second};
+    }
+    return {false, ""};
+}
+
+void LoadChannelMgr::_fail_rpc_request(const UniqueId& load_id, StatusPB* response_status) {
+    auto [aborted, reason] = _is_load_channel_aborted(load_id);
+    if (LIKELY(aborted)) {
+        response_status->set_status_code(TStatusCode::ABORTED);
+        response_status->add_error_msgs(reason);
+    } else {
+        response_status->set_status_code(TStatusCode::INTERNAL_ERROR);
+        response_status->add_error_msgs("no associated load channel " + print_id(load_id));
+    }
+}
+
+void LoadChannelMgr::abort_txn(int64_t txn_id, const std::string& reason) {
     auto channel = _find_load_channel(txn_id);
     if (channel != nullptr) {
-        LOG(INFO) << "Aborting load channel because transaction was aborted. load_id=" << channel->load_id()
+        LOG(INFO) << "Aborting load channel because transaction was aborted. load_id=" << print_id(channel->load_id())
                   << " txn_id=" << txn_id;
-        channel->cancel();
+        // remove the channel and added into aborted list
+        _remove_load_channel(channel->load_id(), true, reason);
+        channel->cancel(reason);
         channel->abort();
     }
 }

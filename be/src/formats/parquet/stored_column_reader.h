@@ -19,6 +19,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/simd/simd.h"
 #include "column/vectorized_fwd.h"
 #include "column_reader.h"
 #include "common/config.h"
