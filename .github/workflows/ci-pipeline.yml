@@ -65,7 +65,7 @@ jobs:
           python3 scripts/get_pr_issue.py check_issue ${GITHUB_REPOSITORY} ${PR_NUMBER}
 
   be-checker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: basic-checker
     name: BE FILTER
     if: needs.basic-checker.outputs.PASS == 'true'
@@ -335,7 +335,7 @@ jobs:
           rm -rf ${{ github.workspace }}/*
 
   fe-checker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: basic-checker
     name: FE FILTER
     if: needs.basic-checker.outputs.PASS == 'true'
@@ -383,7 +383,7 @@ jobs:
           overwrite: true
 
   fe-codestyle-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: fe-checker
     if: needs.fe-checker.outputs.src_filter == 'true' || needs.fe-checker.outputs.test_filter == 'true'
     name: FE Code Style Check
@@ -437,7 +437,7 @@ jobs:
           level: error
 
   sonarcloud-fe-checker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: fe-checker
     if: needs.fe-checker.outputs.src_filter == 'true' && github.repository == 'StarRocks/starrocks'
     name: FE Sonarcloud Check
@@ -581,7 +581,7 @@ jobs:
           rm -rf ${{ github.workspace }}/*
 
   test-checker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: basic-checker
     name: TEST FILTER
     if: needs.basic-checker.outputs.PASS == 'true'

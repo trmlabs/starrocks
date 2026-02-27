@@ -14,7 +14,7 @@ permissions:
 jobs:
   grab_feedback_from_posthog:
     name: Pull feedback using API
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     env:
       POSTHOG_TOKEN: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
       ALGOLIA_TOKEN: ${{ secrets.ALGOLIA_ANALYTICS_KEY }}
