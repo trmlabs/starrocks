@@ -39,6 +39,8 @@
 #include <functional>
 #include <iostream>
 
+#include "base/failpoint/fail_point.h"
+#include "base/testutil/assert.h"
 #include "column/datum_tuple.h"
 #include "common/logging.h"
 #include "fs/fs_memory.h"
@@ -55,7 +57,6 @@
 #include "storage/rowset/segment_writer.h"
 #include "storage/tablet_schema.h"
 #include "storage/tablet_schema_helper.h"
-#include "testutil/assert.h"
 
 namespace starrocks {
 
@@ -80,7 +81,7 @@ protected:
         ASSERT_TRUE(_fs->create_dir(kSegmentDir).ok());
     }
 
-    void TearDown() override { StoragePageCache::instance()->prune(); }
+    void TearDown() override {}
 
     void build_segment(const SegmentWriterOptions& opts, const TabletSchemaCSPtr& build_schema,
                        const TabletSchemaCSPtr& query_schema, size_t nrows, const ValueGenerator& generator,
@@ -96,7 +97,7 @@ protected:
         auto schema = ChunkHelper::convert_schema(build_schema);
         auto chunk = ChunkHelper::new_chunk(schema, nrows);
         for (size_t rid = 0; rid < nrows; ++rid) {
-            auto& cols = chunk->columns();
+            auto cols = chunk->mutable_columns();
             for (int cid = 0; cid < build_schema->num_columns(); ++cid) {
                 int row_block_id = rid / opts.num_rows_per_block;
                 cols[cid]->append_datum(generator(rid, cid, row_block_id));
@@ -143,7 +144,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     auto schema = ChunkHelper::convert_schema(tablet_schema);
     auto chunk = ChunkHelper::new_chunk(schema, nrows);
     for (size_t rid = 0; rid < nrows; ++rid) {
-        auto& cols = chunk->columns();
+        auto cols = chunk->mutable_columns();
         for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
             cols[cid]->append_datum(Datum(static_cast<int32_t>(rid * 10 + cid)));
         }
@@ -201,7 +202,7 @@ TEST_F(SegmentReaderWriterTest, TestHorizontalWrite) {
     auto chunk = ChunkHelper::new_chunk(schema, chunk_size);
     for (auto i = 0; i < num_rows % chunk_size; ++i) {
         chunk->reset();
-        auto& cols = chunk->columns();
+        auto cols = chunk->mutable_columns();
         for (auto j = 0; j < chunk_size && i * chunk_size + j < num_rows; ++j) {
             cols[0]->append_datum(Datum(static_cast<int32_t>(i * chunk_size + j)));
             cols[1]->append_datum(Datum(static_cast<int32_t>(i * chunk_size + j + 1)));
@@ -225,7 +226,7 @@ TEST_F(SegmentReaderWriterTest, TestHorizontalWrite) {
     seg_options.stats = &stats;
     auto res = segment->new_iterator(schema, seg_options);
     ASSERT_FALSE(res.status().is_end_of_file() || !res.ok() || res.value() == nullptr);
-    auto seg_iterator = res.value();
+    const auto& seg_iterator = res.value();
 
     size_t count = 0;
     while (true) {
@@ -310,7 +311,7 @@ TEST_F(SegmentReaderWriterTest, TestVerticalWrite) {
         auto chunk = ChunkHelper::new_chunk(schema, chunk_size);
         for (auto i = 0; i < num_rows % chunk_size; ++i) {
             chunk->reset();
-            auto& cols = chunk->columns();
+            auto cols = chunk->mutable_columns();
             for (auto j = 0; j < chunk_size && i * chunk_size + j < num_rows; ++j) {
                 cols[0]->append_datum(Datum(static_cast<int32_t>(i * chunk_size + j)));
                 cols[1]->append_datum(Datum(static_cast<int32_t>(i * chunk_size + j + 1)));
@@ -328,7 +329,7 @@ TEST_F(SegmentReaderWriterTest, TestVerticalWrite) {
         auto chunk = ChunkHelper::new_chunk(schema, chunk_size);
         for (auto i = 0; i < num_rows % chunk_size; ++i) {
             chunk->reset();
-            auto& cols = chunk->columns();
+            auto cols = chunk->mutable_columns();
             for (auto j = 0; j < chunk_size && i * chunk_size + j < num_rows; ++j) {
                 cols[0]->append_datum(Datum(static_cast<int32_t>(i * chunk_size + j + 2)));
             }
@@ -345,7 +346,7 @@ TEST_F(SegmentReaderWriterTest, TestVerticalWrite) {
         auto chunk = ChunkHelper::new_chunk(schema, chunk_size);
         for (auto i = 0; i < num_rows % chunk_size; ++i) {
             chunk->reset();
-            auto& cols = chunk->columns();
+            auto cols = chunk->mutable_columns();
             for (auto j = 0; j < chunk_size && i * chunk_size + j < num_rows; ++j) {
                 cols[0]->append_datum(Datum(static_cast<int32_t>(i * chunk_size + j + 3)));
             }
@@ -366,7 +367,7 @@ TEST_F(SegmentReaderWriterTest, TestVerticalWrite) {
     auto schema = ChunkHelper::convert_schema(tablet_schema);
     auto res = segment->new_iterator(schema, seg_options);
     ASSERT_FALSE(res.status().is_end_of_file() || !res.ok() || res.value() == nullptr);
-    auto seg_iterator = res.value();
+    const auto& seg_iterator = res.value();
 
     size_t count = 0;
     auto chunk = ChunkHelper::new_chunk(schema, chunk_size);
@@ -427,7 +428,7 @@ TEST_F(SegmentReaderWriterTest, TestReadMultipleTypesColumn) {
         auto chunk = ChunkHelper::new_chunk(schema, chunk_size);
         for (auto i = 0; i < num_rows % chunk_size; ++i) {
             chunk->reset();
-            auto& cols = chunk->columns();
+            auto cols = chunk->mutable_columns();
             for (auto j = 0; j < chunk_size && i * chunk_size + j < num_rows; ++j) {
                 cols[0]->append_datum(Datum(static_cast<int32_t>(i * chunk_size + j)));
                 cols[1]->append_datum(Datum(static_cast<int32_t>(i * chunk_size + j + 1)));
@@ -445,7 +446,7 @@ TEST_F(SegmentReaderWriterTest, TestReadMultipleTypesColumn) {
         auto chunk = ChunkHelper::new_chunk(schema, chunk_size);
         for (auto i = 0; i < num_rows % chunk_size; ++i) {
             chunk->reset();
-            auto& cols = chunk->columns();
+            auto cols = chunk->mutable_columns();
             for (auto j = 0; j < chunk_size && i * chunk_size + j < num_rows; ++j) {
                 cols[0]->append_datum(Datum(data_strs[j % 8]));
             }
@@ -465,7 +466,7 @@ TEST_F(SegmentReaderWriterTest, TestReadMultipleTypesColumn) {
     auto schema = ChunkHelper::convert_schema(tablet_schema);
     auto res = segment->new_iterator(schema, seg_options);
     ASSERT_FALSE(res.status().is_end_of_file() || !res.ok() || res.value() == nullptr);
-    auto seg_iterator = res.value();
+    const auto& seg_iterator = res.value();
 
     size_t count = 0;
     auto chunk = ChunkHelper::new_chunk(schema, chunk_size);
@@ -503,7 +504,7 @@ TEST_F(SegmentReaderWriterTest, TestTypeConversion) {
     auto chunk = ChunkHelper::new_chunk(write_schema, chunk_size);
     for (auto i = 0; i < num_rows / chunk_size; ++i) {
         chunk->reset();
-        auto& cols = chunk->columns();
+        auto cols = chunk->mutable_columns();
         for (auto j = 0; j < chunk_size; ++j) {
             cols[0]->append_datum(Datum(static_cast<int32_t>(i * chunk_size + j)));
             cols[1]->append_datum(Datum(static_cast<int32_t>(i * chunk_size + j + 1)));
@@ -570,4 +571,46 @@ TEST_F(SegmentReaderWriterTest, TestTypeConversion) {
         EXPECT_EQ(10, read_chunk->get(0)[1].get_int64());
     }
 }
+
+TEST_F(SegmentReaderWriterTest, TestCheckColumnUniqueIdUniqueness) {
+    std::shared_ptr<TabletSchema> tablet_schema = TabletSchemaHelper::create_tablet_schema();
+
+    SegmentWriterOptions opts;
+    shared_ptr<Segment> res;
+
+    PFailPointTriggerMode trigger_mode;
+    trigger_mode.set_mode(FailPointTriggerModeType::ENABLE);
+    // enable hook_publish_primary_key_tablet
+    auto fp = starrocks::failpoint::FailPointRegistry::GetInstance()->get("ingest_duplicate_column_unique_id");
+    fp->setMode(trigger_mode);
+
+    static int seg_id = 0;
+    std::string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, seg_id++);
+    ASSIGN_OR_ABORT(auto wfile, _fs->new_writable_file(filename));
+    SegmentWriter writer(std::move(wfile), 0, tablet_schema, opts);
+    ASSERT_OK(writer.init());
+
+    auto schema = ChunkHelper::convert_schema(tablet_schema);
+    auto chunk = ChunkHelper::new_chunk(schema, 100);
+    for (size_t rid = 0; rid < 100; ++rid) {
+        auto cols = chunk->mutable_columns();
+        for (int cid = 0; cid < tablet_schema->num_columns(); ++cid) {
+            int row_block_id = rid / opts.num_rows_per_block;
+            cols[cid]->append_datum(DefaultIntGenerator(rid, cid, row_block_id));
+        }
+    }
+    ASSERT_OK(writer.append_chunk(*chunk));
+
+    uint64_t file_size, index_size, footer_position;
+    ASSERT_OK(writer.finalize(&file_size, &index_size, &footer_position));
+    auto result = Segment::open(_fs, FileInfo{filename}, 0, tablet_schema);
+    ASSERT_TRUE(!result.ok());
+
+    const auto& st = result.status();
+    EXPECT_EQ(st.code(), TStatusCode::INTERNAL_ERROR)
+            << "Expected InternalError, got: " << st.code() << ", message: " << st.message();
+    EXPECT_EQ(st.message(), "Duplicate column id found in tablet schema")
+            << "Error message should indicate duplicate column id in tablet schema.";
+}
+
 } // namespace starrocks

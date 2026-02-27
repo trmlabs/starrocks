@@ -17,7 +17,7 @@ ETL ステートメントを非同期タスクとして送信します。
 
 - [CREATE TABLE AS SELECT](../../table_bucket_part_index/CREATE_TABLE_AS_SELECT.md) (v3.0 以降)
 - [INSERT](../INSERT.md) (v3.0 以降)
-- [CACHE SELECT](../../../../data_source/data_cache_warmup.md) (v3.3 以降)
+- [CACHE SELECT](../../../../data_source/block_cache_warmup.md) (v3.3 以降)
 
 タスクの一覧は `INFORMATION_SCHEMA.tasks` をクエリすることで確認でき、タスクの実行履歴は `INFORMATION_SCHEMA.task_runs` をクエリすることで確認できます。詳細については、[使用上の注意](#usage-notes)を参照してください。
 
@@ -30,6 +30,20 @@ SUBMIT TASK <task_name>
 [SCHEDULE [START(<schedule_start>)] EVERY(INTERVAL <schedule_interval>) ]
 [PROPERTIES(<"key" = "value"[, ...]>)]
 AS <etl_statement>
+```
+## PROPERTIES
+
+`session.` プレフィックスを持つセッション変数を追加することで、タスク実行時の接続コンテキスト設定を変更できます。
+
+例えば、以下のステートメントは、クエリプロファイルを有効にし、クエリタイムアウトを増加させるセッションプロパティを持つ `test_task` という名前のタスクを送信します：
+
+```SQL
+SUBMIT TASK test_task
+PROPERTIES (
+    "session.enable_profile" = "true",
+    "session.insert_timeout" = "10000"
+)
+AS insert into t2 select * from t1;
 ```
 
 ## パラメータ
@@ -101,7 +115,7 @@ SUBMIT TASK AS INSERT OVERWRITE tbl3 SELECT * FROM src_tbl;
 例 4: タスク名を指定せずに `INSERT OVERWRITE insert_wiki_edit SELECT * FROM source_wiki_edit` の非同期タスクを送信し、ヒントを使用してクエリタイムアウトを `100000` 秒に延長します:
 
 ```SQL
-SUBMIT /*+set_var(query_timeout=100000)*/ TASK AS
+SUBMIT /*+set_var(insert_timeout=100000)*/ TASK AS
 INSERT OVERWRITE insert_wiki_edit
 SELECT * FROM source_wiki_edit;
 ```
@@ -116,4 +130,15 @@ INSERT OVERWRITE insert_wiki_edit
     SELECT dt, user_id, count(*) 
     FROM source_wiki_edit 
     GROUP BY dt, user_id;
+```
+
+例 6: カスタムセッションプロパティを持つタスクを作成します:
+
+```SQL
+SUBMIT TASK test_task
+PROPERTIES (
+    "session.enable_profile" = "true",
+    "session.insert_timeout" = "10000"
+)
+AS insert into t2 select * from t1;
 ```

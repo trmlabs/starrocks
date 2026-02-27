@@ -39,12 +39,12 @@
 
 #include <utility>
 
+#include "base/brpc/brpc.h"
+#include "base/concurrency/race_detect.h"
+#include "base/utility/defer_op.h"
+#include "common/util/thrift_util.h"
 #include "gen_cpp/InternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "service/brpc.h"
-#include "util/defer_op.h"
-#include "util/race_detect.h"
-#include "util/thrift_util.h"
 
 namespace starrocks {
 
@@ -146,9 +146,6 @@ Status BufferControlBlock::add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& 
     }
 
     std::unique_lock<std::mutex> l(_lock);
-    while ((_arrow_batch_queue.size() > _buffer_limit || _arrow_rows > _arrow_rows_limit) && !_is_cancelled) {
-        _data_removal.wait(l);
-    }
 
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled BufferControlBlock::add_arrow_batch");
@@ -231,6 +228,9 @@ bool BufferControlBlock::is_full() const {
     }
     std::unique_lock<std::mutex> l(_lock);
     if ((_batch_queue.size() > _buffer_limit || _buffer_bytes > _max_memory_usage) && !_is_cancelled) {
+        return true;
+    }
+    if ((_arrow_batch_queue.size() > _buffer_limit || _arrow_rows > _arrow_rows_limit) && !_is_cancelled) {
         return true;
     }
     if (_is_cancelled) {
@@ -328,10 +328,10 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
 }
 
 Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) {
+    auto notify = defer_notify();
     std::unique_lock<std::mutex> l(_lock);
-    if (!_status.ok()) {
-        return _status;
-    }
+
+    RETURN_IF_ERROR(_status);
 
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled BufferControlBlock::get_arrow_batch");
@@ -340,6 +340,8 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
     while (_arrow_batch_queue.empty() && !_is_close && !_is_cancelled) {
         _data_arriaval.wait(l);
     }
+
+    RETURN_IF_ERROR(_status);
 
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled BufferControlBlock::get_arrow_batch");
@@ -351,11 +353,13 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
         _arrow_batch_queue.pop_front();
         _arrow_rows -= batch->num_rows();
         _data_removal.notify_one();
+
         return Status::OK();
     }
 
     if (_is_close) {
-        return Status::OK();
+        *result = nullptr;
+        return _status;
     }
 
     return Status::InternalError("Internal error, BufferControlBlock::get_arrow_batch");

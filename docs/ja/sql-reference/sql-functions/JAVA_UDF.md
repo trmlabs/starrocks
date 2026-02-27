@@ -17,7 +17,7 @@ sidebar_position: 0.9
 
 - [Apache Maven](https://maven.apache.org/download.cgi) をインストールしており、Java プロジェクトを作成およびコンパイルできます。
 
-- サーバーに JDK 1.8 をインストールしています。
+- サーバーに JDK 17 をインストールしています。
 
 - Java UDF 機能が有効になっています。この機能を有効にするには、FE 設定ファイル **fe/conf/fe.conf** の FE 設定項目 `enable_udf` を `true` に設定し、FE ノードを再起動して設定を有効にします。詳細については、[パラメーター設定](../../administration/management/FE_configuration.md)を参照してください。
 
@@ -56,8 +56,8 @@ project
     <version>1.0-SNAPSHOT</version>
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
     </properties>
 
     <dependencies>
@@ -536,6 +536,10 @@ DROP [GLOBAL] FUNCTION <function_name>(arg_type [, ...]);
 
 ## SQL データ型と Java データ型のマッピング
 
+> **NOTE**
+>
+> 現在、スカラー UDF でサポートされているのは、ネストされていない ARRAY と MAP パラメータ/リターンタイプのみです。
+
 | SQL TYPE       | Java TYPE         |
 | -------------- | ----------------- |
 | BOOLEAN        | java.lang.Boolean |
@@ -549,12 +553,10 @@ DROP [GLOBAL] FUNCTION <function_name>(arg_type [, ...]);
 
 ## パラメーター設定
 
-StarRocks クラスター内の各 Java 仮想マシン (JVM) の **be/conf/be.conf** ファイルで、次の環境変数を設定してメモリ使用量を制御します。JDK 8 を使用する場合は `JAVA_OPTS` を設定し、JDK 9 以降を使用する場合は `JAVA_OPTS_FOR_JDK_9_AND_LATER` を設定します。
+StarRocks クラスター内の各 Java 仮想マシン (JVM) の **be/conf/be.conf** ファイルで、次の環境変数を設定してメモリ使用量を制御します。
 
 ```Bash
 JAVA_OPTS="-Xmx12G"
-
-JAVA_OPTS_FOR_JDK_9_AND_LATER="-Xmx12G"
 ```
 
 ## FAQ

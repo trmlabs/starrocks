@@ -13,7 +13,7 @@
 
     <properties>
         <java-extensions.home>${basedir}/../</java-extensions.home>
-        <hudi.version>0.15.0</hudi.version>
+        <hudi.version>1.0.2</hudi.version>
     </properties>
 
     <dependencies>
@@ -32,11 +32,6 @@
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-common</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-aws</artifactId>
         </dependency>
 
         <dependency>
@@ -64,6 +59,12 @@
             <artifactId>junit-jupiter</artifactId>
         </dependency>
 
+        <!-- https://mvnrepository.com/artifact/at.yawk.lz4/lz4-java -->
+        <dependency>
+            <groupId>at.yawk.lz4</groupId>
+            <artifactId>lz4-java</artifactId>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
         <dependency>
             <groupId>org.apache.hudi</groupId>
@@ -85,6 +86,10 @@
                 <exclusion>
                     <groupId>com.fasterxml.jackson.core</groupId>
                     <artifactId>jackson-databind</artifactId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>lz4-java</artifactId>
+                    <groupId>org.lz4</groupId>
                 </exclusion>
             </exclusions>
         </dependency>

@@ -2,12 +2,12 @@
 displayed_sidebar: docs
 ---
 
-# Use MinIO for shared-data
+# 共有データに MinIO を使用する
 
-import SharedDataIntro from '../../_assets/commonMarkdown/sharedDataIntro.md'
-import SharedDataCNconf from '../../_assets/commonMarkdown/sharedDataCNconf.md'
-import SharedDataUseIntro from '../../_assets/commonMarkdown/sharedDataUseIntro.md'
-import SharedDataUse from '../../_assets/commonMarkdown/sharedDataUse.md'
+import SharedDataIntro from '../../_assets/commonMarkdown/sharedDataIntro.mdx'
+import SharedDataCNconf from '../../_assets/commonMarkdown/sharedDataCNconf.mdx'
+import SharedDataUseIntro from '../../_assets/commonMarkdown/sharedDataUseIntro.mdx'
+import SharedDataUse from '../../_assets/commonMarkdown/sharedDataUse.mdx'
 
 <SharedDataIntro />
 
@@ -77,10 +77,6 @@ FE 設定ファイルに指定されたオブジェクトストレージ関連�
 - `false` (デフォルト) 新しい共有データクラスタを作成する際にこの項目を `false` に指定すると、StarRocks は組み込みストレージボリュームを作成せずに直接起動します。StarRocks でオブジェクトを作成する前に、手動でストレージボリュームを作成し、それをデフォルトのストレージボリュームとして設定する必要があります。詳細については、[Create the default storage volume](#use-your-shared-data-starrocks-cluster) を参照してください。
 
 v3.1.0 からサポートされています。
-
-> **注意**
->
-> 既存の共有データクラスタを v3.0 からアップグレードする際には、この項目を `true` のままにすることを強くお勧めします。この項目を `false` に指定すると、アップグレード前に作成したデータベースとテーブルが読み取り専用になり、それらにデータをロードすることができなくなります。
 
 #### cloud_native_storage_type
 

@@ -35,7 +35,6 @@ import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.qe.scheduler.dag.FragmentInstanceExecState;
 import com.starrocks.qe.scheduler.dag.JobSpec;
-import com.starrocks.service.arrow.flight.sql.ArrowFlightSqlConnectContext;
 import com.starrocks.sql.plan.ExecPlan;
 import com.starrocks.task.LoadEtlTask;
 import com.starrocks.thrift.TLoadDataCacheMetrics;
@@ -97,7 +96,7 @@ public class QueryRuntimeProfile {
      * if the time costs of stream load is less than {@link Config#stream_load_profile_collect_threshold_second},
      * the profile will not be reported to FE to reduce the overhead of profile under high-frequency import
      */
-    private boolean profileAlreadyReported = false;
+    private volatile boolean profileAlreadyReported = false;
 
     private RuntimeProfile queryProfile;
     private List<RuntimeProfile> fragmentProfiles;
@@ -129,14 +128,14 @@ public class QueryRuntimeProfile {
     // ------------------------------------------------------------------------------------
     // Fields for export.
     // ------------------------------------------------------------------------------------
-    private final List<String> exportFiles = Lists.newArrayList();
-    private final List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
-    private final List<TTabletFailInfo> failInfos = Lists.newArrayList();
+    private final List<String> exportFiles = Lists.newCopyOnWriteArrayList();
+    private final List<TTabletCommitInfo> commitInfos = Lists.newCopyOnWriteArrayList();
+    private final List<TTabletFailInfo> failInfos = Lists.newCopyOnWriteArrayList();
 
     // ------------------------------------------------------------------------------------
     // Fields for external table sink
     // ------------------------------------------------------------------------------------
-    private final List<TSinkCommitInfo> sinkCommitInfos = Lists.newArrayList();
+    private final List<TSinkCommitInfo> sinkCommitInfos = Lists.newCopyOnWriteArrayList();
 
     // Fields for datacache
     private final DataCacheSelectMetrics dataCacheSelectMetrics = new DataCacheSelectMetrics();
@@ -259,17 +258,10 @@ public class QueryRuntimeProfile {
     }
 
     public boolean isFinished() {
-        return profileDoneSignal.getCount() == 0;
+        return profileDoneSignal != null && profileDoneSignal.getCount() == 0;
     }
 
     public boolean addListener(Consumer<Boolean> task) {
-        if (connectContext instanceof ArrowFlightSqlConnectContext) {
-            profileDoneSignal.addListener(() -> EXECUTOR.submit(() -> {
-                task.accept(true);
-            }));
-            return true;
-        }
-
         if (EXECUTOR.getQueue().remainingCapacity() <= 0) {
             return false;
         }
@@ -692,7 +684,11 @@ public class QueryRuntimeProfile {
         return matcher.matches() ? Optional.of(matcher.group(1)) : Optional.empty();
     }
 
-    private List<String> getUnfinishedInstanceIds() {
+    public List<String> getUnfinishedInstanceIds() {
+        if (profileDoneSignal == null) {
+            return Lists.newArrayList();
+        }
+
         return profileDoneSignal.getLeftMarks().stream()
                 .map(Map.Entry::getKey)
                 .map(DebugUtil::printId)

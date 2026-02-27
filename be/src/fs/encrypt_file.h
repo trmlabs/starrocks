@@ -16,7 +16,7 @@
 
 #include "fs/fs.h"
 #include "fs/writable_file_wrapper.h"
-#include "io/input_stream.h"
+#include "io/core/input_stream.h"
 
 namespace starrocks {
 
@@ -34,6 +34,8 @@ public:
     Status append(const Slice& data) override;
 
     Status appendv(const Slice* data, size_t cnt) override;
+
+    void set_encryption_info(const FileEncryptionInfo& info) override { _encryption_info = info; }
 
 private:
     FileEncryptionInfo _encryption_info;

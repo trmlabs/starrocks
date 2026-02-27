@@ -16,10 +16,10 @@
 
 #include <memory>
 
+#include "base/concurrency/stopwatch.hpp"
 #include "exec/pipeline/fragment_context.h"
 #include "exec/pipeline/schedule/observer.h"
 #include "exec/pipeline/schedule/timeout_tasks.h"
-#include "util/stopwatch.hpp"
 
 namespace starrocks::pipeline {
 Status WaitSourceOperator::prepare(RuntimeState* state) {
@@ -29,7 +29,7 @@ Status WaitSourceOperator::prepare(RuntimeState* state) {
     _wait_context->observable->attach_source_observer(state, observer());
     if (state->enable_event_scheduler()) {
         auto fragment_ctx = state->fragment_ctx();
-        auto timer = std::make_unique<RFScanWaitTimeout>(fragment_ctx);
+        auto timer = std::make_unique<RFScanWaitTimeout>();
         timer->add_observer(state, observer());
         _wait_timer_task = std::move(timer);
         timespec abstime = butil::microseconds_to_timespec(butil::gettimeofday_us());

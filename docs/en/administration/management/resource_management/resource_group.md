@@ -1,6 +1,7 @@
 ---
 displayed_sidebar: docs
 sidebar_position: 10
+keywords: ['resource groups', 'isolation']
 ---
 
 # Resource group
@@ -41,6 +42,7 @@ You can specify CPU and memory resource quotas for a resource group on a BE by u
 | cpu_weight                 | The CPU scheduling weight of this resource group on a BE node. | (0, `avg_be_cpu_cores`] (takes effect when greater than 0)     | 0       |
 | exclusive_cpu_cores        | CPU hard isolation parameter for this resource group.          | (0, `min_be_cpu_cores - 1`] (takes effect when greater than 0) | 0       |
 | mem_limit                  | The percentage of memory available for queries by this resource group on the current BE node. | (0, 1] (required)               | -       |
+| mem_pool                   | Groups resource groups to share a memory limit.                | String                                                         | default_mem_pool |
 | spill_mem_limit_threshold  | Memory usage threshold that triggers spilling to disk.         | (0, 1]                                                         | 1.0     |
 | concurrency_limit          | Maximum number of concurrent queries in this resource group.   | Integer (takes effect when greater than 0)                     | 0       |
 | big_query_cpu_second_limit | Maximum CPU time (in seconds) for big query tasks on each BE node.   | Integer (takes effect when greater than 0)               | 0       |
@@ -89,6 +91,30 @@ UPDATE information_schema.be_configs SET VALUE = "false" WHERE NAME = "enable_re
 
 Specifies the percentage of memory (query pool) available to the resource group on the current BE node. The value range is (0,1].
 
+##### `mem_pool`
+
+Since v4.0, specifies a shared memory pool identifier. Resource groups with the same mem_pool identifier draw from a shared memory pool, collectively limited by the `mem_limit`. If not specified, the resource group is assigned to `default_mem_pool`, and its memory usage is limited solely by its own `mem_limit`.
+
+All resource groups sharing the same `mem_pool` must be configured with an identical `mem_limit`.
+
+To limit two resource groups to consume 50% of memory collectively, it could be defined in the following way:
+
+```SQL
+CREATE RESOURCE GROUP rg1
+TO (db='db1')
+WITH (
+    'mem_limit' = '50%',
+    'mem_pool' = 'shared_pool'
+);
+
+CREATE RESOURCE GROUP rg2
+TO (db='db1')
+WITH (
+    'mem_limit' = '50%',
+    'mem_pool' = 'shared_pool'
+);
+```
+
 ##### `spill_mem_limit_threshold`
 
 Defines the memory usage threshold that triggers spilling to disk. The value range is (0,1], with the default being 1 (inactive). Introduced in v3.1.7.
@@ -136,7 +162,7 @@ There are two system-defined resource groups in each StarRocks instance: `defaul
 
 `default_wg` will be assigned to regular queries that are under the management of resource groups but don't match any classifier. The default resource limits of `default_wg` are as follows:
 
-- `cpu_core_limit`: 1 (for v2.3.7 or earlier) or the number of CPU cores of the BE (for versions later than v2.3.7).
+- `cpu_weight`: The number of CPU cores of the BE.
 - `mem_limit`: 100%.
 - `concurrency_limit`: 0.
 - `big_query_cpu_second_limit`: 0.
@@ -148,7 +174,7 @@ There are two system-defined resource groups in each StarRocks instance: `defaul
 
 `default_mv_wg` will be assigned to asynchronous materialized view refresh tasks if no resource group is allocated to the corresponding materialized view in the property `resource_group` during materialized view creation. The default resource limits of `default_mv_wg` are as follows:
 
-- `cpu_core_limit`: 1.
+- `cpu_weight`: 1.
 - `mem_limit`: 80%.
 - `concurrency_limit`: 0.
 - `spill_mem_limit_threshold`: 80%.
@@ -229,12 +255,6 @@ To use resource group, you must enable Pipeline Engine for your StarRocks cluste
 SET enable_pipeline_engine = true;
 -- Enable Pipeline Engine globally.
 SET GLOBAL enable_pipeline_engine = true;
-```
-
-For loading tasks, you also need to set the FE configuration item `enable_pipeline_load` to enable the Pipeline engine for loading tasks. This item is supported from v2.5.0 onwards.
-
-```sql
-ADMIN SET FRONTEND CONFIG ("enable_pipeline_load" = "true");
 ```
 
 > **NOTE**

@@ -3,7 +3,11 @@ displayed_sidebar: docs
 toc_max_heading_level: 4
 ---
 
+import Beta from '../../_assets/commonMarkdown/_beta.mdx'
+
 # JDBC catalog
+
+<Beta />
 
 StarRocks 从 3.0 版本开始支持 JDBC Catalog。
 
@@ -11,7 +15,7 @@ JDBC Catalog 是一种 External Catalog。通过 JDBC Catalog，您不需要执�
 
 此外，您还可以基于 JDBC Catalog ，结合 [INSERT INTO](../../sql-reference/sql-statements/loading_unloading/INSERT.md) 能力对 JDBC 数据源的数据实现转换和导入。
 
-JDBC Catalog 自 3.0 版本开始支持 MySQL、PostgreSQL，自 3.2.9、3.3.1 版本开始支持 Oracle 和 SQLServer。
+JDBC Catalog 自 3.0 版本开始支持 MySQL、PostgreSQL，自 3.2.9、3.3.1 版本开始支持 Oracle 和 SQLServer。自 3.3.0 开始支持 ClickHouse（试验性）。
 
 ## 前提条件
 
@@ -54,6 +58,7 @@ JDBC Catalog 的属性，包含如下必填配置项：
 | jdbc_uri     | JDBC 驱动程序连接目标数据库的 URI。如果使用 MySQL，格式为：`"jdbc:mysql://ip:port"`。如果使用 PostgreSQL，格式为 `"jdbc:postgresql://ip:port/db_name"`。 |
 | driver_url   | 用于下载 JDBC 驱动程序 JAR 包的 URL。支持使用 HTTP 协议或者 file 协议，例如`https://repo1.maven.org/maven2/org/postgresql/postgresql/42.3.3/postgresql-42.3.3.jar` 和 `file:///home/disk1/postgresql-42.3.3.jar`。<br />**说明**<br />您也可以把 JDBC 驱动程序部署在 FE 或 BE（或 CN）所在节点上任意相同路径下，然后把 `driver_url` 设置为该路径，格式为 `file:///<path>/to/the/driver`。 |
 | driver_class | JDBC 驱动程序的类名称。以下是常见数据库引擎支持的 JDBC 驱动程序类名称：<ul><li>MySQL：`com.mysql.jdbc.Driver`（MySQL 5.x 及之前版本）、`com.mysql.cj.jdbc.Driver`（MySQL 6.x 及之后版本）</li><li>PostgreSQL: `org.postgresql.Driver`</li></ul> |
+| schema_resolver | （可选）显式指定要使用的 Schema Resolver。有效值：`postgresql`、`mysql`、`oracle`、`sqlserver`、`clickhouse`。当使用非标准 JDBC 驱动程序且无法通过驱动类名自动检测时，请使用此参数。如果未指定，StarRocks 将根据 `driver_class` 参数自动检测相应的 Resolver。 |
 
 > **说明**
 >
@@ -61,20 +66,21 @@ JDBC Catalog 的属性，包含如下必填配置项：
 
 ### 创建示例
 
-以下示例创建了两个 JDBC Catalog：`jdbc0` 和 `jdbc1`。
+以下示例创建了五个不同的 JDBC Catalog。
 
 ```SQL
+-- PostgresSQL
 CREATE EXTERNAL CATALOG jdbc0
 PROPERTIES
 (
-    "type"="jdbc",
+    "type"="jdbc", 
     "user"="postgres",
     "password"="changeme",
     "jdbc_uri"="jdbc:postgresql://127.0.0.1:5432/jdbc_test",
     "driver_url"="https://repo1.maven.org/maven2/org/postgresql/postgresql/42.3.3/postgresql-42.3.3.jar",
     "driver_class"="org.postgresql.Driver"
 );
-
+-- MySQL
 CREATE EXTERNAL CATALOG jdbc1
 PROPERTIES
 (
@@ -85,7 +91,7 @@ PROPERTIES
     "driver_url"="https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.28/mysql-connector-java-8.0.28.jar",
     "driver_class"="com.mysql.cj.jdbc.Driver"
 );
- 
+-- Oracle
 CREATE EXTERNAL CATALOG jdbc2
 PROPERTIES
 (
@@ -96,7 +102,7 @@ PROPERTIES
     "driver_url"="https://repo1.maven.org/maven2/com/oracle/database/jdbc/ojdbc10/19.18.0.0/ojdbc10-19.18.0.0.jar",
     "driver_class"="oracle.jdbc.driver.OracleDriver"
 );
-       
+-- SQL Server
 CREATE EXTERNAL CATALOG jdbc3
 PROPERTIES
 (
@@ -107,7 +113,28 @@ PROPERTIES
     "driver_url"="https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.4.2.jre11/mssql-jdbc-12.4.2.jre11.jar",
     "driver_class"="com.microsoft.sqlserver.jdbc.SQLServerDriver"
 );
-
+-- ClickHouse
+CREATE EXTERNAL CATALOG jdbc4
+PROPERTIES
+(
+    "type"="jdbc",
+    "user"="default",
+    "jdbc_uri"="jdbc:clickhouse://127.0.0.1:8443",
+    "driver_url"="https://repo1.maven.org/maven2/com/clickhouse/clickhouse-jdbc/0.4.6/clickhouse-jdbc-0.4.6.jar",
+    "driver_class"="com.clickhouse.jdbc.ClickHouseDriver"
+);
+-- 使用 schema_resolver 处理非标准驱动
+CREATE EXTERNAL CATALOG jdbc5
+PROPERTIES
+(
+    "type"="jdbc",
+    "user"="postgres",
+    "password"="changeme",
+    "jdbc_uri"="jdbc:postgresql://127.0.0.1:5432/mydb",
+    "driver_url"="file:///path/to/custom-postgresql-driver.jar",
+    "driver_class"="com.custom.PostgresDriver",
+    "schema_resolver"="postgresql"
+);
 ```
 
 ## 查看 JDBC Catalog

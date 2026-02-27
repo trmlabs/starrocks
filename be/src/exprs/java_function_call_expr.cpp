@@ -20,6 +20,7 @@
 #include <tuple>
 #include <vector>
 
+#include "base/utility/defer_op.h"
 #include "column/chunk.h"
 #include "column/column.h"
 #include "column/column_helper.h"
@@ -27,15 +28,15 @@
 #include "column/vectorized_fwd.h"
 #include "common/status.h"
 #include "common/statusor.h"
+#include "exprs/expr_context.h"
 #include "exprs/function_context.h"
 #include "gutil/casts.h"
 #include "jni.h"
-#include "runtime/types.h"
 #include "runtime/user_function_cache.h"
+#include "types/type_descriptor.h"
 #include "udf/java/java_data_converter.h"
 #include "udf/java/java_udf.h"
 #include "udf/java/utils.h"
-#include "util/defer_op.h"
 
 namespace starrocks {
 
@@ -79,6 +80,7 @@ struct UDFFunctionCallHelper {
         DCHECK(call_desc->method_desc[0].is_box);
         auto res = ColumnHelper::create_column(ctx->get_return_type(), true);
         RETURN_IF_ERROR(helper.get_result_from_boxed_array(ctx->get_return_type().type, res.get(), result, num_rows));
+        RETURN_IF_ERROR(ColumnHelper::update_nested_has_null(res.get()));
         down_cast<NullableColumn*>(res.get())->update_has_null();
         return res;
     }
@@ -218,6 +220,9 @@ Status JavaFunctionCallExpr::open(RuntimeState* state, ExprContext* context,
             const_columns.emplace_back(std::move(child_col));
         }
     }
+
+    UserFunctionCache::FunctionCacheDesc func_cache_desc(_fn.fid, _fn.hdfs_location, _fn.checksum,
+                                                         TFunctionBinaryType::SRJAR);
     // cacheable
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         auto get_func_desc = [this, scope, state](const std::string& lib) -> StatusOr<std::any> {
@@ -232,12 +237,11 @@ Status JavaFunctionCallExpr::open(RuntimeState* state, ExprContext* context,
 
         auto function_cache = UserFunctionCache::instance();
         if (_fn.__isset.isolated && !_fn.isolated) {
-            ASSIGN_OR_RETURN(auto desc, function_cache->load_cacheable_java_udf(_fn.fid, _fn.hdfs_location,
-                                                                                _fn.checksum, get_func_desc));
+            ASSIGN_OR_RETURN(auto desc, function_cache->load_cacheable_java_udf(func_cache_desc, get_func_desc));
             _func_desc = std::any_cast<std::shared_ptr<JavaUDFContext>>(desc);
         } else {
             std::string libpath;
-            RETURN_IF_ERROR(function_cache->get_libpath(_fn.fid, _fn.hdfs_location, _fn.checksum, &libpath));
+            RETURN_IF_ERROR(function_cache->get_libpath(func_cache_desc, &libpath));
             ASSIGN_OR_RETURN(auto desc, get_func_desc(libpath));
             _func_desc = std::any_cast<std::shared_ptr<JavaUDFContext>>(desc);
         }

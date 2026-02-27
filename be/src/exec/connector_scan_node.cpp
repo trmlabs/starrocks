@@ -18,13 +18,14 @@
 #include <memory>
 
 #include "common/config.h"
+#include "common/thread/threadpool.h"
 #include "exec/pipeline/scan/chunk_buffer_limiter.h"
 #include "exec/pipeline/scan/connector_scan_operator.h"
 #include "exec/stream/scan/stream_scan_operator.h"
 #include "runtime/current_thread.h"
 #include "runtime/exec_env.h"
+#include "runtime/global_dict/parser.h"
 #include "util/priority_thread_pool.hpp"
-#include "util/threadpool.h"
 
 namespace starrocks {
 
@@ -688,6 +689,13 @@ bool ConnectorScanNode::accept_empty_scan_ranges() const {
 void ConnectorScanNode::_init_counter() {
     _profile.scanner_queue_timer = ADD_TIMER(_runtime_profile, "ScannerQueueTime");
     _profile.scanner_queue_counter = ADD_COUNTER(_runtime_profile, "ScannerQueueCounter", TUnit::UNIT);
+}
+
+int ConnectorScanNode::io_tasks_per_scan_operator() const {
+    if (_data_source_provider->sorted_by_keys_per_tablet()) {
+        return 1;
+    }
+    return starrocks::ScanNode::io_tasks_per_scan_operator();
 }
 
 bool ConnectorScanNode::always_shared_scan() const {

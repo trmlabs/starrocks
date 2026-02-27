@@ -42,7 +42,16 @@
 #include <sstream>
 
 #include "agent/master_info.h"
+#include "base/concurrency/stopwatch.hpp"
+#include "base/network/network_util.h"
+#include "base/uid_util.h"
+#include "base/url_coding.h"
 #include "common/object_pool.h"
+#include "common/system/backend_options.h"
+#include "common/thread/thread.h"
+#include "common/thread/threadpool.h"
+#include "common/util/misc.h"
+#include "common/util/thrift_util.h"
 #include "exec/pipeline/fragment_executor.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/FrontendService.h"
@@ -51,24 +60,18 @@
 #include "gutil/strings/substitute.h"
 #include "runtime/client_cache.h"
 #include "runtime/current_thread.h"
-#include "runtime/datetime_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/global_dict/fragment_dict_state.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/profile_report_worker.h"
 #include "runtime/runtime_filter_cache.h"
 #include "runtime/runtime_filter_worker.h"
-#include "service/backend_options.h"
-#include "util/misc.h"
-#include "util/network_util.h"
-#include "util/starrocks_metrics.h"
-#include "util/stopwatch.hpp"
-#include "util/thread.h"
-#include "util/threadpool.h"
+#include "runtime/runtime_state_helper.h"
+#include "runtime/starrocks_metrics.h"
+#include "types/datetime_value.h"
+#include "util/global_metrics_registry.h"
 #include "util/thrift_rpc_helper.h"
-#include "util/thrift_util.h"
-#include "util/uid_util.h"
-#include "util/url_coding.h"
 
 namespace starrocks {
 
@@ -76,8 +79,10 @@ std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
         return "";
     }
+    std::string resolved_ip = BackendOptions::get_resolved_ip();
+
     std::stringstream url;
-    url << "http://" << get_host_port(BackendOptions::get_localhost(), config::be_http_port) << "/api/_load_error_log?"
+    url << "http://" << get_host_port(resolved_ip, config::be_http_port) << "/api/_load_error_log?"
         << "file=" << file_name;
     return url.str();
 }
@@ -140,6 +145,7 @@ public:
     std::shared_ptr<RuntimeState> runtime_state() { return _runtime_state; }
 
 private:
+    std::unique_ptr<FragmentDictState> _fragment_dict_state;
     void coordinator_callback(const Status& status, RuntimeProfile* profile, RuntimeProfile* load_channel_profile,
                               bool done);
 
@@ -165,7 +171,8 @@ private:
 
 FragmentExecState::FragmentExecState(const TUniqueId& query_id, const TUniqueId& fragment_instance_id, int backend_num,
                                      ExecEnv* exec_env, const TNetworkAddress& coord_addr)
-        : _query_id(query_id),
+        : _fragment_dict_state(std::make_unique<FragmentDictState>()),
+          _query_id(query_id),
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
           _exec_env(exec_env),
@@ -176,16 +183,22 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id, const TUniqueId&
     _start_time = DateTimeValue::local_time();
 }
 
-FragmentExecState::~FragmentExecState() = default;
+FragmentExecState::~FragmentExecState() {
+    if (_fragment_dict_state != nullptr && _runtime_state != nullptr) {
+        _fragment_dict_state->close(_runtime_state.get());
+    }
+}
 
 Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
     _runtime_state = std::make_shared<RuntimeState>(params.params.query_id, params.params.fragment_instance_id,
                                                     params.query_options, params.query_globals, _exec_env);
+    _runtime_state->set_fragment_dict_state(_fragment_dict_state.get());
     int func_version = params.__isset.func_version ? params.func_version
                                                    : TFunctionVersion::type::RUNTIME_FILTER_SERIALIZE_VERSION_2;
     _runtime_state->set_func_version(func_version);
-    _runtime_state->init_mem_trackers(_query_id);
+    _runtime_state->init_mem_trackers(_query_id, _exec_env->query_pool_mem_tracker());
     _executor.set_runtime_state(_runtime_state.get());
+    RuntimeStateHelper::init_runtime_filter_port(_runtime_state.get());
 
     if (params.__isset.query_options) {
         _timeout_second = params.query_options.query_timeout;
@@ -249,11 +262,11 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     DCHECK(runtime_state != nullptr);
     if (runtime_state->query_options().query_type == TQueryType::LOAD && !done && status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
-        runtime_state->update_report_load_status(&params);
+        RuntimeStateHelper::update_report_load_status(runtime_state, &params);
         params.__set_load_type(runtime_state->query_options().load_job_type);
     } else {
         if (runtime_state->query_options().query_type == TQueryType::LOAD) {
-            runtime_state->update_report_load_status(&params);
+            RuntimeStateHelper::update_report_load_status(runtime_state, &params);
             params.__set_load_type(runtime_state->query_options().load_job_type);
         }
         profile->to_thrift(&params.profile);
@@ -318,6 +331,12 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
             [&res, &params](FrontendServiceConnection& client) { client->reportExecStatus(res, params); },
             config::thrift_rpc_timeout_ms);
 
+    VLOG(1) << "report exec status, fragment_instance_id: " << print_id(_runtime_state->fragment_instance_id())
+            << ", has_profile: " << params.__isset.profile
+            << ", has_load_channel_profile: " << params.__isset.load_channel_profile
+            << ", rpc_status: " << rpc_status.to_string()
+            << ", result: " << apache::thrift::ThriftDebugString(res).c_str();
+
     if (rpc_status.ok()) {
         rpc_status = Status(res.status);
     }
@@ -347,9 +366,11 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
 }
 
 FragmentMgr::~FragmentMgr() {
-    // stop thread
+    // stop thread if not already stopped in close()
     _stop = true;
-    _cancel_thread.join();
+    if (_cancel_thread.joinable()) {
+        _cancel_thread.join();
+    }
     // Stop all the worker, should wait for a while?
     // _thread_pool->wait_for();
     _thread_pool->shutdown();
@@ -533,6 +554,11 @@ void FragmentMgr::close() {
         WARN_IF_ERROR(cancel(id, PPlanFragmentCancelReason::USER_CANCEL),
                       strings::Substitute("Fail to cancel fragment $0", print_id(id)));
     }
+    // Stop cancel_worker thread to avoid waiting in destructor
+    _stop = true;
+    if (_cancel_thread.joinable()) {
+        _cancel_thread.join();
+    }
 }
 
 void FragmentMgr::cancel_worker() {
@@ -624,7 +650,7 @@ void FragmentMgr::report_fragments_with_same_host(
                 RuntimeState* runtime_state = executor->runtime_state();
                 DCHECK(runtime_state != nullptr);
                 if (runtime_state->query_options().query_type == TQueryType::LOAD) {
-                    runtime_state->update_report_load_status(&params);
+                    RuntimeStateHelper::update_report_load_status(runtime_state, &params);
                     params.__set_load_type(runtime_state->query_options().load_job_type);
                 }
 
@@ -689,7 +715,7 @@ void FragmentMgr::report_fragments(const std::vector<TUniqueId>& non_pipeline_ne
             RuntimeState* runtime_state = executor->runtime_state();
             DCHECK(runtime_state != nullptr);
             if (runtime_state->query_options().query_type == TQueryType::LOAD) {
-                runtime_state->update_report_load_status(&params);
+                RuntimeStateHelper::update_report_load_status(runtime_state, &params);
                 params.__set_load_type(runtime_state->query_options().load_job_type);
             }
 
@@ -721,7 +747,7 @@ void FragmentMgr::report_fragments(const std::vector<TUniqueId>& non_pipeline_ne
                     config::thrift_rpc_timeout_ms);
 
             if (!rpc_status.ok()) {
-                LOG(WARNING) << "thrift rpc error:" << rpc_status;
+                LOG(WARNING) << "batch report exec status rpc error:" << rpc_status;
                 continue;
             }
 

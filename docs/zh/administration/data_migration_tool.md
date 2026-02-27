@@ -17,6 +17,18 @@ StarRocks 跨集群数据迁移工具是社区提供的 StarRocks 数据迁移�
 
 以下准备工作需要在数据迁移的目标集群中进行。
 
+### 开放端口
+
+如果您开启了防火墙，则需要开通以下端口：
+
+| **组件**     | **端口**       | **默认端口**  |
+| ----------- | -------------- | ----------- |
+| FE          | query_port     | 9030 |
+| FE          | http_port      | 8030 |
+| FE          | rpc_port       | 9020 |
+| BE          | be_http_port   | 8040 |
+| BE          | be_port        | 9060 |
+
 ### 开启迁移旧版本兼容
 
 新旧版本的集群间可能存在行为差异，从而导致跨集群数据迁移时出现问题。因此在数据迁移前，您需要为目标集群开启旧版本兼容，并在数据迁移完成后关闭。
@@ -122,6 +134,9 @@ target_cluster_user=root
 target_cluster_password=
 target_cluster_password_secret_key=
 
+jdbc_connect_timeout_ms=30000
+jdbc_socket_timeout_ms=60000
+
 # Comma-separated list of database names or table names like <db_name> or <db_name.table_name>
 # example: db1,db2.tbl2,db3
 # Effective order: 1. include 2. exclude
@@ -132,20 +147,40 @@ exclude_data_list=
 target_cluster_storage_volume=
 target_cluster_replication_num=-1
 target_cluster_max_disk_used_percent=80
+# To maintain consistency with the source cluster, use null.
+target_cluster_enable_persistent_index=
 
-max_replication_data_size_per_job_in_gb=-1
+max_replication_data_size_per_job_in_gb=1024
 
 meta_job_interval_seconds=180
 meta_job_threads=4
 ddl_job_interval_seconds=10
 ddl_job_batch_size=10
+
+# table config
 ddl_job_allow_drop_target_only=false
 ddl_job_allow_drop_schema_change_table=true
 ddl_job_allow_drop_inconsistent_partition=true
+ddl_job_allow_drop_inconsistent_time_partition = true
 ddl_job_allow_drop_partition_target_only=true
+# index config
+enable_bitmap_index_sync=false
+ddl_job_allow_drop_inconsistent_bitmap_index=true
+ddl_job_allow_drop_bitmap_index_target_only=true
+# MV config
+enable_materialized_view_sync=false
+ddl_job_allow_drop_inconsistent_materialized_view=true
+ddl_job_allow_drop_materialized_view_target_only=false
+# View config
+enable_view_sync=false
+ddl_job_allow_drop_inconsistent_view=true
+ddl_job_allow_drop_view_target_only=false
+
 replication_job_interval_seconds=10
 replication_job_batch_size=10
 report_interval_seconds=300
+
+enable_table_property_sync=false
 ```
 
 参数说明如下：
@@ -164,6 +199,8 @@ report_interval_seconds=300
 | target_cluster_user                       | 用于登录目标集群的用户名。此用户需要有 SYSTEM 级 OPERATE 权限。 |
 | target_cluster_password                   | 用于登录目标集群的用户密码。                                 |
 | target_cluster_password_secret_key        | 用于对目标集群登录用户密码加密的密钥。默认值为空，代表不对登录密码进行加密。如果需要对 `target_cluster_password` 加密，可以通过 SQL 语句 `SELECT TO_BASE64(AES_ENCRYPT('<target_cluster_password>','<target_cluster_password_secret_key>'))` 获得加密后的 `target_cluster_password`。 |
+| jdbc_connect_timeout_ms                   | FE 查询的 JDBC 连接超时时间，单位毫秒，默认值为 `30000`。 |
+| jdbc_socket_timeout_ms                    | FE 查询的 JDBC 读写超时时间，单位毫秒，默认值为 `60000`。 |
 | include_data_list                         | 需要迁移的数据库和表，多个对象使用逗号（`,`）分隔。示例：`db1,db2.tbl2,db3`。此项优先于 `exclude_data_list` 生效。如果您需要迁移集群中所有数据库和表，则无须配置该项。 |
 | exclude_data_list                         | 不需要迁移的数据库和表，多个对象使用逗号（`,`）分隔。示例：`db1,db2.tbl2,db3`。`include_data_list` 优先于此项生效。如果您需要迁移集群中所有数据库和表，则无须配置该项。 |
 | target_cluster_storage_volume             | 目标集群为存算分离集群时，建表使用的 Storage Volume。使用默认 Storage Volume 时无须配置该项。|
@@ -179,8 +216,20 @@ report_interval_seconds=300
 | ddl_job_allow_drop_partition_target_only  | 迁移工具是否自动删除目标集群上在源集群中已删除的分区，保持目标集群与源集群上表的分区一致。默认为 `true`，即删除。此项您可以使用默认值。 |
 | replication_job_interval_seconds          | 迁移工具触发数据同步任务的周期，单位为秒。此项您可以使用默认值。 |
 | replication_job_batch_size                | 迁移工具触发数据同步任务的批大小。此项您可以使用默认值。 |
-| max_replication_data_size_per_job_in_gb   | 迁移工具触发数据同步任务的（分区）数据大小阈值。单位：GB。如果要迁移的数据大小超过此值，将触发多个数据同步任务。默认值为 `-1`，表示没有限制，即一个数据同步任务同步一个表的所有分区。如果要迁移的表的数据量较大，可以设置此参数来限制每个任务的数据大小。 |
+| max_replication_data_size_per_job_in_gb   | 迁移工具触发数据同步任务的（分区）数据大小阈值。单位：GB。如果要迁移的数据大小超过此值，将触发多个数据同步任务。默认值为 `1024`。此项您可以使用默认值。 |
 | report_interval_seconds                   | 迁移工具打印 Progress 信息的周期。单位：秒。默认值：`300`。此项您可以使用默认值。 |
+| target_cluster_enable_persistent_index    | 是否在目标群集中启用持久化索引。如果未指定此项，目标群集将与源群集保持一致。 |
+| ddl_job_allow_drop_inconsistent_time_partition | 是否允许迁移工具删除源集群和目标集群之间时间不一致的分区，默认为 `true`，即删除。此项您可以使用默认值。迁移工具会在同步过程中自动同步删除的分区。 |
+| enable_bitmap_index_sync                  | 是否启用 Bitmap 索引同步。                               |
+| ddl_job_allow_drop_inconsistent_bitmap_index | 迁移工具是否自动删除源集群和目标集群不一致的 Bitmap 索引，默认为 `true`，即删除。此项您可以使用默认值。迁移工具会在同步过程中自动同步删除的索引。 |
+| ddl_job_allow_drop_bitmap_index_target_only | 迁移工具是否自动删除目标集群上在源集群中已删除的 Bitmap 索引，保持目标集群与源集群上的 Bitmap 索引一致。默认为 `true`，即删除。此项您可以使用默认值。 |
+| enable_materialized_view_sync             | 是否启用物化视图同步。                                   |
+| ddl_job_allow_drop_inconsistent_materialized_view | 迁移工具是否自动删除源集群和目标集群不一致的物化视图，默认为 `true`，即删除。此项您可以使用默认值。迁移工具会在同步过程中自动同步删除的物化视图。 |
+| ddl_job_allow_drop_materialized_view_target_only | 迁移工具是否自动删除目标集群上在源集群中已删除的物化视图，保持目标集群与源集群上的物化视图一致。默认为 `true`，即删除。此项您可以使用默认值。 |
+| enable_view_sync                          | 是否启用视图同步。                                      |
+| ddl_job_allow_drop_inconsistent_view      | 迁移工具是否自动删除源集群和目标集群不一致的视图，默认为 `true`，即删除。此项您可以使用默认值。迁移工具会在同步过程中自动同步删除的视图。 |
+| ddl_job_allow_drop_view_target_only       | 迁移工具是否自动删除目标集群上在源集群中已删除的视图，保持目标集群与源集群上的视图一致。默认为 `true`，即删除。此项您可以使用默认值。 |
+| enable_table_property_sync                | 是否启用表属性同步。                                    |
 
 ### 获取集群 Token
 
@@ -223,19 +272,24 @@ vi conf/hosts.properties
 默认文件内容如下，说明了网络地址映射的配置方式：
 
 ```Properties
-# <SOURCE/TARGET>_<domain>=<IP>
+# <SOURCE/TARGET>_<host>=<mappedHost>[;<srcPort>:<dstPort>[,<srcPort>:<dstPort>...]]
 ```
+
+:::note
+`<host>` 必须与 `SHOW FRONTENDS`、`SHOW BACKENDS` 或 `SHOW COMPUTE NODES` 返回结果中的 `IP` 列一致。
+:::
 
 以下示例执行如下操作：
 
 1. 将源集群的私有网络地址 `192.1.1.1` 和 `192.1.1.2` 映射到 `10.1.1.1` 和 `10.1.1.2`。
-2. 将目标集群的私有网络地址 `fe-0.starrocks.svc.cluster.local` 映射到 `10.1.2.1`。
+2. 将源集群的 FE 端口 `8030` 和 `9030` 映射为 `10.1.1.1` 上的 `38030` 和 `39030`。
+3. 将目标集群的私有网络地址 `fe-0.starrocks.svc.cluster.local` 映射到 `10.1.2.1`，并映射端口 `9030`。
 
 ```Properties
-# <SOURCE/TARGET>_<domain>=<IP>
-SOURCE_192.1.1.1=10.1.1.1
+# <SOURCE/TARGET>_<host>=<mappedHost>[;<srcPort>:<dstPort>[,<srcPort>:<dstPort>...]]
+SOURCE_192.1.1.1=10.1.1.1;8030:38030,9030:39030
 SOURCE_192.1.1.2=10.1.1.2
-TARGET_fe-0.starrocks.svc.cluster.local=10.1.2.1
+TARGET_fe-0.starrocks.svc.cluster.local=10.1.2.1;9030:19030
 ```
 
 ## 第三步：启动迁移工具
@@ -339,17 +393,3 @@ ORDER BY TABLE_NAME;
 - 内表及其数据
 - 物化视图表结构及构建语句（物化视图中的数据不会被同步。并且如果物化视图对应的基表没有同步到目标集群，则物化视图后台刷新任务报错。）
 - 逻辑视图
-
-## Q&A
-
-### Q1：集群间需要开通哪些端口？
-
-如果您开启了防火墙，则需要开通以下端口：
-
-| **组件**     | **端口**       | **默认端口**  |
-| ----------- | -------------- | ----------- |
-| FE          | query_port     | 9030 |
-| FE          | http_port      | 8030 |
-| FE          | rpc_port       | 9020 |
-| BE          | be_http_port   | 8040 |
-| BE          | be_port        | 9060 |

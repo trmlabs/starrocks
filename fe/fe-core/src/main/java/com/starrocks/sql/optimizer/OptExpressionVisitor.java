@@ -87,6 +87,10 @@ public abstract class OptExpressionVisitor<R, C> {
         return visit(optExpression, context);
     }
 
+    public R visitLogicalRawValues(OptExpression optExpression, C context) {
+        return visit(optExpression, context);
+    }
+
     public R visitLogicalRepeat(OptExpression optExpression, C context) {
         return visit(optExpression, context);
     }
@@ -182,6 +186,10 @@ public abstract class OptExpressionVisitor<R, C> {
         return visitPhysicalScan(optExpression, context);
     }
 
+    public R visitPhysicalBenchmarkScan(OptExpression optExpression, C context) {
+        return visitPhysicalScan(optExpression, context);
+    }
+
     public R visitPhysicalProject(OptExpression optExpression, C context) {
         return visit(optExpression, context);
     }
@@ -235,6 +243,10 @@ public abstract class OptExpressionVisitor<R, C> {
     }
 
     public R visitPhysicalValues(OptExpression optExpression, C context) {
+        return visit(optExpression, context);
+    }
+
+    public R visitPhysicalRawValues(OptExpression optExpression, C context) {
         return visit(optExpression, context);
     }
 
@@ -299,6 +311,14 @@ public abstract class OptExpressionVisitor<R, C> {
     }
 
     public R visitPhysicalConcatenater(OptExpression optExpression, C context) {
+        return visit(optExpression, context);
+    }
+
+    public R visitPhysicalFetch(OptExpression optExpression, C context) {
+        return visit(optExpression, context);
+    }
+
+    public R visitPhysicalLookUp(OptExpression optExpression, C context) {
         return visit(optExpression, context);
     }
 }

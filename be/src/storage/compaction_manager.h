@@ -22,13 +22,13 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/thread/threadpool.h"
 #include "storage/compaction_candidate.h"
 #include "storage/compaction_task.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet.h"
-#include "util/threadpool.h"
 
 namespace starrocks {
 
@@ -60,6 +60,10 @@ public:
     void update_tablet_async(const TabletSharedPtr& tablet);
 
     void update_tablet(const TabletSharedPtr& tablet);
+
+    void increase_task_num(const TabletSharedPtr& tablet, CompactionType type);
+
+    void decrease_task_num(const TabletSharedPtr& tablet, CompactionType type);
 
     bool register_task(CompactionTask* compaction_task);
 

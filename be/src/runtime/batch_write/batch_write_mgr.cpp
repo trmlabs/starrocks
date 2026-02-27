@@ -14,6 +14,8 @@
 
 #include "runtime/batch_write/batch_write_mgr.h"
 
+#include "base/metrics.h"
+#include "base/testutil/sync_point.h"
 #include "brpc/controller.h"
 #include "butil/endpoint.h"
 #include "gen_cpp/internal_service.pb.h"
@@ -21,13 +23,14 @@
 #include "runtime/batch_write/batch_write_util.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/time_bounded_stream_load_pipe.h"
-#include "testutil/sync_point.h"
+#include "util/global_metrics_registry.h"
 
 namespace starrocks {
 
 BatchWriteMgr::BatchWriteMgr(std::unique_ptr<bthreads::ThreadPoolExecutor> executor) : _executor(std::move(executor)) {}
 
 Status BatchWriteMgr::init() {
+    REGISTER_THREAD_POOL_METRICS(merge_commit, _executor->get_thread_pool());
     std::unique_ptr<ThreadPoolToken> token =
             _executor->get_thread_pool()->new_token(ThreadPool::ExecutionMode::CONCURRENT);
     _txn_state_cache = std::make_unique<TxnStateCache>(config::merge_commit_txn_state_cache_capacity, std::move(token));
@@ -234,7 +237,7 @@ void BatchWriteMgr::receive_stream_load_rpc(ExecEnv* exec_env, brpc::Controller*
                                                             io_buf.size(), copy_size)));
     }
     ctx->buffer->pos += io_buf.size();
-    ctx->buffer->flip();
+    ctx->buffer->flip_to_read();
     ctx->receive_bytes = io_buf.size();
     ctx->mc_read_data_cost_nanos = MonotonicNanos() - ctx->start_nanos;
     ctx->status = append_data(ctx);

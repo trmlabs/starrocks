@@ -20,6 +20,11 @@
 #include <optional>
 #include <unordered_map>
 
+#include "base/concurrency/spinlock.h"
+#include "base/hash/hash.h"
+#include "base/hash/hash_std.hpp"
+#include "base/time/time.h"
+#include "base/uid_util.h"
 #include "exec/pipeline/fragment_context.h"
 #include "exec/pipeline/pipeline_fwd.h"
 #include "exec/pipeline/stream_epoch_manager.h"
@@ -31,10 +36,6 @@
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "util/debug/query_trace.h"
-#include "util/hash.h"
-#include "util/hash_util.hpp"
-#include "util/spinlock.h"
-#include "util/time.h"
 
 namespace starrocks {
 
@@ -48,6 +49,7 @@ using std::chrono::steady_clock;
 using std::chrono::duration_cast;
 
 struct ConnectorScanOperatorMemShareArbitrator;
+class GlobalLateMaterilizationContextMgr;
 
 // The context for all fragment of one query in one BE
 class QueryContext : public std::enable_shared_from_this<QueryContext> {
@@ -71,6 +73,7 @@ public:
     }
 
     void count_down_fragments();
+    void count_down_fragments(QueryContextManager* query_context_mgr);
     int num_active_fragments() const { return _num_active_fragments.load(); }
     bool has_no_active_instances() { return _num_active_fragments.load() == 0; }
 
@@ -154,6 +157,7 @@ public:
     FragmentContextManager* fragment_mgr();
 
     void cancel(const Status& status, bool cancelled_by_fe);
+    void set_cancelled_by_fe() { _cancelled_by_fe = true; }
 
     void set_is_runtime_filter_coordinator(bool flag) { _is_runtime_filter_coordinator = flag; }
 
@@ -173,6 +177,7 @@ public:
                           std::optional<double> spill_mem_limit = std::nullopt, workgroup::WorkGroup* wg = nullptr,
                           RuntimeState* state = nullptr, int connector_scan_node_number = 1);
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
+    const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
     MemTracker* connector_scan_mem_tracker() { return _connector_scan_mem_tracker.get(); }
 
     Status init_spill_manager(const TQueryOptions& query_options);
@@ -198,6 +203,8 @@ public:
         _delta_scan_bytes += scan_bytes;
     }
 
+    void incr_transmitted_bytes(int64_t transmitted_bytes) { _total_transmitted_bytes += transmitted_bytes; }
+
     void init_node_exec_stats(const std::vector<int32_t>& exec_stats_node_ids);
     bool need_record_exec_stats(int32_t plan_node_id) {
         auto it = _node_exec_stats.find(plan_node_id);
@@ -205,6 +212,10 @@ public:
     }
 
     void update_scan_stats(int64_t table_id, int64_t scan_rows_num, int64_t scan_bytes);
+    void incr_read_stats(int64_t read_local_cnt, int64_t read_remote_cnt) {
+        _total_read_local_cnt += read_local_cnt;
+        _total_read_remote_cnt += read_remote_cnt;
+    }
     void update_push_rows_stats(int32_t plan_node_id, int64_t push_rows) {
         auto it = _node_exec_stats.find(plan_node_id);
         if (it != _node_exec_stats.end()) {
@@ -252,6 +263,9 @@ public:
     int64_t get_scan_bytes() const { return _total_scan_bytes; }
     std::atomic_int64_t* mutable_total_spill_bytes() { return &_total_spill_bytes; }
     int64_t get_spill_bytes() { return _total_spill_bytes; }
+    int64_t get_read_local_cnt() { return _total_read_local_cnt; }
+    int64_t get_read_remote_cnt() { return _total_read_remote_cnt; }
+    int64_t get_transmitted_bytes() { return _total_transmitted_bytes; }
 
     // Query start time, used to check how long the query has been running
     // To ensure that the minimum run time of the query will not be killed by the big query checking mechanism
@@ -267,7 +281,7 @@ public:
     std::shared_ptr<starrocks::debug::QueryTrace> shared_query_trace() { return _query_trace; }
 
     // Delta statistic since last retrieve
-    std::shared_ptr<QueryStatistics> intermediate_query_statistic();
+    std::shared_ptr<QueryStatistics> intermediate_query_statistic(int64_t delta_transmitted_bytes);
     // Merged statistic from all executor nodes
     std::shared_ptr<QueryStatistics> final_query_statistic();
     std::shared_ptr<QueryStatisticsRecvr> maintained_query_recv();
@@ -289,6 +303,10 @@ public:
         return _connector_scan_operator_mem_share_arbitrator;
     }
 
+    GlobalLateMaterilizationContextMgr* global_late_materialization_ctx_mgr() const {
+        return _global_late_materialization_ctx_mgr;
+    }
+
 public:
     static constexpr int DEFAULT_EXPIRE_SECONDS = 300;
 
@@ -296,6 +314,7 @@ private:
     ExecEnv* _exec_env = nullptr;
     TUniqueId _query_id;
     MonotonicStopWatch _lifetime_sw;
+    std::unique_ptr<spill::QuerySpillManager> _spill_manager;
     std::unique_ptr<FragmentContextManager> _fragment_mgr;
     size_t _total_fragments;
     std::atomic<size_t> _num_fragments;
@@ -329,6 +348,9 @@ private:
     std::atomic<int64_t> _total_scan_rows_num = 0;
     std::atomic<int64_t> _total_scan_bytes = 0;
     std::atomic<int64_t> _total_spill_bytes = 0;
+    std::atomic<int64_t> _total_read_local_cnt = 0;
+    std::atomic<int64_t> _total_read_remote_cnt = 0;
+    std::atomic<int64_t> _total_transmitted_bytes = 0;
     std::atomic<int64_t> _delta_cpu_cost_ns = 0;
     std::atomic<int64_t> _delta_scan_rows_num = 0;
     std::atomic<int64_t> _delta_scan_bytes = 0;
@@ -374,10 +396,10 @@ private:
     // STREAM MV
     std::shared_ptr<StreamEpochManager> _stream_epoch_manager;
 
-    std::unique_ptr<spill::QuerySpillManager> _spill_manager;
-
     int64_t _static_query_mem_limit = 0;
     ConnectorScanOperatorMemShareArbitrator* _connector_scan_operator_mem_share_arbitrator = nullptr;
+
+    GlobalLateMaterilizationContextMgr* _global_late_materialization_ctx_mgr = nullptr;
 };
 
 // TODO: use brpc::TimerThread refactor QueryContext
@@ -386,7 +408,7 @@ public:
     QueryContextManager(size_t log2_num_slots);
     ~QueryContextManager();
     Status init();
-    StatusOr<QueryContext*> get_or_register(const TUniqueId& query_id);
+    StatusOr<QueryContext*> get_or_register(const TUniqueId& query_id, bool return_error_if_not_exist = false);
     QueryContextPtr get(const TUniqueId& query_id, bool need_prepared = false);
     size_t size();
     bool remove(const TUniqueId& query_id);

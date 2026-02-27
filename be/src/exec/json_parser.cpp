@@ -22,10 +22,6 @@ namespace starrocks {
 
 const size_t MAX_RAW_JSON_LEN = 64;
 
-static inline Status json_parse_error(const std::string& err_msg) {
-    return Status::DataQualityError(format_json_parse_error_msg(err_msg));
-}
-
 JsonDocumentStreamParser::JsonDocumentStreamParser(simdjson::ondemand::parser* parser) : JsonParser(parser) {
     _batch_size = (config::json_parse_many_batch_size > simdjson::dom::MINIMAL_BATCH_SIZE)
                           ? config::json_parse_many_batch_size
@@ -45,7 +41,7 @@ Status JsonDocumentStreamParser::parse(char* data, size_t len, size_t allocated)
     } catch (simdjson::simdjson_error& e) {
         auto err_msg = strings::Substitute("Failed to parse json as document stream. error: $0",
                                            simdjson::error_message(e.error()));
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 
     return Status::OK();
@@ -87,12 +83,12 @@ Status JsonDocumentStreamParser::_get_current_impl(simdjson::ondemand::object* r
                 // simdjson version 3.9.4 and JsonFunctions::to_json_string may crash when json is invalid.
                 // TODO: add value in error message
                 if (doc.type() == simdjson::ondemand::json_type::array) {
-                    return json_parse_error(
+                    return status_from_json_parse_error(
                             "The value is array type in json document stream, you can set strip_outer_array=true to "
                             "parse "
                             "each element of the array as individual rows");
                 } else if (doc.type() != simdjson::ondemand::json_type::object) {
-                    return json_parse_error("The value should be object type in json document stream");
+                    return status_from_json_parse_error("The value should be object type in json document stream");
                 }
 
                 _curr = doc.get_object();
@@ -141,7 +137,7 @@ Status JsonDocumentStreamParser::get_current(simdjson::ondemand::object* row) no
             err_msg = strings::Substitute("Failed to iterate document stream as object. error: $0",
                                           simdjson::error_message(e.error()));
         }
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 }
 
@@ -174,7 +170,11 @@ std::string JsonDocumentStreamParser::left_bytes_string(size_t sz) noexcept {
     }
 
     auto len = std::min(_len - off, sz);
-    return std::string(reinterpret_cast<char*>(_data) + off, len);
+    return std::string(_data + off, len);
+}
+
+size_t JsonDocumentStreamParser::truncated_bytes() const noexcept {
+    return _doc_stream.truncated_bytes();
 }
 
 Status JsonArrayParser::parse(char* data, size_t len, size_t allocated) noexcept {
@@ -187,7 +187,7 @@ Status JsonArrayParser::parse(char* data, size_t len, size_t allocated) noexcept
         if (_doc.type() != simdjson::ondemand::json_type::array) {
             auto err_msg = fmt::format("the value should be array type with strip_outer_array=true, value: {}",
                                        JsonFunctions::to_json_string(_doc, MAX_RAW_JSON_LEN));
-            return json_parse_error(err_msg);
+            return status_from_json_parse_error(err_msg);
         }
 
         _array = _doc.get_array();
@@ -196,7 +196,7 @@ Status JsonArrayParser::parse(char* data, size_t len, size_t allocated) noexcept
     } catch (simdjson::simdjson_error& e) {
         auto err_msg =
                 strings::Substitute("Failed to parse json as array. error: $0", simdjson::error_message(e.error()));
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 
     return Status::OK();
@@ -224,7 +224,7 @@ Status JsonArrayParser::get_current(simdjson::ondemand::object* row) noexcept {
     } catch (simdjson::simdjson_error& e) {
         auto err_msg = strings::Substitute("Failed to iterate json array as object. error: $0",
                                            simdjson::error_message(e.error()));
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 }
 
@@ -238,7 +238,7 @@ Status JsonArrayParser::advance() noexcept {
     } catch (simdjson::simdjson_error& e) {
         auto err_msg =
                 strings::Substitute("Failed to iterate json as array. error: $0", simdjson::error_message(e.error()));
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 }
 
@@ -281,12 +281,12 @@ Status JsonDocumentStreamParserWithRoot::get_current(simdjson::ondemand::object*
                     "The value is array type in json document stream with json root, you can set strip_outer_array=true"
                     " to parse each element of the array as individual rows, value: {}",
                     JsonFunctions::to_json_string(val, MAX_RAW_JSON_LEN));
-            return json_parse_error(err_msg);
+            return status_from_json_parse_error(err_msg);
         } else if (val.type() != simdjson::ondemand::json_type::object) {
             auto err_msg =
                     fmt::format("The value should be object type in json document stream with json root, value: {}",
                                 JsonFunctions::to_json_string(val, MAX_RAW_JSON_LEN));
-            return json_parse_error(err_msg);
+            return status_from_json_parse_error(err_msg);
         }
 
         _curr = val.get_object();
@@ -297,7 +297,7 @@ Status JsonDocumentStreamParserWithRoot::get_current(simdjson::ondemand::object*
     } catch (simdjson::simdjson_error& e) {
         auto err_msg = strings::Substitute("Failed to iterate document stream as object with json root. error: $0",
                                            simdjson::error_message(e.error()));
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 }
 
@@ -324,11 +324,11 @@ Status JsonArrayParserWithRoot::get_current(simdjson::ondemand::object* row) noe
                     "The value is array type in json array with json root, you can set strip_outer_array=true to parse "
                     "each element of the array as individual rows, value: {}",
                     JsonFunctions::to_json_string(val, MAX_RAW_JSON_LEN));
-            return json_parse_error(err_msg);
+            return status_from_json_parse_error(err_msg);
         } else if (val.type() != simdjson::ondemand::json_type::object) {
             auto err_msg = fmt::format("The value should be object type in json array with json root, value: {}",
                                        JsonFunctions::to_json_string(val, MAX_RAW_JSON_LEN));
-            return json_parse_error(err_msg);
+            return status_from_json_parse_error(err_msg);
         }
 
         _curr = val.get_object();
@@ -339,7 +339,7 @@ Status JsonArrayParserWithRoot::get_current(simdjson::ondemand::object* row) noe
     } catch (simdjson::simdjson_error& e) {
         auto err_msg = strings::Substitute("Failed to iterate json array as object with json root. error: $0",
                                            simdjson::error_message(e.error()));
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 }
 
@@ -361,7 +361,7 @@ Status ExpandedJsonDocumentStreamParserWithRoot::parse(char* data, size_t len, s
                     "the value should be array type with strip_outer_array=true in json document stream with root, "
                     "value: {}",
                     JsonFunctions::to_json_string(val, MAX_RAW_JSON_LEN));
-            return json_parse_error(err_msg);
+            return status_from_json_parse_error(err_msg);
         }
 
         _array = val.get_array();
@@ -371,7 +371,7 @@ Status ExpandedJsonDocumentStreamParserWithRoot::parse(char* data, size_t len, s
     } catch (simdjson::simdjson_error& e) {
         auto err_msg = strings::Substitute("Failed to parse json as expanded document stream with json root. error: $0",
                                            simdjson::error_message(e.error()));
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 
     return Status::OK();
@@ -395,7 +395,7 @@ Status ExpandedJsonDocumentStreamParserWithRoot::get_current(simdjson::ondemand:
             auto err_msg = fmt::format(
                     "the value should be object type in expanded json document stream with json root, value: {}",
                     JsonFunctions::to_json_string(val, MAX_RAW_JSON_LEN));
-            return json_parse_error(err_msg);
+            return status_from_json_parse_error(err_msg);
         }
 
         _curr = val.get_object();
@@ -407,7 +407,7 @@ Status ExpandedJsonDocumentStreamParserWithRoot::get_current(simdjson::ondemand:
         auto err_msg =
                 strings::Substitute("Failed to iterate expanded document stream as object with json root. error: $0",
                                     simdjson::error_message(e.error()));
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 }
 
@@ -429,7 +429,7 @@ Status ExpandedJsonDocumentStreamParserWithRoot::advance() noexcept {
                             "the value under json root should be array type with strip_outer_array=true in json "
                             "document stream with root, value: {}",
                             JsonFunctions::to_json_string(val, MAX_RAW_JSON_LEN));
-                    return json_parse_error(err_msg);
+                    return status_from_json_parse_error(err_msg);
                 }
 
                 _array = val.get_array();
@@ -437,7 +437,7 @@ Status ExpandedJsonDocumentStreamParserWithRoot::advance() noexcept {
             } catch (simdjson::simdjson_error& e) {
                 auto err_msg = strings::Substitute("Failed to iterate document stream sub-array. error: $0",
                                                    simdjson::error_message(e.error()));
-                return json_parse_error(err_msg);
+                return status_from_json_parse_error(err_msg);
             }
 
             // until EOF or new elem is available.
@@ -460,7 +460,7 @@ Status ExpandedJsonArrayParserWithRoot::parse(char* data, size_t len, size_t all
                     "value: "
                     "{}",
                     JsonFunctions::to_json_string(val, MAX_RAW_JSON_LEN));
-            return json_parse_error(err_msg);
+            return status_from_json_parse_error(err_msg);
         }
 
         _array = val.get_array();
@@ -470,7 +470,7 @@ Status ExpandedJsonArrayParserWithRoot::parse(char* data, size_t len, size_t all
     } catch (simdjson::simdjson_error& e) {
         auto err_msg = strings::Substitute("Failed to parse json as expanded json array with json root. error: $0",
                                            simdjson::error_message(e.error()));
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 
     return Status::OK();
@@ -494,7 +494,7 @@ Status ExpandedJsonArrayParserWithRoot::get_current(simdjson::ondemand::object* 
             auto err_msg =
                     fmt::format("the value should be object type in expanded json array with json root, value: {}",
                                 JsonFunctions::to_json_string(val, MAX_RAW_JSON_LEN));
-            return json_parse_error(err_msg);
+            return status_from_json_parse_error(err_msg);
         }
 
         _curr = val.get_object();
@@ -505,7 +505,7 @@ Status ExpandedJsonArrayParserWithRoot::get_current(simdjson::ondemand::object* 
     } catch (simdjson::simdjson_error& e) {
         auto err_msg = strings::Substitute("Failed to iterate json array as object with json root. error: $0",
                                            simdjson::error_message(e.error()));
-        return json_parse_error(err_msg);
+        return status_from_json_parse_error(err_msg);
     }
 }
 
@@ -528,7 +528,7 @@ Status ExpandedJsonArrayParserWithRoot::advance() noexcept {
                             "array, "
                             "value: {}",
                             JsonFunctions::to_json_string(val, MAX_RAW_JSON_LEN));
-                    return json_parse_error(err_msg);
+                    return status_from_json_parse_error(err_msg);
                 }
 
                 _array = val.get_array();
@@ -536,7 +536,7 @@ Status ExpandedJsonArrayParserWithRoot::advance() noexcept {
             } catch (simdjson::simdjson_error& e) {
                 auto err_msg = strings::Substitute("Failed to iterate json array sub-array. error: $0",
                                                    simdjson::error_message(e.error()));
-                return json_parse_error(err_msg);
+                return status_from_json_parse_error(err_msg);
             }
 
             // until EOF or new elem is available.
@@ -545,9 +545,9 @@ Status ExpandedJsonArrayParserWithRoot::advance() noexcept {
     return Status::OK();
 }
 
-std::string format_json_parse_error_msg(const std::string& raw_error_msg) {
+Status status_from_json_parse_error(const std::string& err_msg) {
     // the keywords "parse error" will be used in FE to determine the error type.
-    return fmt::format("parse error. {}", raw_error_msg);
+    return Status::DataQualityError(fmt::format("parse error. {}", err_msg));
 }
 
 } // namespace starrocks

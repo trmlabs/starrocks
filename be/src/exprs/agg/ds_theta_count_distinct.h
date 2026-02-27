@@ -56,11 +56,11 @@ public:
         uint64_t value = 0;
         const ColumnType* column = down_cast<const ColumnType*>(columns[0]);
 
-        if constexpr (lt_is_string<LT>) {
+        if constexpr (lt_is_string_or_binary<LT>) {
             Slice s = column->get_slice(row_num);
             value = HashUtil::murmur_hash64A(s.data, s.size, HashUtil::MURMUR_SEED);
         } else {
-            const auto& v = column->get_data();
+            const auto v = column->immutable_data();
             value = HashUtil::murmur_hash64A(&v[row_num], sizeof(v[row_num]), HashUtil::MURMUR_SEED);
         }
         update_state(ctx, state, value);
@@ -72,7 +72,7 @@ public:
         // init state if needed
         _init_if_needed(state);
         const ColumnType* column = down_cast<const ColumnType*>(columns[0]);
-        if constexpr (lt_is_string<LT>) {
+        if constexpr (lt_is_string_or_binary<LT>) {
             uint64_t value = 0;
             for (size_t i = frame_start; i < frame_end; ++i) {
                 Slice s = column->get_slice(i);
@@ -83,7 +83,7 @@ public:
             }
         } else {
             uint64_t value = 0;
-            const auto& v = column->get_data();
+            const auto v = column->immutable_data();
             for (size_t i = frame_start; i < frame_end; ++i) {
                 value = HashUtil::murmur_hash64A(&v[i], sizeof(v[i]), HashUtil::MURMUR_SEED);
 
@@ -137,9 +137,9 @@ public:
     }
 
     void convert_to_serialize_format([[maybe_unused]] FunctionContext* ctx, const Columns& src, size_t chunk_size,
-                                     ColumnPtr* dst) const override {
+                                     MutableColumnPtr& dst) const override {
         const ColumnType* input = down_cast<const ColumnType*>(src[0].get());
-        auto* result = down_cast<BinaryColumn*>((*dst).get());
+        auto* result = down_cast<BinaryColumn*>(dst.get());
 
         Bytes& bytes = result->get_bytes();
         result->get_offset().resize(chunk_size + 1);
@@ -147,11 +147,11 @@ public:
         size_t old_size = bytes.size();
         uint64_t value = 0;
         for (size_t i = 0; i < chunk_size; ++i) {
-            if constexpr (lt_is_string<LT>) {
+            if constexpr (lt_is_string_or_binary<LT>) {
                 Slice s = input->get_slice(i);
                 value = HashUtil::murmur_hash64A(s.data, s.size, HashUtil::MURMUR_SEED);
             } else {
-                auto v = input->get_data()[i];
+                auto v = input->immutable_data()[i];
                 value = HashUtil::murmur_hash64A(&v, sizeof(v), HashUtil::MURMUR_SEED);
             }
 

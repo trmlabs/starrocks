@@ -38,7 +38,9 @@ Hive クラスターでの SQL ワークロードを成功させるためには�
   - Parquet および ORC ファイルは、以下の圧縮形式をサポートしています：NO_COMPRESSION、SNAPPY、LZ4、ZSTD、GZIP。
   - Textfile ファイルは、NO_COMPRESSION 圧縮形式をサポートしています。
 
-  Hive テーブルへのデータのシンクに使用する圧縮アルゴリズムを指定するために、セッション変数 [`connector_sink_compression_codec`](../../sql-reference/System_variable.md#connector_sink_compression_codec) を使用できます。
+  テーブルプロパティ [`compression_codec`](../../data_source/catalog/hive_catalog.md#properties) またはシステム変数 [`connector_sink_compression_codec`](../../sql-reference/System_variable.md#connector_sink_compression_codec) を使用して、Hive テーブルへのデータシンクに使用する圧縮アルゴリズムを指定できます。
+
+  Hive テーブルへの書き込み時、テーブルのプロパティに圧縮コーデックが含まれている場合、StarRocks は書き込みデータの圧縮にそのアルゴリズムを優先的に使用します。そうでない場合、システム変数 `connector_sink_compression_codec` で設定された圧縮アルゴリズムが使用されます。
 
 ## 統合準備
 
@@ -192,6 +194,7 @@ Hive データをクエリする前に、Hive メタストアノードのホス�
 | aws.glue.region               | Yes      | AWS Glue Data Catalog が存在するリージョンです。例：`us-west-1`。 |
 | aws.glue.access_key           | No       | AWS IAM ユーザーのアクセスキーです。IAM ユーザーベースの認証方法を使用して AWS Glue にアクセスする場合、このパラメータを指定する必要があります。 |
 | aws.glue.secret_key           | No       | AWS IAM ユーザーのシークレットキーです。IAM ユーザーベースの認証方法を使用して AWS Glue にアクセスする場合、このパラメータを指定する必要があります。 |
+| hive.metastore.glue.catalogid | No       | 使用する AWS Glue Data Catalog の ID。指定しない場合、現在の AWS アカウントのカタログが使用されます。別の AWS アカウントの Glue Data Catalog にアクセスする（クロスアカウントアクセス）必要がある場合は、このパラメータを指定する必要があります。 |
 
 AWS Glue にアクセスするための認証方法の選択方法や AWS IAM コンソールでのアクセス制御ポリシーの設定方法については、[AWS Glue にアクセスするための認証パラメータ](../../integrations/authenticate_to_aws_resources.md#authentication-parameters-for-accessing-aws-glue)を参照してください。
 
@@ -480,6 +483,7 @@ StarRocks はデフォルトで [自動非同期更新ポリシー](#appendix-un
 | metastore_cache_ttl_sec                | No       | StarRocks が自身にキャッシュされた Hive テーブルまたはパーティションのメタデータを自動的に破棄する時間間隔です。 単位：秒。 デフォルト値：`86400`（24 時間）。 |
 | remote_file_cache_ttl_sec              | No       | StarRocks が自身にキャッシュされた Hive テーブルまたはパーティションの基礎データファイルのメタデータを自動的に破棄する時間間隔です。 単位：秒。 デフォルト値：`129600`（36 時間）。 |
 | enable_cache_list_names                | No       | StarRocks が Hive パーティション名をキャッシュするかどうかを指定します。 有効な値：`true` および `false`。 デフォルト値：`true`。 値 `true` はキャッシュを有効にし、値 `false` はキャッシュを無効にします。 |
+| remote_file_cache_memory_ratio         | No       | Remote File Cache の最大メモリ使用率。デフォルト値: `0.1`（10%）。v3.5.6 以降でサポート。 |
 
 ### 例
 
@@ -899,7 +903,7 @@ GRANT SELECT ON ALL TABLES IN ALL DATABASES TO ROLE hive_role_table;
 
 ## Hive データベースの作成
 
-StarRocks の内部カタログと同様に、Hive catalog に対する [CREATE DATABASE](../../administration/user_privs/privilege_item.md#catalog) 権限を持っている場合、[CREATE DATABASE](../../sql-reference/sql-statements/Database/CREATE_DATABASE.md) ステートメントを使用してその Hive catalog にデータベースを作成できます。この機能は v3.2 以降でサポートされています。
+StarRocks の内部カタログと同様に、Hive catalog に対する [CREATE DATABASE](../../administration/user_privs/authorization/privilege_item.md#catalog) 権限を持っている場合、[CREATE DATABASE](../../sql-reference/sql-statements/Database/CREATE_DATABASE.md) ステートメントを使用してその Hive catalog にデータベースを作成できます。この機能は v3.2 以降でサポートされています。
 
 :::note
 
@@ -932,7 +936,7 @@ CREATE DATABASE <database_name>
 
 ## Hive データベースの削除
 
-StarRocks の内部データベースと同様に、Hive データベースに対する [DROP](../../administration/user_privs/privilege_item.md#database) 権限を持っている場合、[DROP DATABASE](../../sql-reference/sql-statements/Database/DROP_DATABASE.md) ステートメントを使用してその Hive データベースを削除できます。この機能は v3.2 以降でサポートされています。空のデータベースのみを削除できます。
+StarRocks の内部データベースと同様に、Hive データベースに対する [DROP](../../administration/user_privs/authorization/privilege_item.md#database) 権限を持っている場合、[DROP DATABASE](../../sql-reference/sql-statements/Database/DROP_DATABASE.md) ステートメントを使用してその Hive データベースを削除できます。この機能は v3.2 以降でサポートされています。空のデータベースのみを削除できます。
 
 :::note
 
@@ -950,7 +954,7 @@ DROP DATABASE <database_name>
 
 ## Hive テーブルの作成
 
-StarRocks の内部データベースと同様に、Hive データベースに対する [CREATE TABLE](../../administration/user_privs/privilege_item.md#database) 権限を持っている場合、[CREATE TABLE](../../sql-reference/sql-statements/table_bucket_part_index/CREATE_TABLE.md)、[CREATE TABLE AS SELECT](../../sql-reference/sql-statements/table_bucket_part_index/CREATE_TABLE_AS_SELECT.md)、または [CREATE TABLE LIKE](../../sql-reference/sql-statements/table_bucket_part_index/CREATE_TABLE_LIKE.md) ステートメントを使用してその Hive データベースに管理テーブルを作成できます。
+StarRocks の内部データベースと同様に、Hive データベースに対する [CREATE TABLE](../../administration/user_privs/authorization/privilege_item.md#database) 権限を持っている場合、[CREATE TABLE](../../sql-reference/sql-statements/table_bucket_part_index/CREATE_TABLE.md)、[CREATE TABLE AS SELECT](../../sql-reference/sql-statements/table_bucket_part_index/CREATE_TABLE_AS_SELECT.md)、または [CREATE TABLE LIKE](../../sql-reference/sql-statements/table_bucket_part_index/CREATE_TABLE_LIKE.md) ステートメントを使用してその Hive データベースに管理テーブルを作成できます。
 
 この機能は v3.2 以降でサポートされており、そのバージョンでは StarRocks は Parquet 形式の Hive テーブルの作成のみをサポートしています。v3.3 以降、StarRocks は ORC および Textfile 形式の Hive テーブルの作成もサポートしています。
 
@@ -1020,7 +1024,7 @@ PARTITION BY (par_col1[, par_col2...])
 | ----------------- | ------------------------------------------------------------ |
 | location          | 管理テーブルを作成したいファイルパスです。HMS をメタストアとして使用する場合、`location` パラメータを指定する必要はありません。StarRocks は現在の Hive catalog のデフォルトファイルパスにテーブルを作成します。AWS Glue をメタデータサービスとして使用する場合：<ul><li>テーブルを作成したいデータベースに対して `location` パラメータを指定した場合、テーブルに対して `location` パラメータを指定する必要はありません。このように、テーブルは所属するデータベースのファイルパスにデフォルト設定されます。</li><li>テーブルを作成したいデータベースに対して `location` を指定していない場合、テーブルに対して `location` パラメータを指定する必要があります。</li></ul> |
 | file_format       | 管理テーブルのファイル形式です。サポートされているファイル形式は Parquet、ORC、Textfile です。ORC および Textfile 形式は v3.3 以降でサポートされています。 有効な値：`parquet`、`orc`、`textfile`。 デフォルト値：`parquet`。 |
-| compression_codec | 管理テーブルに使用される圧縮アルゴリズムです。このプロパティは v3.2.3 で非推奨となり、そのバージョン以降、Hive テーブルへのデータのシンクに使用される圧縮アルゴリズムはセッション変数 [connector_sink_compression_codec](../../sql-reference/System_variable.md#connector_sink_compression_codec) によって一元的に制御されます。 |
+| compression_codec | 管理テーブルに使用される圧縮アルゴリズムです。                       |
 
 ### 例
 
@@ -1058,7 +1062,7 @@ PARTITION BY (par_col1[, par_col2...])
 
 ## Hive テーブルへのデータのシンク
 
-StarRocks の内部テーブルと同様に、Hive テーブル（管理テーブルまたは外部テーブル）に対する [INSERT](../../administration/user_privs/privilege_item.md#table) 権限を持っている場合、[INSERT](../../sql-reference/sql-statements/loading_unloading/INSERT.md) ステートメントを使用して StarRocks テーブルのデータをその Hive テーブルにシンクできます。
+StarRocks の内部テーブルと同様に、Hive テーブル（管理テーブルまたは外部テーブル）に対する [INSERT](../../administration/user_privs/authorization/privilege_item.md#table) 権限を持っている場合、[INSERT](../../sql-reference/sql-statements/loading_unloading/INSERT.md) ステートメントを使用して StarRocks テーブルのデータをその Hive テーブルにシンクできます。
 
 この機能は v3.2 以降でサポートされており、そのバージョンではデータは Parquet 形式の Hive テーブルにのみシンクできます。v3.3 以降、StarRocks は ORC および Textfile 形式の Hive テーブルへのデータのシンクもサポートしています。
 
@@ -1067,7 +1071,7 @@ StarRocks の内部テーブルと同様に、Hive テーブル（管理テー�
 :::note
 
 - [GRANT](../../sql-reference/sql-statements/account-management/GRANT.md) および [REVOKE](../../sql-reference/sql-statements/account-management/REVOKE.md) を使用して権限を付与および取り消すことができます。
-- Hive テーブルへのデータのシンクに使用する圧縮アルゴリズムを指定するために、セッション変数 [connector_sink_compression_codec](../../sql-reference/System_variable.md#connector_sink_compression_codec) を使用できます。
+- テーブルプロパティ [`compression_codec`](#properties) またはシステム変数 [`connector_sink_compression_codec`](../../sql-reference/System_variable.md# connector_sink_compression_codec) を使用して、Hive テーブルへのデータシンクに適用する圧縮アルゴリズムを指定できます。StarRocks はテーブルプロパティで指定された圧縮コーデックを優先的に使用します。
 
 :::
 
@@ -1154,9 +1158,59 @@ PARTITION (par_col1=<value> [, par_col2=<value>...])
    INSERT OVERWRITE partition_tbl_1 partition(dt='2023-09-01',id=1) SELECT 'close';
    ```
 
+## Hive テーブルの Truncate
+
+[TRUNCATE TABLE](../../sql-reference/sql-statements/table_bucket_part_index/TRUNCATE_TABLE.md) ステートメントを使用して、Hive マネージドテーブルからすべてのデータを迅速に削除できます。この操作は以下をサポートしています：
+
+- 非パーティションテーブルのすべてのデータを削除
+- パーティションテーブルのすべてのパーティションを削除
+- パーティションテーブルの特定のパーティションを削除
+
+### 構文
+
+```SQL
+TRUNCATE TABLE <table_name>
+
+TRUNCATE TABLE <table_name> PARTITION (partition_name = partition_value [, ...])
+```
+
+### パラメータ
+
+- `table_name`: データを削除する Hive テーブルの名前。データベース内のテーブルを削除する前に、[Hive カタログとデータベースに切り替える](#hive-catalog-とデータベースに切り替える)必要があります。
+- `partition_name = partition_value`: どのパーティションを削除するかを識別するための、パーティション列の名前と値。
+
+### 使用例
+
+Hive カタログとデータベースに切り替えた後、データベース内の Hive テーブルを以下のステートメントで truncate できます。
+
+1. 非パーティションテーブルを truncate:
+
+   ```SQL
+   TRUNCATE TABLE my_table;
+   ```
+
+2. パーティションテーブルのすべてのパーティションを truncate:
+
+   ```SQL
+   TRUNCATE TABLE my_partitioned_table;
+   ```
+
+3. 単一パーティションテーブルの特定パーティションを truncate:
+
+   ```SQL
+   TRUNCATE TABLE my_partitioned_table PARTITION (dt='2023-09-01');
+   ```
+
+4. 複数パーティションテーブルの特定パーティションを truncate:
+
+   ```SQL
+   TRUNCATE TABLE my_partitioned_table PARTITION (dt='2023-09-01', id=1);
+   TRUNCATE TABLE my_multi_part_table PARTITION (k2='2020-01-02', k3='b');
+   ```
+
 ## Hive テーブルの削除
 
-StarRocks の内部テーブルと同様に、Hive テーブルに対する [DROP](../../administration/user_privs/privilege_item.md#table) 権限を持っている場合、[DROP TABLE](../../sql-reference/sql-statements/table_bucket_part_index/DROP_TABLE.md) ステートメントを使用してその Hive テーブルを削除できます。この機能は v3.1 以降でサポートされています。現在、StarRocks は Hive の管理テーブルのみを削除することをサポートしています。
+StarRocks の内部テーブルと同様に、Hive テーブルに対する [DROP](../../administration/user_privs/authorization/privilege_item.md#table) 権限を持っている場合、[DROP TABLE](../../sql-reference/sql-statements/table_bucket_part_index/DROP_TABLE.md) ステートメントを使用してその Hive テーブルを削除できます。この機能は v3.1 以降でサポートされています。現在、StarRocks は Hive の管理テーブルのみを削除することをサポートしています。
 
 :::note
 
@@ -1217,19 +1271,19 @@ v2.5.5 以降、StarRocks は頻繁にアクセスされる Hive catalog のキ�
 
 例えば、`table2` という名前の Hive テーブルがあり、4 つのパーティション：`p1`、`p2`、`p3`、`p4` があります。クエリが `p1` にヒットし、StarRocks は `p1` のメタデータと `p1` の基礎データファイルのメタデータをキャッシュします。キャッシュされたメタデータを更新および破棄するデフォルトの時間間隔は次のとおりです：
 
-- `p1` のキャッシュされたメタデータを非同期に更新する時間間隔（`metastore_cache_refresh_interval_sec` パラメータで指定）は 2 時間です。
+- `p1` のキャッシュされたメタデータを非同期に更新する時間間隔（`metastore_cache_refresh_interval_sec` パラメータで指定）は 60 秒です。
 - `p1` の基礎データファイルのキャッシュされたメタデータを非同期に更新する時間間隔（`remote_file_cache_refresh_interval_sec` パラメータで指定）は 60 秒です。
 - `p1` のキャッシュされたメタデータを自動的に破棄する時間間隔（`metastore_cache_ttl_sec` パラメータで指定）は 24 時間です。
 - `p1` の基礎データファイルのキャッシュされたメタデータを自動的に破棄する時間間隔（`remote_file_cache_ttl_sec` パラメータで指定）は 36 時間です。
 
 以下の図は、理解を容易にするための時間間隔をタイムライン上に示しています。
 
-![Timeline for updating and discarding cached metadata](../../_assets/catalog_timeline.png)
+![Timeline for updating and discarding cached metadata](../../_assets/hive_catalog_timeline.png)
 
 その後、StarRocks は次のルールに従ってメタデータを更新または破棄します：
 
 - 別のクエリが再び `p1` にヒットし、最後の更新からの現在の時間が 60 秒未満の場合、StarRocks は `p1` のキャッシュされたメタデータまたは `p1` の基礎データファイルのキャッシュされたメタデータを更新しません。
-- 別のクエリが再び `p1` にヒットし、最後の更新からの現在の時間が 60 秒を超える場合、StarRocks は `p1` の基礎データファイルのキャッシュされたメタデータを更新します。
-- 別のクエリが再び `p1` にヒットし、最後の更新からの現在の時間が 2 時間を超える場合、StarRocks は `p1` のキャッシュされたメタデータを更新します。
+- 別のクエリが再び `p1` にヒットし、最後の更新からの現在時間が 60 秒を超える場合、StarRocks は `p1` のキャッシュされたメタデータまたは `p1` の基礎データファイルのキャッシュされたメタデータを更新します。
+- テーブルに 24 時間以内にアクセスがあった場合、関連するキャッシュはバックグラウンドで 10 分ごとに更新されます。
 - `p1` が最後の更新から 24 時間以内にアクセスされていない場合、StarRocks は `p1` のキャッシュされたメタデータを破棄します。次のクエリでメタデータがキャッシュされます。
 - `p1` が最後の更新から 36 時間以内にアクセスされていない場合、StarRocks は `p1` の基礎データファイルのキャッシュされたメタデータを破棄します。次のクエリでメタデータがキャッシュされます。

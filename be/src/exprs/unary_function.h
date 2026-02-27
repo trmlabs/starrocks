@@ -19,6 +19,7 @@
 
 #include <cstdint>
 
+#include "base/simd/simd.h"
 #include "column/column_helper.h"
 #include "column/const_column.h"
 #include "column/fixed_length_column.h"
@@ -26,7 +27,6 @@
 #include "column/type_traits.h"
 #include "common/logging.h"
 #include "function_helper.h"
-#include "simd/simd.h"
 
 namespace starrocks {
 
@@ -103,7 +103,7 @@ public:
 
         const auto& data_array = GetContainer<Type>::get_data(v1);
 
-        if constexpr (lt_is_string<Type> || lt_is_binary<Type>) {
+        if constexpr (lt_is_string<Type> || lt_is_binary<Type> || lt_is_object_family<Type>) {
             for (int i = 0; i < size; ++i) {
                 r3[i] = OP::template apply<CppType, ResultCppType>(data_array[i]);
             }
@@ -201,7 +201,7 @@ public:
                     return result;
                 }
 
-                auto nullable_data = down_cast<NullableColumn*>(result.get());
+                auto nullable_data = down_cast<const NullableColumn*>(result.get());
                 if (result->has_null()) {
                     // case 2: the result rows are partially nulls, must merge null columns
                     // both inside the input column and inside the results.

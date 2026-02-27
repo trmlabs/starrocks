@@ -19,37 +19,25 @@
 #include <starlet.h>
 #include <worker.h>
 
+#include "base/concurrency/await.h"
+#include "base/container/lru_cache.h"
+#include "base/crypto/sha.h"
+#include "base/utility/defer_op.h"
 #include "common/config.h"
 #include "common/gflags_utils.h"
 #include "common/logging.h"
 #include "common/shutdown_hook.h"
+#include "common/util/debug_util.h"
 #include "file_store.pb.h"
 #include "fmt/format.h"
 #include "fslib/star_cache_configuration.h"
 #include "fslib/star_cache_handler.h"
 #include "gflags/gflags.h"
-#include "util/await.h"
-#include "util/debug_util.h"
-#include "util/lru_cache.h"
-#include "util/sha.h"
-#include "util/starrocks_metrics.h"
+#include "runtime/starrocks_metrics.h"
+#include "util/global_metrics_registry.h"
 
 // cachemgr thread pool size
 DECLARE_int32(cachemgr_threadpool_size);
-// cache backend check interval (in seconds), for async write sync check and ttl clean, e.t.c.
-DECLARE_int32(cachemgr_check_interval);
-// cache backend cache evictor interval (in seconds)
-DECLARE_int32(cachemgr_evict_interval);
-// cache will start evict cache files if free space belows this value(percentage)
-DECLARE_double(cachemgr_evict_low_water);
-// cache will stop evict cache files if free space is above this value(percentage)
-DECLARE_double(cachemgr_evict_high_water);
-// cache will evict file cache at this percent if star cache is turned on
-DECLARE_double(cachemgr_evict_percent);
-// cache will evict file cache at this speed if star cache is turned on
-DECLARE_int32(cachemgr_evict_throughput_mb);
-// type:Integer. CacheManager cache directory allocation policy. (0:default, 1:random, 2:round-robin)
-DECLARE_int32(cachemgr_dir_allocate_policy);
 // buffer size in starlet fs buffer stream, size <= 0 means not use buffer stream.
 DECLARE_int32(fs_stream_buffer_size_bytes);
 // domain allow list to force starlet using s3 virtual address style
@@ -78,7 +66,10 @@ std::unique_ptr<staros::starlet::Starlet> g_starlet;
 namespace fslib = staros::starlet::fslib;
 
 StarOSWorker::StarOSWorker()
-        : _mtx(), _shards(), _fs_cache(new_lru_cache(config::starlet_filesystem_instance_cache_capacity)) {}
+        : _mtx(),
+          _cache_mtx(),
+          _shards(),
+          _fs_cache(new_lru_cache(config::starlet_filesystem_instance_cache_capacity)) {}
 
 StarOSWorker::~StarOSWorker() = default;
 
@@ -118,7 +109,7 @@ absl::Status StarOSWorker::add_shard(const ShardInfo& shard) {
     l.unlock();
     if (ret.second) {
 #ifndef BE_TEST
-        StarRocksMetrics::instance()->table_metrics_mgr()->register_table(get_table_id(shard));
+        GlobalMetricsRegistry::instance()->table_metrics_mgr()->register_table(get_table_id(shard));
 #endif
         // it is an insert op to the map
         // NOTE:
@@ -151,7 +142,7 @@ absl::Status StarOSWorker::remove_shard(const ShardId id) {
     if (iter != _shards.end()) {
 #ifndef BE_TEST
         uint64_t table_id = get_table_id(iter->second.shard_info);
-        StarRocksMetrics::instance()->table_metrics_mgr()->unregister_table(table_id);
+        GlobalMetricsRegistry::instance()->table_metrics_mgr()->unregister_table(table_id);
 #endif
         _shards.erase(iter);
     }
@@ -182,6 +173,17 @@ std::vector<staros::starlet::ShardInfo> StarOSWorker::shards() const {
     std::shared_lock l(_mtx);
     for (const auto& shard : _shards) {
         vec.emplace_back(shard.second.shard_info);
+    }
+    return vec;
+}
+
+std::vector<staros::starlet::ShardId> StarOSWorker::shard_ids() const {
+    std::vector<staros::starlet::ShardId> vec;
+    vec.reserve(_shards.size());
+
+    std::shared_lock l(_mtx);
+    for (const auto& shard : _shards) {
+        vec.emplace_back(shard.first);
     }
     return vec;
 }
@@ -220,9 +222,15 @@ absl::StatusOr<std::shared_ptr<fslib::FileSystem>> StarOSWorker::get_shard_files
             return build_filesystem_on_demand(id, conf);
         }
 
-        auto fs = lookup_fs_cache(it->second.fs_cache_key);
-        if (fs != nullptr) {
-            return fs;
+        // Cache miss: reset the fs_cache_key to ensure a new shared_ptr will be created
+        {
+            std::lock_guard<std::mutex> reset_lock(_fs_cache_key_reset_mtx);
+            auto fs = lookup_fs_cache(it->second.fs_cache_key);
+            if (fs != nullptr) {
+                return fs;
+            }
+
+            it->second.fs_cache_key.reset();
         }
         shard_info = it->second.shard_info;
     }
@@ -291,10 +299,6 @@ StarOSWorker::build_filesystem_from_shard_info(const ShardInfo& info, const Conf
         return scheme.status();
     }
 
-    if (need_enable_cache(info)) {
-        // set environ variable to cachefs directory
-        setenv(fslib::kFslibCacheDir.c_str(), config::starlet_cache_dir.c_str(), 0 /*overwrite*/);
-    }
     return new_shared_filesystem(*scheme, *localconf);
 }
 
@@ -321,6 +325,9 @@ absl::StatusOr<std::string> StarOSWorker::build_scheme_from_shard_info(const Sha
         break;
     case staros::FileStoreType::ADLS2:
         scheme = "adls2://";
+        break;
+    case staros::FileStoreType::GS:
+        scheme = "gs://";
         break;
     default:
         return absl::InvalidArgumentError("Unknown shard storage scheme!");
@@ -355,9 +362,12 @@ StarOSWorker::new_shared_filesystem(std::string_view scheme, const Configuration
     std::shared_ptr<fslib::FileSystem> fs = std::move(fs_or).value();
 
     // Put the FileSysatem into LRU cache
-    //
-    // TODO: need to handle the race condition properly by double check if the key exists
-    // before insert under lock protection.
+    std::unique_lock l(_cache_mtx);
+    value_or = find_fs_cache(cache_key);
+    if (value_or.ok()) {
+        VLOG(9) << "Share filesystem";
+        return value_or;
+    }
     auto fs_cache_key = insert_fs_cache(cache_key, fs);
 
     return std::make_pair(std::move(fs_cache_key), std::move(fs));
@@ -386,7 +396,7 @@ std::shared_ptr<std::string> StarOSWorker::insert_fs_cache(const std::string& ke
 
     CacheKey cache_key(key);
     auto value = new CacheValue(fs_cache_key, fs);
-    auto handle = _fs_cache->insert(cache_key, value, 1, 1, cache_value_deleter);
+    auto handle = _fs_cache->insert(cache_key, value, 1, cache_value_deleter);
     if (handle == nullptr) {
         delete value;
         return nullptr;
@@ -429,17 +439,24 @@ absl::StatusOr<std::pair<std::shared_ptr<std::string>, std::shared_ptr<fslib::Fi
         return absl::NotFoundError(key + " not found");
     }
 
+    DeferOp op([this, handle] { _fs_cache->release(handle); });
+
     auto value = static_cast<CacheValue*>(_fs_cache->value(handle));
+
+    auto fs_cache_ttl_sec = config::starlet_filesystem_instance_cache_ttl_sec;
+    if (fs_cache_ttl_sec >= 0) {
+        int32_t duration = MonotonicSeconds() - value->created_time_sec;
+        if (duration > fs_cache_ttl_sec) {
+            return absl::NotFoundError(key + " is expired");
+        }
+    }
+
     // The value->key may be expired in a very short critical moment.
     // At that moment, the value->key is not referenced by anyone but it's shared_ptr deleter haven't be executed,
     // so the item haven't be removed from cache yet.
     // In this situation, this function will return a null key and a valid fs instance.
     // So the caller cannot assume the returned key always valid.
-    auto ret = std::make_pair(value->key.lock(), value->fs);
-
-    _fs_cache->release(handle);
-
-    return ret;
+    return std::make_pair(value->key.lock(), value->fs);
 }
 
 Status to_status(const absl::Status& absl_status) {
@@ -475,21 +492,13 @@ void init_staros_worker(const std::shared_ptr<starcache::StarCache>& star_cache)
 
     staros::starlet::common::GFlagsUtils::UpdateFlagValue("cachemgr_threadpool_size",
                                                           std::to_string(config::starlet_cache_thread_num));
-    staros::starlet::common::GFlagsUtils::UpdateFlagValue("cachemgr_evict_low_water",
-                                                          std::to_string(config::starlet_cache_evict_low_water));
-    staros::starlet::common::GFlagsUtils::UpdateFlagValue("cachemgr_evict_high_water",
-                                                          std::to_string(config::starlet_cache_evict_high_water));
     staros::starlet::common::GFlagsUtils::UpdateFlagValue("fs_stream_buffer_size_bytes",
                                                           std::to_string(config::starlet_fs_stream_buffer_size_bytes));
     staros::starlet::common::GFlagsUtils::UpdateFlagValue("fs_enable_buffer_prefetch",
                                                           std::to_string(config::starlet_fs_read_prefetch_enable));
     staros::starlet::common::GFlagsUtils::UpdateFlagValue(
             "fs_buffer_prefetch_threadpool_size", std::to_string(config::starlet_fs_read_prefetch_threadpool_size));
-    staros::starlet::common::GFlagsUtils::UpdateFlagValue("cachemgr_evict_interval",
-                                                          std::to_string(config::starlet_cache_evict_interval));
 
-    FLAGS_cachemgr_check_interval = config::starlet_cache_check_interval;
-    FLAGS_cachemgr_dir_allocate_policy = config::starlet_cache_dir_allocate_policy;
     FLAGS_fslib_s3_virtual_address_domainlist = config::starlet_s3_virtual_address_domainlist;
     // use the same configuration as the external query
     FLAGS_fslib_s3client_max_connections = config::object_storage_max_connection;
@@ -544,6 +553,13 @@ void update_staros_starcache() {
     if (fslib::FLAGS_star_cache_mem_size_bytes != config::starlet_star_cache_mem_size_bytes) {
         fslib::FLAGS_star_cache_mem_size_bytes = config::starlet_star_cache_mem_size_bytes;
         (void)fslib::star_cache_update_memory_quota_bytes(fslib::FLAGS_star_cache_mem_size_bytes);
+    }
+}
+
+void set_starlet_in_shutdown() {
+    auto* starlet = g_starlet.get();
+    if (starlet) {
+        starlet->on_shutdown();
     }
 }
 

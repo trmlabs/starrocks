@@ -18,9 +18,9 @@
 #include "column/column_helper.h"
 #include "column/nullable_column.h"
 #include "column/vectorized_fwd.h"
-#include "exprs/runtime_filter.h"
 #include "gutil/casts.h"
 #include "roaring/roaring.hh"
+#include "runtime/runtime_filter.h"
 #include "storage/column_predicate.h"
 #include "storage/in_predicate_utils.h"
 #include "storage/olap_type_infra.h"
@@ -124,6 +124,7 @@ public:
 
     Status seek_inverted_index(const std::string& column_name, InvertedIndexIterator* iterator,
                                roaring::Roaring* row_bitmap) const override {
+#ifndef __APPLE__
         InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
         roaring::Roaring indices;
         for (auto value : _values) {
@@ -133,6 +134,9 @@ public:
         }
         *row_bitmap &= indices;
         return Status::OK();
+#else
+        return Status::OK();
+#endif
     }
 
     bool support_original_bloom_filter() const override { return true; }
@@ -309,6 +313,7 @@ public:
 
     Status seek_inverted_index(const std::string& column_name, InvertedIndexIterator* iterator,
                                roaring::Roaring* row_bitmap) const override {
+#ifndef __APPLE__
         InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
         roaring::Roaring indices;
         for (const std::string& s : _zero_padded_strs) {
@@ -319,6 +324,9 @@ public:
         }
         *row_bitmap &= indices;
         return Status::OK();
+#else
+        return Status::OK();
+#endif
     }
 
     bool support_original_bloom_filter() const override { return true; }
@@ -403,12 +411,12 @@ public:
     template <LogicOp Op>
     inline void t_evaluate(const Column* column, uint8_t* sel, uint16_t from, uint16_t to) const {
         const Int32Column* dict_code_column = down_cast<const Int32Column*>(ColumnHelper::get_data_column(column));
-        const auto& data = dict_code_column->get_data();
+        const auto data = dict_code_column->immutable_data();
         Filter filter(to - from, 1);
 
         if (column->has_null()) {
             const NullColumn* null_column = down_cast<const NullableColumn*>(column)->null_column().get();
-            const auto& null_data = null_column->get_data();
+            const auto null_data = null_column->immutable_data();
             for (auto i = from; i < to; i++) {
                 auto index = data[i] >= _bit_mask.size() ? 0 : data[i];
                 filter[i - from] = (!null_data[i]) & _bit_mask[index];
@@ -645,6 +653,11 @@ ColumnPredicate* new_column_in_predicate_generic(const TypeInfoPtr& type_info, C
         SetType values = predicate_internal::strings_to_decimal_set<TYPE_DECIMAL128>(scale, strs);
         return new ColumnInPredicate<TYPE_DECIMAL128, SetType>(type_info, id, std::move(values));
     }
+    case TYPE_DECIMAL256: {
+        using SetType = Set<CppTypeTraits<TYPE_DECIMAL256>::CppType, (Args)...>;
+        SetType values = predicate_internal::strings_to_decimal_set<TYPE_DECIMAL256>(scale, strs);
+        return new ColumnInPredicate<TYPE_DECIMAL256, SetType>(type_info, id, std::move(values));
+    }
     case TYPE_CHAR:
         return new BinaryColumnInPredicate<TYPE_CHAR>(type_info, id, strs);
     case TYPE_VARCHAR:
@@ -693,12 +706,14 @@ ColumnPredicate* new_column_in_predicate_generic(const TypeInfoPtr& type_info, C
     case TYPE_OBJECT:
     case TYPE_PERCENTILE:
     case TYPE_JSON:
+    case TYPE_VARIANT:
     case TYPE_NULL:
     case TYPE_FUNCTION:
     case TYPE_TIME:
     case TYPE_BINARY:
     case TYPE_VARBINARY:
     case TYPE_MAX_VALUE:
+    case TYPE_INT256:
         return nullptr;
         // No default to ensure newly added enumerator will be handled.
     }

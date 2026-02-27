@@ -35,10 +35,10 @@ import com.starrocks.rpc.BrpcProxy;
 import com.starrocks.rpc.LakeService;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.RunMode;
-import com.starrocks.server.WarehouseManager;
 import com.starrocks.system.ComputeNode;
 import com.starrocks.thrift.TNetworkAddress;
 import com.starrocks.transaction.TransactionState;
+import com.starrocks.warehouse.cngroup.ComputeResource;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -69,12 +69,14 @@ public class LakeTableHelper {
         table.removeTableBinds(replay);
         if (replay) {
             table.removeTabletsFromInvertedIndex();
+            GlobalStateMgr.getCurrentState().getWarehouseMgr().removeTableWarehouseInfo(table.getId());
             return true;
         }
         LakeTableCleaner cleaner = new LakeTableCleaner(table);
         boolean succ = cleaner.cleanTable();
         if (succ) {
             table.removeTabletsFromInvertedIndex();
+            GlobalStateMgr.getCurrentState().getWarehouseMgr().removeTableWarehouseInfo(table.getId());
         }
         return succ;
     }
@@ -115,8 +117,10 @@ public class LakeTableHelper {
         }
     }
 
-    static Optional<ShardInfo> getAssociatedShardInfo(PhysicalPartition partition, long warehouseId) throws StarClientException {
-        List<MaterializedIndex> allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+    static Optional<ShardInfo> getAssociatedShardInfo(PhysicalPartition partition,
+                                                      ComputeResource computeResource) throws StarClientException {
+        List<MaterializedIndex> allIndices = partition.getLatestMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+        final long workerGroupId = computeResource.getWorkerGroupId();
         for (MaterializedIndex materializedIndex : allIndices) {
             List<Tablet> tablets = materializedIndex.getTablets();
             if (tablets.isEmpty()) {
@@ -127,9 +131,6 @@ public class LakeTableHelper {
                 if (GlobalStateMgr.isCheckpointThread()) {
                     throw new RuntimeException("Cannot call getShardInfo in checkpoint thread");
                 }
-                WarehouseManager warehouseManager = GlobalStateMgr.getCurrentState().getWarehouseMgr();
-                long workerGroupId = warehouseManager.selectWorkerGroupByWarehouseId(warehouseId)
-                        .orElse(StarOSAgent.DEFAULT_WORKER_GROUP_ID);
                 ShardInfo shardInfo = GlobalStateMgr.getCurrentState().getStarOSAgent().getShardInfo(tablet.getShardId(),
                         workerGroupId);
 
@@ -144,10 +145,10 @@ public class LakeTableHelper {
         return Optional.empty();
     }
 
-    static boolean removePartitionDirectory(Partition partition, long warehouseId) throws StarClientException {
+    static boolean removePartitionDirectory(Partition partition, ComputeResource computeResource) throws StarClientException {
         boolean ret = true;
         for (PhysicalPartition subPartition : partition.getSubPartitions()) {
-            ShardInfo shardInfo = getAssociatedShardInfo(subPartition, warehouseId).orElse(null);
+            ShardInfo shardInfo = getAssociatedShardInfo(subPartition, computeResource).orElse(null);
             if (shardInfo == null) {
                 LOG.info("Skipped remove directory of empty partition {}", subPartition.getId());
                 continue;
@@ -173,7 +174,7 @@ public class LakeTableHelper {
         Collection<PhysicalPartition> subPartitions = partition.getSubPartitions();
         Set<Long> needRemoveShardGroupIdSet = new HashSet<>();
         for (PhysicalPartition subPartition : subPartitions) {
-            for (MaterializedIndex index : subPartition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+            for (MaterializedIndex index : subPartition.getAllMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 needRemoveShardGroupIdSet.add(index.getShardGroupId());
             }
         }
@@ -184,9 +185,9 @@ public class LakeTableHelper {
         }
     }
 
-    public static boolean isSharedPartitionDirectory(PhysicalPartition physicalPartition, long warehouseId)
+    public static boolean isSharedPartitionDirectory(PhysicalPartition physicalPartition, ComputeResource computeResource)
             throws StarClientException {
-        ShardInfo shardInfo = getAssociatedShardInfo(physicalPartition, warehouseId).orElse(null);
+        ShardInfo shardInfo = getAssociatedShardInfo(physicalPartition, computeResource).orElse(null);
         if (shardInfo == null) {
             return false;
         }
@@ -207,6 +208,23 @@ public class LakeTableHelper {
     }
 
     /**
+     * For version compatibility reason, check if column unique id is valid, and if finding any we should restore
+     * column unique id
+     *
+     * @param table the table to restore column unique id
+     */
+    public static void restoreColumnUniqueIdIfNeeded(OlapTable table) {
+        for (MaterializedIndexMeta indexMeta : table.getIndexMetaIdToMeta().values()) {
+            List<Column> indexMetaSchema = indexMeta.getSchema();
+            // check and restore column unique id for each schema
+            if (restoreColumnUniqueId(indexMetaSchema)) {
+                LOG.info("Column unique ids in table {} with index meta {} have been restored, columns size: {}",
+                        table.getName(), indexMeta.getIndexMetaId(), indexMetaSchema.size());
+            }
+        }
+    }
+
+    /**
      * For tables created in the old version of StarRocks cluster, the column unique id is generated on BE and
      * is not saved in FE catalog. For these tables, we want to be able to record their column unique id in the
      * catalog after the upgrade, and the column unique id recorded must be consistent with the one on BE.
@@ -214,21 +232,20 @@ public class LakeTableHelper {
      * each column as their unique id, so here we just need to follow the same algorithm to calculate the unique
      * id of each column.
      *
-     * @param table the table to restore column unique id
-     * @return the max column unique id
+     * @param indexMetaSchema the columns to restore column unique id
+     * @return true if the column unique id is restored, false otherwise
      */
-    public static int restoreColumnUniqueId(OlapTable table) {
-        int maxId = 0;
-        for (MaterializedIndexMeta indexMeta : table.getIndexIdToMeta().values()) {
-            final int columnCount = indexMeta.getSchema().size();
-            maxId = Math.max(maxId, columnCount - 1);
-            for (int i = 0; i < columnCount; i++) {
-                Column col = indexMeta.getSchema().get(i);
-                Preconditions.checkState(col.getUniqueId() <= 0, col.getUniqueId());
-                col.setUniqueId(i);
-            }
+    public static boolean restoreColumnUniqueId(List<Column> indexMetaSchema) {
+        // unique id should have a integer value greater than or equal to 0
+        boolean hasInvalidUniqueId = indexMetaSchema.stream().anyMatch(column -> column.getUniqueId() < 0);
+        if (!hasInvalidUniqueId) {
+            return false;
         }
-        return maxId;
+        for (int i = 0; i < indexMetaSchema.size(); i++) {
+            Column col = indexMetaSchema.get(i);
+            col.setUniqueId(i);
+        }
+        return true;
     }
 
     public static boolean supportCombinedTxnLog(TransactionState.LoadJobSourceType sourceType) {
@@ -240,5 +257,73 @@ public class LakeTableHelper {
                 sourceType == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK ||
                 sourceType == TransactionState.LoadJobSourceType.INSERT_STREAMING ||
                 sourceType == TransactionState.LoadJobSourceType.BATCH_LOAD_JOB;
+    }
+
+    // for now, only loading txn and compaction txn support combined txn log
+    public static boolean isTransactionSupportCombinedTxnLog(TransactionState.LoadJobSourceType sourceType) {
+        return isLoadingTransaction(sourceType) || sourceType == TransactionState.LoadJobSourceType.LAKE_COMPACTION;
+    }
+
+    // if one of the tables in tableIdList is LakeTable with file bundling, return true
+    // else return false
+    public static boolean fileBundling(long dbId, List<Long> tableIdList) {
+        if (!RunMode.isSharedDataMode()) {
+            return false;
+        }
+        // for each tableIdList
+        for (Long tableId : tableIdList) {
+            OlapTable table = (OlapTable) GlobalStateMgr.getCurrentState().getLocalMetastore().getTable(dbId, tableId);
+            if (table == null) {
+                continue;
+            }
+            // check if table is LakeTable with file bundling
+            if (table.isFileBundling()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static Optional<Long> extractIdFromPath(String path) {
+        if (path == null) {
+            return Optional.empty();
+        }
+    
+        int lastSlashIndex = path.lastIndexOf('/');
+        if (lastSlashIndex == -1 || lastSlashIndex == path.length() - 1) {
+            return Optional.empty();
+        }
+    
+        String idPart = path.substring(lastSlashIndex + 1);
+        try {
+            return Optional.of(Long.parseLong(idPart));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Computes the minimum active transaction ID that must be preserved for vacuum operations.
+     * This considers:
+     * 1. Database-level minimum active transaction ID from the global transaction manager
+     * 2. Active schema change jobs' transaction IDs
+     * 3. Active rollup (materialized view) jobs' transaction IDs
+     *
+     * The minimum across all these sources is returned to ensure vacuum does not delete
+     * data still needed by any active operation.
+     *
+     * @param dbId the database ID
+     * @param tableId the table ID
+     * @return the minimum active transaction ID that must be preserved
+     */
+    public static long computeMinActiveTxnId(long dbId, long tableId) {
+        long dbMinTxnId = GlobalStateMgr.getCurrentState().getGlobalTransactionMgr()
+                .getMinActiveTxnIdOfDatabase(dbId);
+        Optional<Long> schemaChangeMinTxnId = GlobalStateMgr.getCurrentState().getSchemaChangeHandler()
+                .getActiveTxnIdOfTable(tableId);
+        Optional<Long> rollupMinTxnId = GlobalStateMgr.getCurrentState().getRollupHandler()
+                .getActiveTxnIdOfTable(tableId);
+        return Math.min(Math.min(dbMinTxnId, schemaChangeMinTxnId.orElse(Long.MAX_VALUE)),
+                rollupMinTxnId.orElse(Long.MAX_VALUE));
     }
 }
