@@ -1,0 +1,1033 @@
+# StarRocks Parameter Dictionary - Parquet/ORC Reader Settings
+# Auto-generated from codebase analysis
+
+parquet_orc_reader:
+
+  parquet_session_variables:
+
+    - name: "enable_parquet_reader_bloom_filter"
+      type: Boolean
+      default: true
+      scope: "FE session variable + BE config"
+      mutable: true
+      description: >
+        Controls whether the Parquet reader uses bloom filter indexes to skip
+        irrelevant data pages. Gated by BE config parquet_reader_bloom_filter_enable:
+        if the BE config is false, this session variable has no effect.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1040
+            context: "constant ENABLE_PARQUET_READER_BLOOM_FILTER"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3264
+            context: "@VarAttr field enableParquetReaderBloomFilter = true"
+        usage:
+          - file: "be/src/connector/hive_connector.cpp"
+            line: 858
+            context: "Two-level gating: BE config AND session variable determine parquet_bloom_filter_enable in scanner_params"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 349
+            context: "Field 170 in TQueryOptions"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 6169
+            context: "tResult.setEnable_parquet_reader_bloom_filter()"
+      behavior:
+        "true": "Parquet reader uses bloom filter indexes to skip pages that cannot contain matching values"
+        "false": "Bloom filter indexes are ignored; all pages in matching row groups are read"
+      related_variables:
+        - "parquet_reader_bloom_filter_enable (BE config)"
+        - "parquet_reader_enable_adpative_bloom_filter (BE config)"
+
+    - name: "enable_parquet_reader_page_index"
+      type: Boolean
+      default: true
+      scope: "FE session variable + BE config"
+      mutable: true
+      description: >
+        Controls whether the Parquet reader uses page-level min/max index to skip
+        irrelevant data pages within row groups. Gated by BE config
+        parquet_page_index_enable: if the BE config is false, this session variable
+        has no effect.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1041
+            context: "constant ENABLE_PARQUET_READER_PAGE_INDEX"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3267
+            context: "@VarAttr field enableParquetReaderPageIndex = true"
+        usage:
+          - file: "be/src/connector/hive_connector.cpp"
+            line: 853
+            context: "Two-level gating: BE config AND session variable determine parquet_page_index_enable in scanner_params"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 350
+            context: "Field 171 in TQueryOptions"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 6170
+            context: "tResult.setEnable_parquet_reader_page_index()"
+      behavior:
+        "true": "Parquet reader skips irrelevant pages within row groups using page-level min/max statistics, reducing I/O and decoding"
+        "false": "All pages in matching row groups are read and decoded"
+      related_variables:
+        - "parquet_page_index_enable (BE config)"
+        - "enable_parquet_reader_bloom_filter"
+
+  orc_session_variables:
+
+    - name: "orc_use_column_names"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Controls whether ORC file columns are accessed by name rather than by ordinal
+        position. By default, columns in ORC files are accessed by their ordinal
+        position in the Hive table definition. Enable this when ORC file column order
+        differs from the table schema (e.g., after schema evolution with column
+        additions/removals).
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 731
+            context: "constant ORC_USE_COLUMN_NAMES"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3234
+            context: "@VarAttr field orcUseColumnNames = false"
+        usage:
+          - file: "be/src/connector/hive_connector.cpp"
+            line: 866
+            context: "Passed to scanner_params.orc_use_column_names from query_options"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 323
+            context: "Field 131 in TQueryOptions"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 6167
+            context: "tResult.setOrc_use_column_names()"
+      behavior:
+        "true": "ORC reader matches columns by name; robust against schema evolution"
+        "false": "ORC reader matches columns by ordinal position; faster but fragile with schema changes"
+      related_variables: []
+
+  late_materialization_session_variables:
+
+    - name: "enable_predicate_col_late_materialize"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Controls predicate-column late materialization in the OLAP storage engine.
+        When enabled, during segment iteration, predicate columns are read and
+        evaluated first. Non-predicate output columns are only read for rows that
+        pass the predicate filter, reducing I/O for selective queries on native
+        StarRocks tables.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1081
+            context: "constant ENABLE_PREDICATE_COL_LATE_MATERIALIZE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2286
+            context: "@VarAttr field enablePredicateColLateMaterialize = true"
+        usage:
+          - file: "be/src/storage/rowset/segment_iterator.cpp"
+            line: 2814
+            context: "Gates predicate-column late materialization in segment iteration"
+          - file: "be/src/storage/rowset/segment_iterator.cpp"
+            line: 1358
+            context: "Checks selectivity to decide if late materialization applies"
+          - file: "be/src/exec/pipeline/scan/olap_chunk_source.cpp"
+            line: 267
+            context: "Propagated from query_options to storage reader params"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 364
+            context: "Field 202 in TQueryOptions"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 6095
+            context: "tResult.setEnable_predicate_col_late_materialize()"
+      behavior:
+        "true": "Predicate columns are read first; non-predicate columns only read for qualifying rows"
+        "false": "All columns read together regardless of predicate evaluation"
+      related_variables:
+        - "late_materialization_ratio (BE config)"
+        - "metric_late_materialization_ratio (BE config)"
+
+    - name: "enable_global_late_materialization"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables global late materialization optimization in the FE query optimizer.
+        When enabled, the GlobalLateMaterializationRewriter rewrites the query plan
+        to defer reading of non-essential columns until after filtering, across
+        multiple operators (not just within a single scan). This is a plan-level
+        optimization distinct from the storage-level late materialization.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1070
+            context: "constant ENABLE_GLOBAL_LATE_MATERIALIZATION"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2201
+            context: "@VarAttr field enableGlobalLateMaterialization = false"
+        usage:
+          - file: "fe/fe-core/src/main/java/com/starrocks/sql/optimizer/rule/tree/lazymaterialize/GlobalLateMaterializationRewriter.java"
+            line: 72
+            context: "Gates the global late materialization rewrite pass"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 366
+            context: "Field 210 in TQueryOptions"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 6112
+            context: "tResult.setEnable_global_late_materialization()"
+      behavior:
+        "true": "Optimizer applies global late materialization rewrite; defers column reads across operators"
+        "false": "Global late materialization rewrite is skipped"
+      related_variables:
+        - "global_late_materialization_max_fetch_ops"
+        - "global_late_materialization_max_limit"
+
+    - name: "global_late_materialization_max_fetch_ops"
+      type: Integer
+      default: 4
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of fetch operators allowed in a global late materialization
+        plan. Limits the complexity of the rewritten plan to avoid excessive
+        late-fetch overhead.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1071
+            context: "constant GLOBAL_LATE_MATERIALIZE_MAX_FETCH_OPS"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2204
+            context: "@VarAttr field globalLateMaterializeMaxFetchOps = 4"
+        usage:
+          - file: "fe/fe-core/src/main/java/com/starrocks/sql/optimizer/rule/tree/lazymaterialize/GlobalLateMaterializationRewriter.java"
+            line: 72
+            context: "Used as limit in the global late materialization rewriter"
+        thrift_propagation: null
+      behavior:
+        low_values: "Fewer fetch operators; simpler plans but less aggressive late materialization"
+        high_values: "More fetch operators allowed; more aggressive deferral of column reads"
+      related_variables:
+        - "enable_global_late_materialization"
+        - "global_late_materialization_max_limit"
+
+    - name: "global_late_materialization_max_limit"
+      type: Integer
+      default: 4096
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum LIMIT value for queries eligible for global late materialization.
+        Queries with a LIMIT exceeding this value will not use the optimization.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1072
+            context: "constant GLOBAL_LATE_MATERIALIZE_MAX_LIMIT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2206
+            context: "@VarAttr field globalLateMaterializeMaxLimit = 4096"
+        usage:
+          - file: "fe/fe-core/src/main/java/com/starrocks/sql/optimizer/rule/tree/lazymaterialize/GlobalLateMaterializationRewriter.java"
+            line: 72
+            context: "Used as eligibility threshold in the global late materialization rewriter"
+        thrift_propagation: null
+      behavior:
+        low_values: "Only very small LIMIT queries qualify for global late materialization"
+        high_values: "More queries qualify for the optimization"
+      related_variables:
+        - "enable_global_late_materialization"
+        - "global_late_materialization_max_fetch_ops"
+
+    - name: "join_late_materialization"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables late materialization for join operators. When enabled, the join node
+        defers reading of non-join columns until after the join probe phase, reducing
+        data shuffled through the join.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 362
+            context: "constant JOIN_LATE_MATERIALIZATION"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1696
+            context: "@VarAttr field joinLateMaterialization = false"
+        usage:
+          - file: "fe/fe-core/src/main/java/com/starrocks/sql/plan/PlanFragmentBuilder.java"
+            line: 3128
+            context: "Sets joinNode.setEnableLateMaterialization() in plan fragment builder"
+        thrift_propagation: null
+      behavior:
+        "true": "Join operators defer non-join-key column reads until after probe"
+        "false": "All columns are materialized before the join"
+      related_variables:
+        - "enable_global_late_materialization"
+
+    - name: "full_sort_late_materialization"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables late materialization for full sort (ORDER BY) operations. When enabled,
+        only order-by columns are permuted during the cascading merge phase; non-order-by
+        output columns are permuted afterward according to the ordinal column. Reduces
+        data movement during sorting.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 873
+            context: "constant FULL_SORT_LATE_MATERIALIZATION_V2 (internal name)"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 874
+            context: "constant FULL_SORT_LATE_MATERIALIZATION (alias/show name)"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2841
+            context: "@VarAttr field fullSortLateMaterialization = true, alias/show = full_sort_late_materialization"
+        usage:
+          - file: "fe/fe-core/src/main/java/com/starrocks/planner/SortNode.java"
+            line: 246
+            context: "msg.sort_node.setLate_materialization() — passes to BE sort execution"
+        thrift_propagation: null
+      behavior:
+        "true": "Only sort-key columns are permuted during merge sort; output columns fetched after"
+        "false": "All columns are permuted during the sort merge"
+      related_variables:
+        - "parallel_merge_late_materialization_mode"
+
+    - name: "parallel_merge_late_materialization_mode"
+      type: String
+      default: "auto"
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Controls late materialization mode for parallel merge sort in SortNode and
+        ExchangeNode. Valid values: auto, always, never. In auto mode, the optimizer
+        decides based on query characteristics.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 640
+            context: "constant PARALLEL_MERGE_LATE_MATERIALIZATION_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2030
+            context: "@VarAttr field parallelMergeLateMaterializationMode = AUTO"
+        usage:
+          - file: "fe/fe-core/src/main/java/com/starrocks/planner/SortNode.java"
+            line: 248
+            context: "Converts to TLateMaterializeMode and sets parallel_merge_late_materialize_mode on sort_node"
+          - file: "fe/fe-core/src/main/java/com/starrocks/planner/ExchangeNode.java"
+            line: 217
+            context: "Converts to TLateMaterializeMode and sets parallel_merge_late_materialize_mode on exchange_node"
+        thrift_propagation: null
+      behavior:
+        "auto": "Optimizer decides whether to use late materialization in parallel merge"
+        "always": "Always use late materialization in parallel merge sort"
+        "never": "Never use late materialization in parallel merge sort"
+      related_variables:
+        - "full_sort_late_materialization"
+
+  parquet_be_configs:
+
+    - name: "parquet_coalesce_read_enable"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables coalesced I/O reads for Parquet files. When enabled, multiple small
+        read requests are merged into larger sequential reads to reduce I/O overhead.
+        Controlled by io_coalesce_read_max_buffer_size and io_coalesce_read_max_distance_size.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1118
+            context: "CONF_mBool(parquet_coalesce_read_enable, \"true\")"
+        usage:
+          - file: "be/src/formats/parquet/group_reader.cpp"
+            line: 107
+            context: "Gates whether shared buffered stream is used for coalesced reads in row group reader"
+          - file: "be/src/formats/parquet/file_reader.cpp"
+            line: 233
+            context: "Gates coalesced reading at file-reader level"
+        thrift_propagation: null
+      behavior:
+        "true": "Small reads are coalesced into larger I/O operations, reducing syscall overhead"
+        "false": "Each column chunk/page is read individually"
+      related_variables:
+        - "io_coalesce_read_max_buffer_size (BE config)"
+        - "io_coalesce_read_max_distance_size (BE config)"
+        - "io_coalesce_adaptive_lazy_active (BE config)"
+
+    - name: "parquet_late_materialization_enable"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables late materialization within the Parquet reader. When enabled, predicate
+        columns are read and evaluated first within a row group; non-predicate columns
+        are only decoded for rows that pass the filter.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1119
+            context: "CONF_mBool(parquet_late_materialization_enable, \"true\")"
+        usage:
+          - file: "be/src/formats/parquet/group_reader.cpp"
+            line: 463
+            context: "Gates late materialization path in Parquet group reader"
+        thrift_propagation: null
+      behavior:
+        "true": "Predicate columns read first; non-predicate columns only decoded for qualifying rows"
+        "false": "All columns decoded together regardless of predicates"
+      related_variables:
+        - "enable_predicate_col_late_materialize (session variable)"
+
+    - name: "parquet_page_index_enable"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: false
+      description: >
+        Master BE-level switch for Parquet page index usage. If disabled, the session
+        variable enable_parquet_reader_page_index has no effect. This is the first
+        gate in the two-level check at hive_connector.cpp.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1120
+            context: "CONF_Bool(parquet_page_index_enable, \"true\")"
+        usage:
+          - file: "be/src/connector/hive_connector.cpp"
+            line: 854
+            context: "First gate: if false, page index is disabled regardless of session variable"
+        thrift_propagation: null
+      behavior:
+        "true": "Page index usage controlled by session variable enable_parquet_reader_page_index"
+        "false": "Page index is unconditionally disabled on this BE"
+      related_variables:
+        - "enable_parquet_reader_page_index (session variable)"
+
+    - name: "parquet_reader_bloom_filter_enable"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: true
+      description: >
+        Master BE-level switch for Parquet bloom filter usage. If disabled, the session
+        variable enable_parquet_reader_bloom_filter has no effect. This is the first
+        gate in the two-level check at hive_connector.cpp.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1121
+            context: "CONF_mBool(parquet_reader_bloom_filter_enable, \"true\")"
+        usage:
+          - file: "be/src/connector/hive_connector.cpp"
+            line: 859
+            context: "First gate: if false, bloom filter is disabled regardless of session variable"
+        thrift_propagation: null
+      behavior:
+        "true": "Bloom filter usage controlled by session variable enable_parquet_reader_bloom_filter"
+        "false": "Bloom filter is unconditionally disabled on this BE"
+      related_variables:
+        - "enable_parquet_reader_bloom_filter (session variable)"
+
+    - name: "parquet_statistics_process_more_filter_enable"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables processing of additional statistics-based filters in the Parquet reader.
+        Exact usage not traced to a specific code path — may be consumed via scanner
+        context struct or is a feature flag for future use.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1122
+            context: "CONF_mBool(parquet_statistics_process_more_filter_enable, \"true\")"
+        usage: []
+        thrift_propagation: null
+      behavior:
+        "true": "Additional statistics-based filters applied in Parquet reading"
+        "false": "Only standard statistics filters applied"
+      related_variables:
+        - "parquet_page_index_enable"
+
+    - name: "parquet_fast_timezone_conversion"
+      type: Boolean
+      default: false
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables a fast-path timezone conversion for Parquet timestamp columns. When
+        enabled (or when timezone offset is 0), uses an optimized conversion path
+        in the column converter. When disabled, uses the standard timezone conversion
+        which is more accurate for DST transitions.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1123
+            context: "CONF_mBool(parquet_fast_timezone_conversion, \"false\")"
+        usage:
+          - file: "be/src/formats/parquet/column_converter.cpp"
+            line: 709
+            context: "Gates fast-path timestamp conversion for INT96 timestamps"
+          - file: "be/src/formats/parquet/column_converter.cpp"
+            line: 816
+            context: "Gates fast-path timestamp conversion for INT64 timestamps"
+        thrift_propagation: null
+      behavior:
+        "true": "Uses fast timezone conversion; may be inaccurate near DST transitions"
+        "false": "Uses standard timezone conversion; always correct but slower"
+      related_variables: []
+
+    - name: "parquet_push_down_filter_to_decoder_enable"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables pushing predicate filters down to the Parquet page decoder level.
+        When enabled, filters are applied during decoding rather than after, avoiding
+        materialization of filtered-out values.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1124
+            context: "CONF_mBool(parquet_push_down_filter_to_decoder_enable, \"true\")"
+        usage:
+          - file: "be/src/formats/parquet/stored_column_reader.h"
+            line: 156
+            context: "Gates whether filter is pushed to decoder in StoredColumnReader"
+        thrift_propagation: null
+      behavior:
+        "true": "Filters are applied at the decoder level; fewer values materialized"
+        "false": "All values decoded first, then filtered"
+      related_variables:
+        - "parquet_late_materialization_enable"
+
+    - name: "parquet_cache_aware_dict_decoder_enable"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables a cache-aware dictionary decoder for Parquet columns. When dictionary
+        size exceeds a threshold, uses a cache-friendly decoding strategy to improve
+        CPU cache hit rates during dictionary lookups.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1125
+            context: "CONF_mBool(parquet_cache_aware_dict_decoder_enable, \"true\")"
+        usage:
+          - file: "be/src/formats/parquet/encoding_dict.h"
+            line: 122
+            context: "Gates cache-aware decoding path when dict size exceeds threshold"
+          - file: "be/src/formats/parquet/encoding_dict.h"
+            line: 137
+            context: "Gates cache-aware batch decoding path"
+        thrift_propagation: null
+      behavior:
+        "true": "Large dictionaries use cache-friendly decoding strategy"
+        "false": "Standard dictionary decoding regardless of dictionary size"
+      related_variables: []
+
+    - name: "parquet_reader_enable_adpative_bloom_filter"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables adaptive bloom filter optimization in the Parquet column reader.
+        Note: the config name contains a typo (\"adpative\" instead of \"adaptive\").
+        When disabled, the adaptive bloom filter logic is bypassed.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1127
+            context: "CONF_mBool(parquet_reader_enable_adpative_bloom_filter, \"true\")"
+        usage:
+          - file: "be/src/formats/parquet/column_reader.cpp"
+            line: 203
+            context: "Early return if adaptive bloom filter is disabled"
+        thrift_propagation: null
+      behavior:
+        "true": "Adaptive bloom filter optimization active in column reader"
+        "false": "Adaptive bloom filter optimization bypassed"
+      related_variables:
+        - "parquet_reader_bloom_filter_enable"
+        - "enable_parquet_reader_bloom_filter (session variable)"
+
+    - name: "parquet_page_cache_decompress_threshold"
+      type: Double
+      default: 1.5
+      scope: "BE config"
+      mutable: false
+      description: >
+        Threshold ratio for deciding whether to cache decompressed Parquet page data.
+        If the decompressed size exceeds compressed_page_size * this threshold, the
+        page data is decompressed into a separate buffer rather than decompressing
+        in-place from the page cache.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1128
+            context: "CONF_Double(parquet_page_cache_decompress_threshold, \"1.5\")"
+        usage:
+          - file: "be/src/formats/parquet/page_reader.cpp"
+            line: 277
+            context: "Compares decompressed size against threshold * compressed_page_size"
+        thrift_propagation: null
+      behavior:
+        low_values: "More pages treated as needing separate decompression buffer"
+        high_values: "More pages decompressed in-place from cache"
+      related_variables:
+        - "enable_adjustment_page_cache_skip"
+
+    - name: "enable_adjustment_page_cache_skip"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: true
+      description: >
+        Controls whether the Parquet page reader adjusts page cache skipping behavior
+        based on whether the page data needs decompression. When enabled and the page
+        does not need decompressed caching, it can skip the cache.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1129
+            context: "CONF_mBool(enable_adjustment_page_cache_skip, \"true\")"
+        usage:
+          - file: "be/src/formats/parquet/page_reader.cpp"
+            line: 90
+            context: "Gates page cache skip adjustment based on decompression status"
+        thrift_propagation: null
+      behavior:
+        "true": "Page cache skipping is adjusted based on decompression needs"
+        "false": "No adjustment to page cache skipping"
+      related_variables:
+        - "parquet_page_cache_decompress_threshold"
+
+  orc_be_configs:
+
+    - name: "enable_orc_late_materialization"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: false
+      description: >
+        Enables late materialization in the ORC scanner. When enabled and there are
+        lazy-load slots, predicate columns are read and evaluated first; non-predicate
+        columns are only read for qualifying rows.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1100
+            context: "CONF_Bool(enable_orc_late_materialization, \"true\")"
+        usage:
+          - file: "be/src/exec/hdfs_scanner/hdfs_scanner_orc.cpp"
+            line: 532
+            context: "Gates ORC late materialization when lazy_load_slots exist"
+        thrift_propagation: null
+      behavior:
+        "true": "ORC reader uses late materialization for selective queries"
+        "false": "All columns read together regardless of predicates"
+      related_variables:
+        - "parquet_late_materialization_enable"
+
+    - name: "enable_orc_libdeflate_decompression"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: false
+      description: >
+        Enables use of the libdeflate library for ORC decompression instead of the
+        default zlib. libdeflate is significantly faster for deflate/zlib decompression.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1101
+            context: "CONF_Bool(enable_orc_libdeflate_decompression, \"true\")"
+        usage:
+          - file: "be/src/formats/orc/apache-orc/c++/src/Compression.cc"
+            line: 1159
+            context: "Gates libdeflate usage in ORC decompression"
+        thrift_propagation: null
+      behavior:
+        "true": "Uses libdeflate for faster ORC decompression"
+        "false": "Uses standard zlib for ORC decompression"
+      related_variables: []
+
+    - name: "orc_natural_read_size"
+      type: Integer
+      default: 8388608
+      scope: "BE config"
+      mutable: false
+      description: >
+        The natural read size (in bytes) for ORC file I/O. Default is 8MB. This is
+        the size hint returned to the ORC library for its read buffer allocation.
+        After a seek, the read size is reduced to 1/4 of this value.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1102
+            context: "CONF_Int32(orc_natural_read_size, \"8388608\")"
+        usage:
+          - file: "be/src/formats/orc/orc_input_stream.h"
+            line: 40
+            context: "getNaturalReadSize() returns config::orc_natural_read_size"
+          - file: "be/src/formats/orc/orc_input_stream.h"
+            line: 56
+            context: "getNaturalReadSizeAfterSeek() returns orc_natural_read_size / 4"
+        thrift_propagation: null
+      behavior:
+        low_values: "Smaller read buffers; more I/O calls but less memory"
+        high_values: "Larger read buffers; fewer I/O calls but more memory per stream"
+      related_variables:
+        - "orc_coalesce_read_enable"
+
+    - name: "orc_coalesce_read_enable"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables coalesced I/O reads for ORC files. When enabled, multiple small
+        read requests are merged into larger sequential reads.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1103
+            context: "CONF_mBool(orc_coalesce_read_enable, \"true\")"
+        usage:
+          - file: "be/src/formats/orc/orc_input_stream.h"
+            line: 66
+            context: "isIOCoalesceEnabled() returns config::orc_coalesce_read_enable"
+        thrift_propagation: null
+      behavior:
+        "true": "Small ORC reads are coalesced into larger I/O operations"
+        "false": "Each ORC read request is executed individually"
+      related_variables:
+        - "io_coalesce_read_max_buffer_size (BE config)"
+        - "io_coalesce_read_max_distance_size (BE config)"
+
+    - name: "orc_tiny_stripe_threshold_size"
+      type: Integer
+      default: 8388608
+      scope: "BE config"
+      mutable: false
+      description: >
+        Threshold size (in bytes) for ORC tiny stripe optimization. Default is 8MB.
+        When all stripes in an ORC file are smaller than this threshold, the tiny
+        stripe optimization kicks in, coalescing stripe reads into merged disk ranges.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1106
+            context: "CONF_Int32(orc_tiny_stripe_threshold_size, \"8388608\")"
+        usage:
+          - file: "be/src/exec/hdfs_scanner/hdfs_scanner_orc.cpp"
+            line: 377
+            context: "Checks if stripe length exceeds threshold to decide tiny stripe opt"
+          - file: "be/src/exec/hdfs_scanner/hdfs_scanner_orc.cpp"
+            line: 386
+            context: "Used as max buffer size in merge_adjacent_disk_ranges for tiny stripes"
+        thrift_propagation: null
+      behavior:
+        low_values: "Fewer stripes qualify as tiny; less merging"
+        high_values: "More stripes qualify as tiny; more aggressive read merging"
+      related_variables:
+        - "orc_coalesce_read_enable"
+
+    - name: "orc_loading_buffer_size"
+      type: Integer
+      default: 8388608
+      scope: "BE config"
+      mutable: false
+      description: >
+        When an ORC file is smaller than this size (in bytes), the entire file is
+        read at once instead of reading the footer first. Default is 8MB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1110
+            context: "CONF_Int32(orc_loading_buffer_size, \"8388608\")"
+        usage:
+          - file: "be/src/exec/file_scanner/orc_scanner.cpp"
+            line: 235
+            context: "If file_size < orc_loading_buffer_size, reads whole file at once"
+        thrift_propagation: null
+      behavior:
+        low_values: "Fewer files qualify for whole-file read"
+        high_values: "More files read entirely at once, avoiding separate footer read"
+      related_variables: []
+
+    - name: "orc_writer_version"
+      type: Integer
+      default: -1
+      scope: "BE config"
+      mutable: true
+      description: >
+        Overrides the ORC writer version in the postscript. Value of -1 means no
+        override (use default). This is a workaround for an out-of-bound bug in
+        the Hive ORC reader (see ORC-125).
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1115
+            context: "CONF_mInt32(orc_writer_version, \"-1\")"
+        usage:
+          - file: "be/src/formats/orc/apache-orc/c++/src/Writer.cc"
+            line: 390
+            context: "If not -1, overrides postScript.set_writerversion()"
+        thrift_propagation: null
+      behavior:
+        "-1": "Default ORC writer version used"
+        "other": "Specified version written to ORC postscript as workaround"
+      related_variables: []
+
+  native_storage_late_materialization_be_configs:
+
+    - name: "late_materialization_ratio"
+      type: Integer
+      default: 10
+      scope: "BE config"
+      mutable: true
+      description: >
+        Controls the late materialization selectivity threshold for OLAP storage scans.
+        If the predicate selectivity ratio is below this threshold (as a percentage),
+        late materialization is used. A value of 1000 always enables late materialization.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 898
+            context: "CONF_mInt32(late_materialization_ratio, \"10\")"
+        usage:
+          - file: "be/src/storage/rowset/segment_iterator.cpp"
+            line: 2771
+            context: "_late_materialization_ratio = config::late_materialization_ratio"
+        thrift_propagation: null
+      behavior:
+        low_values: "Late materialization only for very selective predicates"
+        high_values: "Late materialization for less selective predicates; 1000 = always"
+      related_variables:
+        - "metric_late_materialization_ratio"
+        - "enable_predicate_col_late_materialize (session variable)"
+
+    - name: "metric_late_materialization_ratio"
+      type: Integer
+      default: 1000
+      scope: "BE config"
+      mutable: false
+      description: >
+        Late materialization ratio specifically for metric column types. Default of
+        1000 means late materialization is always used for metric columns, since
+        metric columns are typically larger and benefit more from deferred reads.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 903
+            context: "CONF_Int32(metric_late_materialization_ratio, \"1000\")"
+        usage:
+          - file: "be/src/storage/rowset/segment_iterator.cpp"
+            line: 2783
+            context: "Overrides _late_materialization_ratio for metric type columns"
+        thrift_propagation: null
+      behavior:
+        low_values: "Late materialization for metric columns only when highly selective"
+        "1000": "Always use late materialization for metric columns (default)"
+      related_variables:
+        - "late_materialization_ratio"
+
+  io_coalesce_be_configs:
+
+    - name: "io_coalesce_read_max_buffer_size"
+      type: Integer
+      default: 8388608
+      scope: "BE config"
+      mutable: false
+      description: >
+        Maximum buffer size (in bytes) for coalesced I/O reads. Default is 8MB.
+        Multiple adjacent small reads are merged into a single read up to this size.
+        Used by both Parquet and ORC coalesced reading, as well as HDFS scanner,
+        Iceberg delete builder, and cache select scanner.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1131
+            context: "CONF_Int32(io_coalesce_read_max_buffer_size, \"8388608\")"
+        usage:
+          - file: "be/src/exec/hdfs_scanner/hdfs_scanner.cpp"
+            line: 332
+            context: "Used as max_buffer_size in SharedBufferedInputStream options"
+          - file: "be/src/storage/rowset/segment_iterator.cpp"
+            line: 1227
+            context: "Used for lake storage coalesced reads"
+          - file: "be/src/exec/hdfs_scanner/hdfs_scanner_orc.cpp"
+            line: 387
+            context: "Used in ORC tiny stripe merge"
+        thrift_propagation: null
+      behavior:
+        low_values: "Smaller merged reads; more I/O calls"
+        high_values: "Larger merged reads; fewer I/O calls but more memory"
+      related_variables:
+        - "io_coalesce_read_max_distance_size"
+        - "parquet_coalesce_read_enable"
+        - "orc_coalesce_read_enable"
+
+    - name: "io_coalesce_read_max_distance_size"
+      type: Integer
+      default: 1048576
+      scope: "BE config"
+      mutable: false
+      description: >
+        Maximum gap (in bytes) between two read ranges that can still be coalesced
+        into a single read. Default is 1MB. If two reads are farther apart than
+        this distance, they remain separate I/O operations.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1132
+            context: "CONF_Int32(io_coalesce_read_max_distance_size, \"1048576\")"
+        usage:
+          - file: "be/src/exec/hdfs_scanner/hdfs_scanner.cpp"
+            line: 331
+            context: "Used as max_dist_size in SharedBufferedInputStream options"
+          - file: "be/src/storage/rowset/segment_iterator.cpp"
+            line: 1226
+            context: "Used for lake storage coalesced reads"
+        thrift_propagation: null
+      behavior:
+        low_values: "Only very close reads are merged; more separate I/O operations"
+        high_values: "Reads with larger gaps are merged; more wasted read-ahead bytes"
+      related_variables:
+        - "io_coalesce_read_max_buffer_size"
+
+    - name: "io_coalesce_adaptive_lazy_active"
+      type: Boolean
+      default: true
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables adaptive lazy activation for coalesced I/O. When enabled, the
+        shared buffered input stream adjusts coalescing behavior based on whether
+        columns are lazily loaded (late materialization) vs eagerly loaded.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1133
+            context: "CONF_mBool(io_coalesce_adaptive_lazy_active, \"true\")"
+        usage:
+          - file: "be/src/formats/parquet/group_reader.cpp"
+            line: 112
+            context: "Controls counter-based vs direct coalescing in group reader"
+          - file: "be/src/io/shared_buffered_input_stream.cpp"
+            line: 190
+            context: "Gates adaptive lazy column handling in shared buffered stream"
+          - file: "be/src/formats/orc/orc_input_stream.h"
+            line: 67
+            context: "isIOAdaptiveCoalesceEnabled() returns this config"
+        thrift_propagation: null
+      behavior:
+        "true": "Coalescing adapts based on lazy vs eager column access patterns"
+        "false": "Coalescing uses static strategy regardless of column access pattern"
+      related_variables:
+        - "parquet_coalesce_read_enable"
+        - "orc_coalesce_read_enable"
+
+    - name: "io_coalesce_lake_read_enable"
+      type: Boolean
+      default: false
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables coalesced I/O reads for lake (shared-data) storage. When enabled,
+        column reads in segment iteration are coalesced for shared-data mode. Default
+        is disabled because lake storage has different I/O characteristics than local
+        storage.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1097
+            context: "CONF_mBool(io_coalesce_lake_read_enable, \"false\")"
+        usage:
+          - file: "be/src/storage/rowset/segment_iterator.cpp"
+            line: 1220
+            context: "Gates coalesced I/O for lake storage in segment iteration"
+          - file: "be/src/storage/rowset/scalar_column_iterator.cpp"
+            line: 224
+            context: "Gates coalesced read paths in scalar column iterator"
+        thrift_propagation: null
+      behavior:
+        "true": "Lake storage uses coalesced I/O reads in segment iteration"
+        "false": "Lake storage uses individual reads"
+      related_variables:
+        - "io_coalesce_read_max_buffer_size"
+        - "io_coalesce_read_max_distance_size"
+
+    - name: "arrow_io_coalesce_read_max_buffer_size"
+      type: Long
+      default: 8388608
+      scope: "BE config"
+      mutable: true
+      description: >
+        Maximum buffer size (in bytes) for coalesced I/O reads in the Arrow-based
+        reader path. Default is 8MB. Analogous to io_coalesce_read_max_buffer_size
+        but for Arrow file readers.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1716
+            context: "CONF_mInt64(arrow_io_coalesce_read_max_buffer_size, \"8388608\")"
+        usage: []
+        thrift_propagation: null
+      behavior:
+        low_values: "Smaller merged reads in Arrow path"
+        high_values: "Larger merged reads in Arrow path"
+      related_variables:
+        - "arrow_io_coalesce_read_max_distance_size"
+        - "io_coalesce_read_max_buffer_size"
+
+    - name: "arrow_io_coalesce_read_max_distance_size"
+      type: Long
+      default: 1048576
+      scope: "BE config"
+      mutable: true
+      description: >
+        Maximum gap (in bytes) between two read ranges that can still be coalesced
+        in the Arrow-based reader path. Default is 1MB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1717
+            context: "CONF_mInt64(arrow_io_coalesce_read_max_distance_size, \"1048576\")"
+        usage: []
+        thrift_propagation: null
+      behavior:
+        low_values: "Only very close reads merged in Arrow path"
+        high_values: "Reads with larger gaps merged in Arrow path"
+      related_variables:
+        - "arrow_io_coalesce_read_max_buffer_size"
+        - "io_coalesce_read_max_distance_size"

@@ -1,0 +1,801 @@
+# StarRocks Parameter Dictionary - Memory Management
+# Memory limits, spill to disk, memory pools, buffer management
+
+memory_management:
+
+  memory_session_variables:
+
+    - name: "exec_mem_limit"
+      type: Long
+      default: 2147483648
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Per-fragment execution memory limit in bytes. Default is 2GB. This is a legacy
+        parameter; prefer query_mem_limit for per-query memory control. Sent to BE as
+        mem_limit in TQueryOptions.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 136
+            context: "constant EXEC_MEM_LIMIT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1221
+            context: "@VarAttr field maxExecMemByte = 2147483648, INVISIBLE"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6016
+            context: "Field mem_limit in TQueryOptions"
+      related_variables:
+        - "query_mem_limit"
+
+    - name: "query_mem_limit"
+      type: Long
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Per-query memory limit in bytes. 0 means the system automatically determines
+        the limit based on available memory and query complexity. This is the preferred
+        way to control query memory.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 155
+            context: "constant QUERY_MEM_LIMIT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1227
+            context: "@VarAttr field queryMemLimit = 0"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6017
+            context: "Field query_mem_limit in TQueryOptions"
+      behavior:
+        "0": "System auto-determines based on available memory"
+        ">0": "Hard memory limit per query in bytes"
+
+    - name: "load_mem_limit"
+      type: Long
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Memory limit for load (INSERT/LOAD) operations in bytes. 0 means use the
+        default exec_mem_limit.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 148
+            context: "constant LOAD_MEM_LIMIT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1224
+            context: "@VarAttr field loadMemLimit = 0"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6032
+            context: "Field load_mem_limit in TQueryOptions"
+
+    - name: "query_timeout"
+      type: Integer
+      default: 300
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Query timeout in seconds. Queries running longer than this are cancelled.
+        Default is 300 seconds (5 minutes).
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 157
+            context: "constant QUERY_TIMEOUT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1231
+            context: "@VarAttr field queryTimeoutS = 300"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6021
+            context: "Field query_timeout in TQueryOptions"
+
+  spill_session_variables:
+
+    - name: "enable_spill"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Master switch for spill to disk. When enabled, operators that exceed their memory
+        budget can spill intermediate results to disk instead of failing.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant ENABLE_SPILL"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field enableSpill = false"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "TSpillOptions in TQueryOptions"
+      related_variables:
+        - "spill_mode"
+        - "spillable_operator_mask"
+
+    - name: "enable_spill_to_remote_storage"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables spilling to remote storage (e.g., S3, HDFS) in addition to local disk.
+        Useful when local disk space is limited.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant ENABLE_SPILL_TO_REMOTE_STORAGE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field enableSpillToRemoteStorage = false"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "disable_spill_to_local_disk"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Disables spilling to local disk. When combined with enable_spill_to_remote_storage,
+        forces all spill to go to remote storage only.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant DISABLE_SPILL_TO_LOCAL_DISK"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field disableSpillToLocalDisk = false"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spillable_operator_mask"
+      type: Long
+      default: -1
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Bitmask controlling which operators can spill. -1 means all operators are spillable.
+        Each bit corresponds to an operator type.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILLABLE_OPERATOR_MASK"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillableOperatorMask = -1"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field spillable_operator_mask in TSpillOptions"
+
+    - name: "spill_mode"
+      type: String
+      default: "auto"
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Controls when spilling is triggered. Values: auto (system decides based on memory
+        pressure), force (always spill when possible).
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillMode = 'auto'"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field spill_mode in TSpillOptions"
+      behavior:
+        "auto": "Spill only when memory pressure is detected"
+        "force": "Spill aggressively to minimize memory usage"
+
+    - name: "enable_agg_spill_preaggregation"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables pre-aggregation before spilling in aggregation operators. Reduces the
+        volume of data written to disk during spill.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant ENABLE_AGG_SPILL_PREAGGREGATION"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field enableAggSpillPreaggregation = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_partitionwise_agg"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables partition-wise aggregation during spill. Partitions data before spilling
+        to enable more efficient restore and aggregation.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_PARTITIONWISE_AGG"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillPartitionwiseAgg = false"
+        thrift_propagation: null
+
+    - name: "spill_partitionwise_agg_partition_num"
+      type: Integer
+      default: 128
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Number of partitions for partition-wise aggregation during spill.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_PARTITIONWISE_AGG_PARTITION_NUM"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillPartitionwiseAggPartitionNum = 128"
+        thrift_propagation: null
+
+    - name: "spill_partitionwise_agg_skew_elimination"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables skew elimination during partition-wise aggregation spill. Handles
+        data skew by rebalancing partitions.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_PARTITIONWISE_AGG_SKEW_ELIMINATION"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillPartitionwiseAggSkewElimination = true"
+        thrift_propagation: null
+
+    - name: "enable_spill_buffer_read"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables buffered reads when restoring spilled data from disk.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant ENABLE_SPILL_BUFFER_READ"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field enableSpillBufferRead = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "max_spill_read_buffer_bytes_per_driver"
+      type: Long
+      default: 4194304
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum bytes for spill read buffer per pipeline driver. Default is 4MB.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant MAX_SPILL_READ_BUFFER_BYTES_PER_DRIVER"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field maxSpillReadBufferBytesPerDriver = 4194304"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_hash_join_probe_op_max_bytes"
+      type: Long
+      default: 2147483648
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum bytes for hash join probe operator before spilling to disk.
+        Default is 2GB.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 244
+            context: "constant SPILL_HASH_JOIN_PROBE_OP_MAX_BYTES"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1635
+            context: "@VarAttr field spillHashJoinProbeOpMaxBytes = 2147483648, INVISIBLE"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 25 in TSpillOptions"
+
+    - name: "spill_mem_table_size"
+      type: Long
+      default: 104857600
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Size (bytes) of in-memory table before triggering spill. Default is 100MB.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_MEM_TABLE_SIZE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillMemTableSize"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_mem_table_num"
+      type: Integer
+      default: 2
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Number of in-memory tables before triggering spill.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_MEM_TABLE_NUM"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillMemTableNum"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_mem_limit_threshold"
+      type: Double
+      default: 0.8
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Memory usage ratio threshold that triggers spilling. When memory usage exceeds
+        this fraction of the limit, spilling begins.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_MEM_LIMIT_THRESHOLD"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillMemLimitThreshold = 0.8"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_operator_min_bytes"
+      type: Long
+      default: 10485760
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Minimum bytes an operator must hold before it can be selected as a spill candidate.
+        Default is 10MB.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_OPERATOR_MIN_BYTES"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillOperatorMinBytes"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_operator_max_bytes"
+      type: Long
+      default: 1073741824
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum bytes an operator can hold before being forced to spill. Default is 1GB.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_OPERATOR_MAX_BYTES"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillOperatorMaxBytes"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_revocable_max_bytes"
+      type: Long
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum revocable memory bytes before triggering spill. 0 means no limit.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_REVOCABLE_MAX_BYTES"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillRevocableMaxBytes = 0"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_enable_direct_io"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables direct I/O for spill operations, bypassing OS page cache.
+        Reduces memory pressure from spill I/O but may be slower for small spills.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_ENABLE_DIRECT_IO"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillEnableDirectIO = false"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_enable_compaction"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables compaction of spilled data. Merges small spill files to reduce I/O
+        overhead during restore.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_ENABLE_COMPACTION"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillEnableCompaction = false"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_rand_ratio"
+      type: Double
+      default: 0.0
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Random spill ratio for testing. When > 0, randomly spills data with this probability
+        to test spill code paths. Should only be used for testing.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_RAND_RATIO"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillRandRatio = 0.0"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_encode_level"
+      type: Integer
+      default: 7
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Compression level for spilled data. Higher values produce smaller files but use
+        more CPU. Uses LZ4 compression by default.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_ENCODE_LEVEL"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillEncodeLevel = 7"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field in TSpillOptions"
+
+    - name: "spill_storage_volume"
+      type: String
+      default: ""
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Storage volume name for remote spill. When spilling to remote storage, this
+        specifies which configured storage volume to use.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant SPILL_STORAGE_VOLUME"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field spillStorageVolume = ''"
+        thrift_propagation: null
+
+    - name: "enable_connector_sink_spill"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables spilling for connector sink (external table write) operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant ENABLE_CONNECTOR_SINK_SPILL"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field enableConnectorSinkSpill = false"
+        thrift_propagation: null
+      related_variables:
+        - "connector_sink_spill_mem_limit_threshold"
+
+    - name: "connector_sink_spill_mem_limit_threshold"
+      type: Double
+      default: 0.5
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Memory usage ratio threshold for triggering connector sink spill.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "constant CONNECTOR_SINK_SPILL_MEM_LIMIT_THRESHOLD"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            context: "@VarAttr field connectorSinkSpillMemLimitThreshold = 0.5"
+        thrift_propagation: null
+
+  memory_be_configs:
+
+    - name: "mem_limit"
+      type: String
+      default: "90%"
+      scope: "BE config"
+      mutable: false
+      description: >
+        Maximum memory the BE process can use. Can be a percentage of system memory
+        (e.g., "90%") or an absolute value (e.g., "64G"). This is the hard upper limit.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_String(mem_limit, \"90%\")"
+        thrift_propagation: null
+
+    - name: "memory_urgent_level"
+      type: Double
+      default: 0.9
+      scope: "BE config"
+      mutable: true
+      description: >
+        Memory usage ratio that triggers urgent memory reclamation. When usage exceeds
+        this fraction of mem_limit, aggressive memory freeing is performed.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(memory_urgent_level, \"0.9\")"
+        thrift_propagation: null
+
+    - name: "memory_high_level"
+      type: Double
+      default: 0.8
+      scope: "BE config"
+      mutable: true
+      description: >
+        Memory usage ratio that triggers high memory state. New queries may be rejected
+        or throttled above this level.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(memory_high_level, \"0.8\")"
+        thrift_propagation: null
+
+    - name: "query_max_memory_limit_percent"
+      type: Double
+      default: 0.9
+      scope: "BE config"
+      mutable: true
+      description: >
+        Maximum fraction of process memory that a single query can use.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(query_max_memory_limit_percent, \"0.9\")"
+        thrift_propagation: null
+
+    - name: "load_process_max_memory_limit_bytes"
+      type: Long
+      default: 107374182400
+      scope: "BE config"
+      mutable: true
+      description: >
+        Absolute maximum memory (bytes) for all load processes. Default is 100GB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(load_process_max_memory_limit_bytes, \"107374182400\")"
+        thrift_propagation: null
+
+    - name: "load_process_max_memory_limit_percent"
+      type: Double
+      default: 0.3
+      scope: "BE config"
+      mutable: true
+      description: >
+        Maximum fraction of process memory allocated to all load operations.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(load_process_max_memory_limit_percent, \"0.3\")"
+        thrift_propagation: null
+
+    - name: "compaction_max_memory_limit"
+      type: Long
+      default: -1
+      scope: "BE config"
+      mutable: true
+      description: >
+        Maximum memory (bytes) for compaction operations. -1 means auto-calculated
+        based on available memory.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(compaction_max_memory_limit, \"-1\")"
+        thrift_propagation: null
+
+    - name: "write_buffer_size"
+      type: Long
+      default: 104857600
+      scope: "BE config"
+      mutable: true
+      description: >
+        Size (bytes) of the memtable write buffer. Default is 100MB. Data is flushed
+        to disk when the buffer reaches this size.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(write_buffer_size, \"104857600\")"
+        thrift_propagation: null
+
+    - name: "local_exchange_buffer_mem_limit_per_driver"
+      type: Long
+      default: 134217728
+      scope: "BE config"
+      mutable: true
+      description: >
+        Memory limit (bytes) for local exchange buffer per pipeline driver. Default is 128MB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(local_exchange_buffer_mem_limit_per_driver, \"134217728\")"
+        thrift_propagation: null
+
+    - name: "streaming_agg_limited_memory_size"
+      type: Long
+      default: 134217728
+      scope: "BE config"
+      mutable: true
+      description: >
+        Memory limit (bytes) for streaming aggregation before switching to hash aggregation.
+        Default is 128MB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(streaming_agg_limited_memory_size, \"134217728\")"
+        thrift_propagation: null
+
+    - name: "partition_hash_join_probe_limit_size"
+      type: Long
+      default: 134217728
+      scope: "BE config"
+      mutable: true
+      description: >
+        Memory limit (bytes) for partition hash join probe side buffer. Default is 128MB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(partition_hash_join_probe_limit_size, \"134217728\")"
+        thrift_propagation: null
+
+    - name: "sink_buffer_mem_limit_per_driver"
+      type: Long
+      default: 67108864
+      scope: "BE config"
+      mutable: true
+      description: >
+        Memory limit (bytes) for sink buffer per pipeline driver. Default is 64MB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(sink_buffer_mem_limit_per_driver, \"67108864\")"
+        thrift_propagation: null
+
+  spill_be_configs:
+
+    - name: "spill_local_storage_dir"
+      type: String
+      default: "${STARROCKS_HOME}/spill"
+      scope: "BE config"
+      mutable: false
+      description: >
+        Local directory for spill storage. Multiple directories can be separated by
+        semicolons for disk striping.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_String(spill_local_storage_dir, \"${STARROCKS_HOME}/spill\")"
+        thrift_propagation: null
+
+    - name: "spill_init_partition"
+      type: Integer
+      default: 16
+      scope: "BE config"
+      mutable: true
+      description: >
+        Initial number of partitions for spill operations.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(spill_init_partition, \"16\")"
+        thrift_propagation: null
+
+    - name: "spill_max_partition_level"
+      type: Integer
+      default: 7
+      scope: "BE config"
+      mutable: true
+      description: >
+        Maximum partition recursion level for spill. Controls how many times spilled
+        partitions can be further split.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(spill_max_partition_level, \"7\")"
+        thrift_propagation: null
+
+    - name: "spill_max_partition_size"
+      type: Long
+      default: 0
+      scope: "BE config"
+      mutable: true
+      description: >
+        Maximum size (bytes) per spill partition. 0 means no limit.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(spill_max_partition_size, \"0\")"
+        thrift_propagation: null
+
+    - name: "spill_max_dir_bytes_ratio"
+      type: Double
+      default: 0.8
+      scope: "BE config"
+      mutable: true
+      description: >
+        Maximum ratio of disk space that can be used for spill files in each spill directory.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(spill_max_dir_bytes_ratio, \"0.8\")"
+        thrift_propagation: null
+
+    - name: "enable_load_spill"
+      type: Boolean
+      default: false
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables spilling for load (data ingestion) operations. When enabled, load
+        operations that exceed memory can spill to disk.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mBool(enable_load_spill, \"false\")"
+        thrift_propagation: null
+
+    - name: "query_pool_spill_mem_limit_threshold"
+      type: Double
+      default: 1.0
+      scope: "BE config"
+      mutable: true
+      description: >
+        Query pool memory usage ratio that triggers spilling for queries in the pool.
+        Default 1.0 means spill is only triggered by individual query limits.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(query_pool_spill_mem_limit_threshold, \"1.0\")"
+        thrift_propagation: null

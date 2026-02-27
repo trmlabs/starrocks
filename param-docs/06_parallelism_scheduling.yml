@@ -1,0 +1,951 @@
+# StarRocks Parameter Dictionary - Parallelism and Scheduling
+# Pipeline engine, DOP, fragment parallelism, group execution, scheduling, worker threads
+
+parallelism_scheduling:
+
+  pipeline_engine:
+
+    - name: "enable_pipeline_engine"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables the pipeline execution engine. When enabled, queries are executed using
+        the pipeline model with driver-based scheduling rather than the traditional
+        thread-per-fragment model.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 297
+            context: "constant ENABLE_PIPELINE_ENGINE (alias/show)"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1116
+            context: "@VarAttr field enablePipelineEngine = true"
+        thrift_propagation: null
+      behavior:
+        "true": "Queries use pipeline execution engine with fine-grained scheduling"
+        "false": "Queries use traditional thread-per-fragment execution model"
+      note: "Has alias and show name configured on the @VarAttr annotation (L305)"
+      related_variables:
+        - "pipeline_dop"
+        - "max_pipeline_dop"
+        - "pipeline_profile_level"
+
+    - name: "pipeline_dop"
+      type: Integer
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Degree of parallelism for pipeline execution. Controls the number of pipeline
+        drivers per fragment instance. When set to 0, the system auto-tunes based on
+        the number of CPU cores.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 337
+            context: "constant PIPELINE_DOP"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1481
+            context: "@VarAttr field pipelineDop = 0"
+        thrift_propagation: null
+      behavior:
+        zero: "Auto-tuned based on available CPU cores"
+        low_values: "Less parallelism per fragment, lower resource usage"
+        high_values: "More parallelism per fragment, higher throughput but more resource consumption"
+      related_variables:
+        - "max_pipeline_dop"
+        - "pipeline_sink_dop"
+        - "enable_runtime_adaptive_dop"
+
+    - name: "max_pipeline_dop"
+      type: Integer
+      default: 64
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum degree of parallelism for pipeline execution. Caps the pipeline DOP
+        regardless of auto-tuning or manual settings.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 338
+            context: "constant MAX_PIPELINE_DOP"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1521
+            context: "@VarAttr field maxPipelineDop = 64"
+        thrift_propagation: null
+      behavior:
+        low_values: "Tighter cap on parallelism"
+        high_values: "Allows more parallel drivers per fragment"
+      related_variables:
+        - "pipeline_dop"
+
+    - name: "pipeline_sink_dop"
+      type: Integer
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Degree of parallelism for pipeline sink operators. Controls the number of
+        sink drivers. When set to 0, the system auto-tunes based on pipeline_dop.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 597
+            context: "constant PIPELINE_SINK_DOP"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1484
+            context: "@VarAttr field pipelineSinkDop = 0"
+        thrift_propagation: null
+      behavior:
+        zero: "Auto-tuned based on pipeline_dop"
+        positive: "Explicit sink parallelism override"
+      related_variables:
+        - "pipeline_dop"
+        - "enable_adaptive_sink_dop"
+
+    - name: "pipeline_profile_level"
+      type: Integer
+      default: 1
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Controls the detail level of pipeline execution profiling.
+        Higher levels provide more detailed but more expensive profiling information.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 342
+            context: "constant PIPELINE_PROFILE_LEVEL"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1530
+            context: "@VarAttr field pipelineProfileLevel = 1"
+        thrift_propagation: null
+      behavior:
+        low_values: "Minimal profiling overhead"
+        high_values: "Detailed profiling with higher overhead"
+
+    - name: "enable_adaptive_sink_dop"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables adaptive adjustment of sink DOP at runtime. When enabled, the system
+        can dynamically tune sink parallelism based on workload characteristics.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 598
+            context: "constant ENABLE_ADAPTIVE_SINK_DOP"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1925
+            context: "@VarAttr field enableAdaptiveSinkDop = false"
+        thrift_propagation: null
+      related_variables:
+        - "pipeline_sink_dop"
+
+    - name: "enable_pipeline_event_scheduler"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables event-driven scheduling for the pipeline engine. When enabled, drivers
+        are scheduled based on events (data ready, IO complete) rather than polling.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 735
+            context: "constant ENABLE_PIPELINE_EVENT_SCHEDULER"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3258
+            context: "@VarAttr field enablePipelineEventScheduler = true"
+        thrift_propagation: null
+      behavior:
+        "true": "Event-driven scheduling with lower latency for IO-bound queries"
+        "false": "Polling-based scheduling"
+
+  dop_and_adaptive:
+
+    - name: "enable_runtime_adaptive_dop"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables runtime adaptive degree of parallelism. When enabled, the system
+        can adjust DOP at runtime based on actual data distribution and workload,
+        potentially reducing resource waste for skewed queries.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 299
+            context: "constant ENABLE_RUNTIME_ADAPTIVE_DOP"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1131
+            context: "@VarAttr field enableRuntimeAdaptiveDop = false"
+        thrift_propagation: null
+      behavior:
+        "true": "DOP adjusts at runtime based on actual data volume"
+        "false": "DOP is fixed at planning time"
+      related_variables:
+        - "runtime_adaptive_dop_max_block_rows_per_driver_seq"
+        - "runtime_adaptive_dop_max_output_amplification_factor"
+        - "pipeline_dop"
+
+    - name: "runtime_adaptive_dop_max_block_rows_per_driver_seq"
+      type: Long
+      default: 16384
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum number of block rows per driver sequence for runtime adaptive DOP.
+        Controls the granularity of adaptive DOP adjustment decisions.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 300
+            context: "constant ADAPTIVE_DOP_MAX_BLOCK_ROWS_PER_DRIVER_SEQ"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1134
+            context: "@VarAttr field adaptiveDopMaxBlockRowsPerDriverSeq = 16384, INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "enable_runtime_adaptive_dop"
+
+    - name: "runtime_adaptive_dop_max_output_amplification_factor"
+      type: Long
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum output amplification factor for runtime adaptive DOP.
+        Limits how much the output can be amplified relative to input when
+        adjusting DOP. 0 means no limit.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 302
+            context: "constant ADAPTIVE_DOP_MAX_OUTPUT_AMPLIFICATION_FACTOR"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1138
+            context: "@VarAttr field adaptiveDopMaxOutputAmplificationFactor = 0, INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "enable_runtime_adaptive_dop"
+
+  fragment_parallelism:
+
+    - name: "parallel_fragment_exec_instance_num"
+      type: Integer
+      default: 1
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Number of fragment instances to execute in parallel on each BE node.
+        Controls intra-node parallelism for query execution.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 225
+            context: "constant PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1475
+            context: "@VarAttr field parallelExecInstanceNum = 1"
+        thrift_propagation: null
+      behavior:
+        low_values: "Less parallelism per node, suitable for small queries"
+        high_values: "More parallelism per node, better for large scans"
+      related_variables:
+        - "max_parallel_scan_instance_num"
+        - "pipeline_dop"
+
+    - name: "max_parallel_scan_instance_num"
+      type: Integer
+      default: -1
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of parallel scan instances per BE node. Controls the upper
+        bound of scan parallelism. -1 means no explicit limit (uses system default).
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 226
+            context: "constant MAX_PARALLEL_SCAN_INSTANCE_NUM"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1478
+            context: "@VarAttr field maxParallelScanInstanceNum = -1"
+        thrift_propagation: null
+      behavior:
+        negative: "No explicit limit, system decides"
+        positive: "Caps scan parallelism to specified value"
+      related_variables:
+        - "parallel_fragment_exec_instance_num"
+
+    - name: "parallel_exchange_instance_num"
+      type: Integer
+      default: -1
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Number of exchange instances for data shuffling between fragments.
+        Controls the parallelism of data exchange operators. -1 means auto.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 266
+            context: "constant PARALLEL_EXCHANGE_INSTANCE_NUM"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1379
+            context: "@VarAttr field exchangeInstanceParallel = -1"
+        thrift_propagation: null
+      behavior:
+        negative: "Auto-determined by the optimizer"
+        positive: "Explicit number of exchange instances"
+      related_variables:
+        - "parallel_fragment_exec_instance_num"
+
+  group_execution:
+
+    - name: "enable_group_execution"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables group execution mode. Group execution partitions data into groups
+        and processes them sequentially, reducing memory consumption for large
+        aggregations and joins at the cost of some throughput.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 634
+            context: "constant ENABLE_GROUP_EXECUTION"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2014
+            context: "@VarAttr field enableGroupExecution = true"
+        thrift_propagation: null
+      behavior:
+        "true": "Large aggregations/joins use group-based execution to reduce memory"
+        "false": "All data processed in a single pass"
+      related_variables:
+        - "group_execution_group_scale"
+        - "group_execution_max_groups"
+        - "group_execution_min_scan_rows"
+
+    - name: "group_execution_group_scale"
+      type: Integer
+      default: 64
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Scale factor for the number of groups in group execution. Controls
+        the granularity of data partitioning within group execution.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 635
+            context: "constant GROUP_EXECUTION_GROUP_SCALE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2017
+            context: "@VarAttr field groupExecutionGroupScale = 64"
+        thrift_propagation: null
+      related_variables:
+        - "enable_group_execution"
+
+    - name: "group_execution_max_groups"
+      type: Integer
+      default: 128
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of groups for group execution. Caps the number of
+        data partitions created during group execution.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 636
+            context: "constant GROUP_EXECUTION_MAX_GROUPS"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2020
+            context: "@VarAttr field groupExecutionMaxGroups = 128"
+        thrift_propagation: null
+      related_variables:
+        - "enable_group_execution"
+
+    - name: "group_execution_min_scan_rows"
+      type: Long
+      default: 5000000
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Minimum number of scan rows required to trigger group execution.
+        If the estimated scan rows are below this threshold, group execution
+        is not used even if enabled.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 637
+            context: "constant GROUP_EXECUTION_MIN_SCAN_ROWS"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2023
+            context: "@VarAttr field groupExecutionMinScanRows = 5000000"
+        thrift_propagation: null
+      related_variables:
+        - "enable_group_execution"
+
+  scheduling:
+
+    - name: "choose_execute_instances_mode"
+      type: String
+      default: "LOCALITY"
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Mode for choosing which BE instances execute a query fragment.
+        LOCALITY mode prefers BEs that hold local data replicas to minimize
+        network transfer.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 485
+            context: "constant CHOOSE_EXECUTE_INSTANCES_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3093
+            context: "@VarAttr field chooseExecuteInstancesMode = LOCALITY"
+        thrift_propagation: null
+      related_variables:
+        - "prefer_compute_node"
+        - "use_compute_nodes"
+        - "computation_fragment_scheduling_policy"
+
+    - name: "prefer_compute_node"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        When enabled, prefers scheduling computation fragments on compute nodes
+        rather than storage nodes (BEs). Useful in shared-data deployments.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 132
+            context: "constant PREFER_COMPUTE_NODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1158
+            context: "@VarAttr field preferComputeNode = false"
+        thrift_propagation: null
+      related_variables:
+        - "use_compute_nodes"
+        - "computation_fragment_scheduling_policy"
+
+    - name: "use_compute_nodes"
+      type: Integer
+      default: -1
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Number of compute nodes to use for query execution. -1 means use all
+        available compute nodes. Allows limiting the number of compute nodes
+        involved in a query.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 131
+            context: "constant USE_COMPUTE_NODES"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1155
+            context: "@VarAttr field useComputeNodes = -1"
+        thrift_propagation: null
+      behavior:
+        negative: "Use all available compute nodes"
+        zero: "Do not use compute nodes"
+        positive: "Use up to N compute nodes"
+      related_variables:
+        - "prefer_compute_node"
+        - "computation_fragment_scheduling_policy"
+
+    - name: "computation_fragment_scheduling_policy"
+      type: String
+      default: "COMPUTE_NODES_ONLY"
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Policy for scheduling computation-only fragments. Controls whether
+        computation fragments go to compute nodes only, all nodes, or other modes.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 135
+            context: "constant COMPUTATION_FRAGMENT_SCHEDULING_POLICY"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1161
+            context: "@VarAttr field computationFragmentSchedulingPolicy = COMPUTE_NODES_ONLY"
+        thrift_propagation: null
+      related_variables:
+        - "prefer_compute_node"
+        - "use_compute_nodes"
+
+    - name: "enable_phased_scheduler"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables phased scheduling for query execution. Phased scheduling
+        executes fragments in phases to reduce peak memory consumption.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 723
+            context: "constant ENABLE_PHASED_SCHEDULER"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3252
+            context: "@VarAttr field enablePhasedScheduler = false"
+        thrift_propagation: null
+
+    - name: "enable_single_node_schedule"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables single-node scheduling where all fragments execute on a single BE.
+        Useful for small queries to avoid distribution overhead.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 725
+            context: "constant ENABLE_SINGLE_NODE_SCHEDULE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3255
+            context: "@VarAttr field enableSingleNodeSchedule = false"
+        thrift_propagation: null
+
+    - name: "enable_query_queue"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables the query queue mechanism for admission control. When enabled,
+        queries may be queued when system resources are under pressure.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 641
+            context: "constant ENABLE_QUERY_QUEUE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2033
+            context: "@VarAttr field enableQueryQueue = true, INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "exec_mode"
+
+    - name: "exec_mode"
+      type: String
+      default: "DEFAULT"
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Execution mode for queries. Controls how queries are dispatched
+        to the execution engine.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 642
+            context: "constant EXEC_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2037
+            context: "@VarAttr field execMode = DEFAULT"
+        thrift_propagation: null
+      related_variables:
+        - "enable_query_queue"
+
+  parallelism_misc:
+
+    - name: "enable_parallel_merge"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables parallel merge for sorted results. When enabled, merge operations
+        for ORDER BY queries use multiple threads for better performance.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 639
+            context: "constant ENABLE_PARALLEL_MERGE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2026
+            context: "@VarAttr field enableParallelMerge = true"
+        thrift_propagation: null
+
+    - name: "enable_shared_scan"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables shared scan optimization where multiple operators can share
+        the same scan operator to avoid redundant reads of the same data.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 336
+            context: "constant ENABLE_SHARED_SCAN"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1214
+            context: "@VarAttr field enableSharedScan = false"
+        thrift_propagation: null
+
+    - name: "enable_local_shuffle_agg"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables local shuffle before aggregation. When enabled, data is locally
+        shuffled by grouping key before aggregation to improve data locality
+        and reduce hash table contention.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 319
+            context: "constant ENABLE_LOCAL_SHUFFLE_AGG"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1146
+            context: "@VarAttr field enableLocalShuffleAgg = true"
+        thrift_propagation: null
+
+    - name: "enable_per_bucket_optimize"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables per-bucket optimization for scan and aggregation. When the query
+        accesses bucketed tables and the aggregation/join key aligns with bucket
+        key, per-bucket scheduling avoids unnecessary shuffling.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 630
+            context: "constant ENABLE_PER_BUCKET_OPTIMIZE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2002
+            context: "@VarAttr field enablePerBucketOptimize = true"
+        thrift_propagation: null
+
+    - name: "enable_bucket_aware_execution_on_lake"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables bucket-aware execution for lake (shared-data) tables. When enabled,
+        the scheduler considers bucket boundaries when scheduling scan tasks on
+        lake storage to improve data locality.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 632
+            context: "constant ENABLE_BUCKET_AWARE_EXECUTION_ON_LAKE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2008
+            context: "@VarAttr field enableBucketAwareExecutionOnLake = true"
+        thrift_propagation: null
+
+    - name: "interleaving_group_size"
+      type: Integer
+      default: 10
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Size of interleaving groups for pipeline scheduling. Controls the
+        granularity of interleaved execution between different pipeline drivers.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 942
+            context: "constant INTERLEAVING_GROUP_SIZE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2059
+            context: "@VarAttr field interleavingGroupSize = 10"
+        thrift_propagation: null
+
+  pipeline_be_configs:
+
+    - name: "pipeline_exec_thread_pool_thread_num"
+      type: Int64
+      default: 0
+      scope: "BE config"
+      mutable: false
+      description: >
+        Number of threads in the pipeline execution thread pool. Controls how many
+        threads are available for executing pipeline drivers. 0 means auto-tuned
+        based on the number of CPU cores.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 989
+            context: "CONF_Int64 pipeline_exec_thread_pool_thread_num = 0"
+      behavior:
+        zero: "Auto-tuned to number of CPU cores"
+        positive: "Explicit thread pool size"
+      related_variables:
+        - "pipeline_scan_thread_pool_thread_num"
+        - "pipeline_prepare_thread_pool_thread_num"
+
+    - name: "pipeline_scan_thread_pool_thread_num"
+      type: Int64
+      default: 0
+      scope: "BE config"
+      mutable: false
+      description: >
+        Number of threads in the pipeline scan thread pool for local scan I/O.
+        0 means auto-tuned based on the number of CPU cores.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 984
+            context: "CONF_Int64 pipeline_scan_thread_pool_thread_num = 0"
+      behavior:
+        zero: "Auto-tuned to number of CPU cores"
+        positive: "Explicit scan thread pool size"
+      related_variables:
+        - "pipeline_exec_thread_pool_thread_num"
+        - "pipeline_connector_scan_thread_num_per_cpu"
+
+    - name: "pipeline_connector_scan_thread_num_per_cpu"
+      type: Double
+      default: 8
+      scope: "BE config"
+      mutable: true
+      description: >
+        Number of connector scan threads per CPU core. Controls thread pool sizing
+        for external data source scans (Hive, Iceberg, etc.). Higher values allow
+        more concurrent external IO operations.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 985
+            context: "CONF_mDouble pipeline_connector_scan_thread_num_per_cpu = 8"
+      behavior:
+        low_values: "Fewer threads for external scans, less IO parallelism"
+        high_values: "More threads for external scans, handles high-latency sources better"
+
+    - name: "pipeline_prepare_thread_pool_thread_num"
+      type: Int64
+      default: 0
+      scope: "BE config"
+      mutable: false
+      description: >
+        Number of threads in the pipeline prepare thread pool. Used for preparing
+        pipeline drivers before execution. 0 means auto-tuned.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 994
+            context: "CONF_Int64 pipeline_prepare_thread_pool_thread_num = 0"
+
+    - name: "pipeline_sink_io_thread_pool_thread_num"
+      type: Int64
+      default: 0
+      scope: "BE config"
+      mutable: false
+      description: >
+        Number of threads in the pipeline sink IO thread pool. Handles IO
+        operations for sink operators (writing results, sending data). 0 means auto-tuned.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 997
+            context: "CONF_Int64 pipeline_sink_io_thread_pool_thread_num = 0"
+
+    - name: "pipeline_sink_buffer_size"
+      type: Int64
+      default: 64
+      scope: "BE config"
+      mutable: false
+      description: >
+        Size of the buffer for pipeline sink operators. Controls how many chunks
+        can be buffered in the sink before backpressure is applied.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1000
+            context: "CONF_Int64 pipeline_sink_buffer_size = 64"
+
+    - name: "pipeline_sink_brpc_dop"
+      type: Int64
+      default: 64
+      scope: "BE config"
+      mutable: false
+      description: >
+        Degree of parallelism for BRPC-based data sink. Controls how many
+        concurrent BRPC requests can be in-flight for data exchange.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1002
+            context: "CONF_Int64 pipeline_sink_brpc_dop = 64"
+
+    - name: "pipeline_max_num_drivers_per_exec_thread"
+      type: Int64
+      default: 10240
+      scope: "BE config"
+      mutable: false
+      description: >
+        Maximum number of pipeline drivers per execution thread. Limits the number
+        of concurrent drivers that can be assigned to a single execution thread.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1005
+            context: "CONF_Int64 pipeline_max_num_drivers_per_exec_thread = 10240"
+
+    - name: "pipeline_driver_queue_level_time_slice_base_ns"
+      type: Int64
+      default: 200000000
+      scope: "BE config"
+      mutable: false
+      description: >
+        Base time slice in nanoseconds for the multi-level feedback queue used
+        in pipeline driver scheduling. Lower levels get shorter time slices.
+        Default is 200ms.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1014
+            context: "CONF_Int64 pipeline_driver_queue_level_time_slice_base_ns = 200000000"
+
+    - name: "vector_chunk_size"
+      type: Int32
+      default: 4096
+      scope: "BE config"
+      mutable: false
+      description: >
+        Number of rows per chunk in the vectorized execution engine. Controls
+        the batch size for vectorized processing. Larger values improve throughput
+        for scan-heavy queries; smaller values reduce latency.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 893
+            context: "CONF_Int32 vector_chunk_size = 4096"
+      behavior:
+        low_values: "Smaller batches, lower latency, more function-call overhead"
+        high_values: "Larger batches, higher throughput, better SIMD utilization"
+
+  worker_thread_be_configs:
+
+    - name: "be_service_threads"
+      type: Int32
+      default: 64
+      scope: "BE config"
+      mutable: false
+      description: >
+        Number of threads for the BE BRPC service. Handles incoming RPC requests
+        from FE and other BEs for query execution, data loading, etc.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 240
+            context: "CONF_Int32 be_service_threads = 64"
+
+    - name: "scanner_thread_pool_thread_num"
+      type: Int32
+      default: 48
+      scope: "BE config"
+      mutable: true
+      description: >
+        Number of threads in the scanner thread pool. Controls the parallelism
+        of data scanning operations (used by the non-pipeline execution engine
+        and some pipeline scan operators).
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 269
+            context: "CONF_mInt32 scanner_thread_pool_thread_num = 48"
+      behavior:
+        low_values: "Less scan parallelism, lower CPU and IO usage"
+        high_values: "More scan parallelism, better scan throughput"
+
+    - name: "fragment_pool_thread_num_min"
+      type: Int32
+      default: 64
+      scope: "BE config"
+      mutable: false
+      description: >
+        Minimum number of threads in the fragment execution pool.
+        Ensures a baseline number of threads are always available
+        for fragment execution.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 639
+            context: "CONF_Int32 fragment_pool_thread_num_min = 64"
+      related_variables:
+        - "fragment_pool_thread_num_max"
+
+    - name: "fragment_pool_thread_num_max"
+      type: Int32
+      default: 4096
+      scope: "BE config"
+      mutable: false
+      description: >
+        Maximum number of threads in the fragment execution pool.
+        Caps the thread count to prevent excessive resource consumption.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 640
+            context: "CONF_Int32 fragment_pool_thread_num_max = 4096"
+      related_variables:
+        - "fragment_pool_thread_num_min"
+
+    - name: "brpc_num_threads"
+      type: Int32
+      default: -1
+      scope: "BE config"
+      mutable: false
+      description: >
+        Number of bthread workers for the BRPC server. -1 means auto-tuned
+        by BRPC based on system resources. Controls the concurrency of
+        RPC handling.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 50
+            context: "CONF_Int32 brpc_num_threads = -1"
+      behavior:
+        negative: "Auto-tuned by BRPC library"
+        positive: "Explicit thread count for BRPC workers"
+
+    - name: "number_tablet_writer_threads"
+      type: Int32
+      default: 0
+      scope: "BE config"
+      mutable: true
+      description: >
+        Number of threads for tablet writer operations (data ingestion).
+        0 means auto-tuned based on system resources. Used for write-heavy
+        workloads like data loading and compaction.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 541
+            context: "CONF_mInt32 number_tablet_writer_threads = 0"
+      behavior:
+        zero: "Auto-tuned based on system resources"
+        positive: "Explicit thread count for tablet writers"

@@ -1,0 +1,953 @@
+# StarRocks Parameter Dictionary - Join Optimization
+# Hash join, broadcast, shuffle, runtime filter, skew join, colocate join
+
+join_optimization:
+
+  join_type_control:
+
+    - name: "join_implementation_mode"
+      type: String
+      default: "auto"
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Controls which join implementation the optimizer may choose. Values: auto (optimizer
+        decides), merge, hash, nestloop. Internal name is join_implementation_mode_v2 with
+        alias to join_implementation_mode.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 610
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1928
+        thrift_propagation: null
+
+    - name: "disable_colocate_join"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Disables colocate join optimization. When false (default), the optimizer may use
+        colocate join when tables are co-partitioned on the same BEs, avoiding shuffle.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 222
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1396
+        thrift_propagation: null
+      behavior:
+        "true": "Colocate join disabled; data must be shuffled for joins"
+        "false": "Colocate join enabled when tables are co-partitioned"
+
+    - name: "enable_partition_hash_join"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables partition-wise hash join. When tables are partitioned on join keys,
+        join is performed partition by partition to reduce memory usage.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 363
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1699
+        thrift_propagation: null
+
+    - name: "enable_cross_join"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Allows the optimizer to generate cross join plans. Disabling forces an error
+        when queries would require a cross join.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 960
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2927
+        thrift_propagation: null
+
+    - name: "enable_nested_loop_join"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Allows the optimizer to use nested loop join for non-equi joins.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 962
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2930
+        thrift_propagation: null
+
+    - name: "cross_join_cost_penalty"
+      type: Long
+      default: 1000000
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Cost penalty multiplier for cross joins. Higher values make the optimizer
+        more reluctant to choose cross join plans.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 966
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2962
+        thrift_propagation: null
+
+    - name: "enable_inner_join_to_semi"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Converts inner joins to semi joins when possible for better performance.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1055
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2146
+        thrift_propagation: null
+
+    - name: "semi_join_deduplicat_mode"
+      type: Integer
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Controls semi-join deduplication strategy. Note: SQL name contains a typo
+        ('deduplicat' instead of 'deduplicate').
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1054
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2143
+        thrift_propagation: null
+
+  broadcast_join:
+
+    - name: "broadcast_row_limit"
+      type: Long
+      default: 15000000
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum row count for the right table in a broadcast join. If the right table
+        has more rows, the optimizer prefers shuffle join instead.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 389
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1738
+        thrift_propagation: null
+      related_variables:
+        - "broadcast_right_table_scale_factor"
+
+    - name: "broadcast_right_table_scale_factor"
+      type: Double
+      default: 10.0
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Scale factor comparing right table size to left table size for broadcast join
+        decision. If right/left ratio exceeds this, shuffle is preferred.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 390
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1741
+        thrift_propagation: null
+
+  hash_join_execution:
+
+    - name: "hash_join_push_down_right_table"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables pushing down predicates to the right table in hash join.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 351
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1684
+        thrift_propagation: null
+
+    - name: "enable_hash_join_range_direct_mapping_opt"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables range-based direct mapping optimization in hash join for integer keys.
+        Uses direct array indexing instead of hash lookup when the key range is small.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 518
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1874
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 162 in TQueryOptions"
+
+    - name: "enable_hash_join_linear_chained_opt"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables linear chaining optimization for hash join hash table. Uses a more
+        cache-friendly linear probing strategy.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 519
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1877
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 163 in TQueryOptions"
+
+    - name: "enable_hash_join_serialize_fixed_size_string"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables fixed-size string serialization optimization in hash join to avoid
+        variable-length overhead.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 520
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1880
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 164 in TQueryOptions"
+
+    - name: "hash_join_interpolate_passthrough"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables interpolation passthrough mode in hash join. When enabled, matching
+        rows pass through directly without buffering.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 625
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1945
+        thrift_propagation: null
+
+    - name: "spill_hash_join_probe_op_max_bytes"
+      type: Long
+      default: 2147483648
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum bytes for hash join probe operator before spilling to disk.
+        Default is 2GB. Part of the spill options sent to BE.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 244
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1635
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 25 in TSpillOptions"
+
+  runtime_filter:
+
+    - name: "enable_global_runtime_filter"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables global runtime filter generation. When enabled, the optimizer generates
+        bloom filters from the build side of hash joins that are sent to scan operators
+        on other BEs to skip non-matching data.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 502
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1840
+        thrift_propagation: null
+      behavior:
+        "true": "Global runtime filters generated and distributed across BEs"
+        "false": "No global runtime filters; only local filters within a single BE"
+      related_variables:
+        - "global_runtime_filter_build_max_size"
+        - "global_runtime_filter_wait_timeout"
+        - "runtime_join_filter_push_down_limit"
+
+    - name: "runtime_join_filter_push_down_limit"
+      type: Long
+      default: 1024000
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of rows in the build table for runtime join filter pushdown.
+        If build table exceeds this, runtime filter is not pushed down to storage.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 501
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1837
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 51 in TQueryOptions"
+
+    - name: "global_runtime_filter_build_max_size"
+      type: Long
+      default: 67108864
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum size (bytes) of a single global runtime filter. Default is 64MB.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 503
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1852
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 107 in TQueryOptions"
+
+    - name: "global_runtime_filter_build_min_size"
+      type: Long
+      default: 131072
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Minimum size (bytes) of a global runtime filter. Default is 128KB.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 505
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1855
+        thrift_propagation: null
+
+    - name: "global_runtime_filter_probe_min_size"
+      type: Long
+      default: 102400
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Minimum probe-side size (bytes) to use a global runtime filter. Default ~100KB.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 506
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1857
+        thrift_propagation: null
+
+    - name: "global_runtime_filter_probe_min_selectivity"
+      type: Float
+      default: 0.5
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Minimum expected selectivity for runtime filter to be worthwhile.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 507
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1859
+        thrift_propagation: null
+
+    - name: "global_runtime_filter_wait_timeout"
+      type: Integer
+      default: 20
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum time (ms) a scan operator waits for runtime filter to arrive before
+        proceeding without it.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 509
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1861
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 52 in TQueryOptions (runtime_filter_wait_timeout_ms)"
+
+    - name: "global_runtime_filter_rpc_timeout"
+      type: Integer
+      default: 400
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Timeout (ms) for sending runtime filters between BEs.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 510
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1863
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 53 in TQueryOptions (runtime_filter_send_timeout_ms)"
+
+    - name: "runtime_filter_early_return_selectivity"
+      type: Float
+      default: 0.05
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        If runtime filter selectivity is below this threshold, scan returns early
+        (stops applying the filter as it's too selective to be efficient).
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 511
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1865
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 88 in TQueryOptions"
+
+    - name: "enable_topn_runtime_filter"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables TopN-based runtime filter. Generates a runtime filter from TopN results
+        to prune scan data early.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 512
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1843
+        thrift_propagation: null
+
+    - name: "global_runtime_filter_rpc_http_min_size"
+      type: Long
+      default: 67108864
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Minimum runtime filter size (bytes) before using HTTP instead of RPC for transfer.
+        Default is 64MB. Larger filters use HTTP for better reliability.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 514
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1867
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 108 in TQueryOptions"
+
+    - name: "enable_join_runtime_filter_push_down"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables pushing runtime filters down to the storage layer for predicate evaluation
+        during scan.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 515
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1869
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 160 in TQueryOptions"
+
+    - name: "enable_join_runtime_bitset_filter"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables bitset-based runtime filter in addition to bloom filters. Bitset filters
+        are exact (no false positives) but require enumerable key spaces.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 516
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1871
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 161 in TQueryOptions"
+
+    - name: "runtime_filter_scan_wait_time"
+      type: Long
+      default: 20
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Time (ms) scan operator waits for runtime filter before starting scan.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 599
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1192
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 57 in TQueryOptions (runtime_filter_scan_wait_time_ms)"
+
+    - name: "runtime_filter_on_exchange_node"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Applies runtime filter on exchange nodes in addition to scan nodes.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 600
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1195
+        thrift_propagation: null
+
+    - name: "enable_multicolumn_global_runtime_filter"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables multi-column global runtime filters for composite join keys.
+        Internal name is _v2 with alias to the base name.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 601
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1198
+        thrift_propagation: null
+
+    - name: "enable_pipeline_level_multi_partitioned_rf"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables pipeline-level multi-partitioned runtime filter for better locality.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 522
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1883
+        thrift_propagation: null
+
+  skew_join:
+
+    - name: "enable_optimize_skew_join_v1"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables skew join optimization v1 via query rewrite. Detects data skew and
+        rewrites the join to handle skewed keys separately.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 466
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1793
+        thrift_propagation: null
+      related_variables:
+        - "enable_optimize_skew_join_v2"
+        - "enable_stats_to_optimize_skew_join"
+
+    - name: "enable_optimize_skew_join_v2"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables skew join optimization v2 by broadcasting skewed values. More aggressive
+        than v1 but uses more memory.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 468
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1796
+        thrift_propagation: null
+
+    - name: "enable_stats_to_optimize_skew_join"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Uses column statistics (MCV - Most Common Values) to identify and optimize
+        skewed join keys.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 479
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3054
+        thrift_propagation: null
+
+    - name: "skew_join_rand_range"
+      type: Integer
+      default: 1000
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Random range for skew join salt values.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 478
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3052
+        thrift_propagation: null
+
+    - name: "skew_join_use_mcv_count"
+      type: Integer
+      default: 5
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Number of Most Common Values to use for skew join optimization.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 480
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3058
+        thrift_propagation: null
+
+    - name: "skew_join_data_skew_threshold"
+      type: Double
+      default: 0.2
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Threshold ratio for detecting data skew in join keys.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 481
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3061
+        thrift_propagation: null
+
+    - name: "skew_join_mcv_single_threshold"
+      type: Double
+      default: 0.1
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Threshold for a single MCV value's proportion to be considered skewed.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 482
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3065
+        thrift_propagation: null
+
+    - name: "skew_join_mcv_min_input_rows"
+      type: Long
+      default: 10000000
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Minimum input rows before skew join optimization is considered.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 483
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3069
+        thrift_propagation: null
+
+  ukfk_join:
+
+    - name: "enable_ukfk_join_reorder"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables join reorder using unique key / foreign key constraints. Can produce
+        better plans for star schema queries.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 255
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1650
+        thrift_propagation: null
+
+    - name: "max_ukfk_join_reorder_scale_ratio"
+      type: Integer
+      default: 100
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum scale ratio between UK and FK tables for UKFK join reorder.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 256
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1653
+        thrift_propagation: null
+
+    - name: "max_ukfk_join_reorder_fk_rows"
+      type: Integer
+      default: 100000000
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum FK table row count for UKFK join reorder.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 257
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1656
+        thrift_propagation: null
+
+    - name: "enable_join_reorder_before_deduplicate"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Allows join reorder before deduplication in certain query patterns.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1056
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2152
+        thrift_propagation: null
+
+    - name: "join_reorder_driving_table_max_element"
+      type: Integer
+      default: 5
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum elements in the driving table for join reorder selection.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1057
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2149
+        thrift_propagation: null
+
+  shuffle:
+
+    - name: "enable_pipeline_level_shuffle"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables pipeline-level data shuffle for better data locality within the
+        execution pipeline.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 711
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3318
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            context: "Field 112 in TQueryOptions"
+
+  be_configs:
+
+    - name: "deliver_broadcast_rf_passthrough_bytes_limit"
+      type: Long
+      default: 131072
+      scope: "BE config"
+      mutable: false
+      description: >
+        If runtime filter from broadcast join is below this size (bytes), it is delivered
+        in passthrough style (direct copy). Otherwise, it is relayed through another BE.
+        Default is 128KB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1185
+            context: "CONF_Int64(deliver_broadcast_rf_passthrough_bytes_limit, \"131072\")"
+        thrift_propagation: null
+
+    - name: "deliver_broadcast_rf_passthrough_inflight_num"
+      type: Long
+      default: 10
+      scope: "BE config"
+      mutable: false
+      description: >
+        Maximum number of in-flight passthrough runtime filter deliveries.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1187
+            context: "CONF_Int64(deliver_broadcast_rf_passthrough_inflight_num, \"10\")"
+        thrift_propagation: null
+
+    - name: "send_rpc_runtime_filter_timeout_ms"
+      type: Long
+      default: 1000
+      scope: "BE config"
+      mutable: false
+      description: >
+        RPC timeout (ms) for sending runtime filters between BEs.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1188
+            context: "CONF_Int64(send_rpc_runtime_filter_timeout_ms, \"1000\")"
+        thrift_propagation: null
+
+    - name: "send_runtime_filter_via_http_rpc_min_size"
+      type: Long
+      default: 67108864
+      scope: "BE config"
+      mutable: false
+      description: >
+        Minimum runtime filter size (bytes) to use HTTP instead of RPC for transmission.
+        Default is 64MB. May be overridden by the session variable
+        global_runtime_filter_rpc_http_min_size.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1191
+            context: "CONF_Int64(send_runtime_filter_via_http_rpc_min_size, \"67108864\")"
+        thrift_propagation: null
+      related_variables:
+        - "global_runtime_filter_rpc_http_min_size (session variable)"
+
+    - name: "runtime_filter_queue_limit"
+      type: Long
+      default: -1
+      scope: "BE config"
+      mutable: true
+      description: >
+        Limit on runtime filter queue size. -1 = unlimited.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1194
+            context: "CONF_mInt64(runtime_filter_queue_limit, \"-1\")"
+        thrift_propagation: null
+
+    - name: "partition_hash_join_probe_limit_size"
+      type: Long
+      default: 134217728
+      scope: "BE config"
+      mutable: true
+      description: >
+        Memory limit (bytes) for partition hash join probe side buffer. Default is 128MB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1574
+            context: "CONF_mInt64(partition_hash_join_probe_limit_size, \"134217728\")"
+        thrift_propagation: null
+
+    - name: "rf_sample_rows"
+      type: Long
+      default: 1024
+      scope: "BE config"
+      mutable: true
+      description: >
+        Number of sample rows for runtime filter pushdown execution strategy.
+        Internal tuning parameter.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1883
+            context: "CONF_mInt64(rf_sample_rows, \"1024\")"
+        thrift_propagation: null
+
+    - name: "rf_sample_ratio"
+      type: Long
+      default: 32
+      scope: "BE config"
+      mutable: true
+      description: >
+        Sampling ratio for runtime filter pushdown. Internal tuning parameter.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1884
+            context: "CONF_mInt64(rf_sample_ratio, \"32\")"
+        thrift_propagation: null
+
+    - name: "rf_branchless_ratio"
+      type: Long
+      default: 8
+      scope: "BE config"
+      mutable: true
+      description: >
+        Branchless evaluation ratio for runtime filter. Internal tuning parameter.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1885
+            context: "CONF_mInt64(rf_branchless_ratio, \"8\")"
+        thrift_propagation: null
