@@ -10,7 +10,7 @@ on:
 
 jobs:
   sonarcloud-fe:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     if: github.repository == 'StarRocks/starrocks'
     timeout-minutes: 60
     steps:

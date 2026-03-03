@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   doc-checker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     name: DOC FILTER
     if: >
       !contains(github.event.pull_request.title, '(sync #') &&
@@ -37,7 +37,7 @@ jobs:
 
   remove-doc-label:
     needs: doc-checker
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     name: REMOVE DOC LABEL
     if: ${{ needs.doc-checker.outputs.output1 != 'true' }}
     steps:
@@ -49,7 +49,7 @@ jobs:
 
   add-doc-label:
     needs: doc-checker
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     name: ADD DOC LABEL
     if: ${{ needs.doc-checker.outputs.output1 == 'true' }}
     steps:
@@ -60,7 +60,7 @@ jobs:
           labels: documentation
 
   markdownlint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: add-doc-label
     env:
       PR_NUMBER: ${{ github.event.number }}
@@ -156,7 +156,7 @@ jobs:
           yarn build
 
   behavior-unchange:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: add-doc-label
     env:
       PR_NUMBER: ${{ github.event.number }}

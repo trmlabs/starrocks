@@ -24,7 +24,7 @@ jobs:
   meta-review:
     name: META REVIEW LABEL
     if: github.event.label.name == 'META-REVIEW'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       META_TEAM: meta-committer
@@ -54,7 +54,7 @@ jobs:
   proto-review:
     name: PROTO REVIEW LABEL
     if: github.event.label.name == 'PROTO-REVIEW'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PROTO_TEAM: proto-team

@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   sync-checker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     if: >
       !contains(github.event.pull_request.title, '(sync #') &&
       !contains(github.event.pull_request.labels.*.name, 'sync') &&
@@ -60,7 +60,7 @@ jobs:
           fi
 
   title-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: sync-checker
     if: >
       !startsWith(github.event.pull_request.title, 'Revert ')
@@ -121,7 +121,7 @@ jobs:
 
   backport-check-subtask:
     needs: title-check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     if: >
       (
         startsWith(github.event.pull_request.title, '[BugFix]') ||
@@ -153,7 +153,7 @@ jobs:
           exit 1
 
   backport-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: backport-check-subtask
     if: always() && needs.backport-check-subtask.result != 'skipped'
     steps:
@@ -163,7 +163,7 @@ jobs:
           exit 1
 
   behavior-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     if: >
       !startsWith(github.event.pull_request.title, '[Doc]') &&
       !startsWith(github.event.pull_request.title, 'Revert ') &&
@@ -218,7 +218,7 @@ jobs:
           labels: "behavior_changed"
 
   automerge-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: backport-check
     if: >
       !failure() &&
