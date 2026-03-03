@@ -17,6 +17,18 @@ StarRocks クロスクラスタデータ移行ツールは、StarRocks コミュ
 
 データ移行のために、ターゲットクラスタで以下の準備を行う必要があります。
 
+### ポートを開く
+
+ファイアウォールを有効にしている場合、これらのポートを開く必要があります。
+
+| **コンポーネント** | **ポート**     | **デフォルト** |
+| ----------- | -------------- | ----------- |
+| FE          | query_port     | 9030 |
+| FE          | http_port      | 8030 |
+| FE          | rpc_port       | 9020 |
+| BE          | be_http_port   | 8040 |
+| BE          | be_port        | 9060 |
+
 ### レプリケーションのレガシー互換性を有効にする
 
 StarRocks は、古いバージョンと新しいバージョンで動作が異なる場合があり、クロスクラスタデータ移行中に問題を引き起こす可能性があります。そのため、データ移行の前にターゲットクラスタでレガシー互換性を有効にし、データ移行が完了した後に無効にする必要があります。
@@ -166,6 +178,9 @@ target_cluster_user=root
 target_cluster_password=
 target_cluster_password_secret_key=
 
+jdbc_connect_timeout_ms=30000
+jdbc_socket_timeout_ms=60000
+
 # カンマ区切りのデータベース名またはテーブル名のリスト <db_name> または <db_name.table_name>
 # 例: db1,db2.tbl2,db3
 # 有効な順序: 1. include 2. exclude
@@ -176,20 +191,40 @@ exclude_data_list=
 target_cluster_storage_volume=
 target_cluster_replication_num=-1
 target_cluster_max_disk_used_percent=80
+# ソースクラスタとの一貫性を保つには、null を使用してください。
+target_cluster_enable_persistent_index=
 
-max_replication_data_size_per_job_in_gb=-1
+max_replication_data_size_per_job_in_gb=1024
 
 meta_job_interval_seconds=180
 meta_job_threads=4
 ddl_job_interval_seconds=10
 ddl_job_batch_size=10
+
+# table config
 ddl_job_allow_drop_target_only=false
 ddl_job_allow_drop_schema_change_table=true
 ddl_job_allow_drop_inconsistent_partition=true
+ddl_job_allow_drop_inconsistent_time_partition = true
 ddl_job_allow_drop_partition_target_only=true
+# index config
+enable_bitmap_index_sync=false
+ddl_job_allow_drop_inconsistent_bitmap_index=true
+ddl_job_allow_drop_bitmap_index_target_only=true
+# MV config
+enable_materialized_view_sync=false
+ddl_job_allow_drop_inconsistent_materialized_view=true
+ddl_job_allow_drop_materialized_view_target_only=false
+# View config
+enable_view_sync=false
+ddl_job_allow_drop_inconsistent_view=true
+ddl_job_allow_drop_view_target_only=false
+
 replication_job_interval_seconds=10
 replication_job_batch_size=10
 report_interval_seconds=300
+
+enable_table_property_sync=false
 ```
 
 パラメータの説明は次のとおりです。
@@ -208,6 +243,8 @@ report_interval_seconds=300
 | target_cluster_user                       | ターゲットクラスタにログインするために使用されるユーザー名。このユーザーは SYSTEM レベルで OPERATE 権限を付与されている必要があります。 |
 | target_cluster_password                   | ターゲットクラスタにログインするために使用されるユーザーパスワード。      |
 | target_cluster_password_secret_key        | ターゲットクラスタのログインユーザーのパスワードを暗号化するために使用される秘密鍵。デフォルト値は空文字列で、ログインパスワードが暗号化されていないことを意味します。`target_cluster_password` を暗号化したい場合、SQL ステートメント `SELECT TO_BASE64(AES_ENCRYPT('<target_cluster_password>','<target_cluster_password_ secret_key>'))` を使用して暗号化された `target_cluster_password` 文字列を取得できます。 |
+| jdbc_connect_timeout_ms                   | FE クエリの JDBC 接続タイムアウト（ミリ秒）。デフォルト値は `30000`。 |
+| jdbc_socket_timeout_ms                    | FE クエリの JDBC ソケットタイムアウト（ミリ秒）。デフォルト値は `60000`。 |
 | include_data_list                         | 移行が必要なデータベースおよびテーブルをカンマ (`,`) で区切って指定します。例: `db1, db2.tbl2, db3`。この項目は `exclude_data_list` よりも優先されます。クラスタ内のすべてのデータベースとテーブルを移行したい場合、この項目を設定する必要はありません。 |
 | exclude_data_list                         | 移行が不要なデータベースおよびテーブルをカンマ (`,`) で区切って指定します。例: `db1, db2.tbl2, db3`。`include_data_list` がこの項目よりも優先されます。クラスタ内のすべてのデータベースとテーブルを移行したい場合、この項目を設定する必要はありません。 |
 | target_cluster_storage_volume             | ターゲットクラスタが共有データクラスタである場合に、ターゲットクラスタでテーブルを保存するために使用されるストレージボリューム。デフォルトのストレージボリュームを使用したい場合、この項目を指定する必要はありません。 |
@@ -223,8 +260,20 @@ report_interval_seconds=300
 | ddl_job_allow_drop_partition_target_only  | 移行ツールがソースクラスタで削除されたパーティションを削除して、ソースクラスタとターゲットクラスタのパーティションを一致させることを許可するかどうか。デフォルトは `true` で、削除されることを意味します。この項目にはデフォルト値を使用できます。 |
 | replication_job_interval_seconds          | 移行ツールがデータ同期タスクをトリガーする間隔 (秒単位)。この項目にはデフォルト値を使用できます。 |
 | replication_job_batch_size                | 移行ツールがデータ同期タスクをトリガーする際のバッチサイズ。この項目にはデフォルト値を使用できます。 |
-| max_replication_data_size_per_job_in_gb   | 移行ツールがデータ同期タスクをトリガーするデータサイズの閾値。単位: GB。移行するパーティションのサイズがこの値を超える場合、複数のデータ同期タスクがトリガーされます。デフォルト値は `-1` で、制限がなく、テーブル内のすべてのパーティションが単一の同期タスクで移行されることを意味します。移行するテーブルのデータ量が多い場合、このパラメータを設定して各タスクのデータサイズを制限できます。 |
+| max_replication_data_size_per_job_in_gb   | 移行ツールがデータ同期タスクをトリガーするデータサイズの閾値。単位: GB。移行するパーティションのサイズがこの値を超える場合、複数のデータ同期タスクがトリガーされます。デフォルト値は `1024` で、この項目にはデフォルト値を使用できます。 |
 | report_interval_seconds                   | 移行ツールが進捗情報を出力する間隔。単位: 秒。デフォルト値: `300`。この項目にはデフォルト値を使用できます。 |
+| target_cluster_enable_persistent_index    | ターゲットクラスタで Persistent Index を有効にするかどうか。この項目が指定されない場合、ターゲットクラスタはソースクラスタと一貫性を保ちます。 |
+| ddl_job_allow_drop_inconsistent_time_partition | 移行ツールがソースクラスタとターゲットクラスタの間で時刻が一致しないパーティションの削除を許可するかどうか。デフォルトは `true` で、削除されます。この項目にはデフォルト値を使用できます。移行ツールは移行中に削除されたパーティションを自動的に同期します。 |
+| enable_bitmap_index_sync                  | Bitmap インデックスの同期を有効にするかどうか。                      |
+| ddl_job_allow_drop_inconsistent_bitmap_index | 移行ツールがソースクラスタとターゲットクラスタの間で矛盾した Bitmap インデックスを削除することを許可するかどうか。デフォルトは `true` で、削除されます。この項目にはデフォルト値を使用できます。移行ツールは移行中に削除されたインデックスを自動的に同期します。 |
+| ddl_job_allow_drop_bitmap_index_target_only | 移行ツールがソースクラスタで削除された Bitmap インデックスを削除して、ソースクラスタとターゲットクラスタのインデックスを一致させることを許可するかどうか。デフォルトは `true` で、削除されることを意味します。この項目にはデフォルト値を使用できます。 |
+| enable_materialized_view_sync             | マテリアライズドビューの同期を有効にするかどうか。                   |
+| ddl_job_allow_drop_inconsistent_materialized_view | 移行ツールがソースクラスタとターゲットクラスタの間で矛盾したマテリアライズドビューを削除することを許可するかどうか。デフォルトは `true` で、削除されます。この項目にはデフォルト値を使用できます。移行ツールは移行中に削除されたマテリアライズドビューを自動的に同期します。 |
+| ddl_job_allow_drop_materialized_view_target_only | 移行ツールがソースクラスタで削除されたマテリアライズドビューを削除して、ソースクラスタとターゲットクラスタのマテリアライズドビューを一致させることを許可するかどうか。デフォルトは `true` で、削除されることを意味します。この項目にはデフォルト値を使用できます。 |
+| enable_view_sync                          | ビューの同期を有効にするかどうか。                                |
+| ddl_job_allow_drop_inconsistent_view      |  移行ツールがソースクラスタとターゲットクラスタの間で矛盾したビューを削除することを許可するかどうか。デフォルトは `true` で、削除されます。この項目にはデフォルト値を使用できます。移行ツールは移行中に削除されたビューを自動的に同期します。 |
+| ddl_job_allow_drop_view_target_only       | 移行ツールがソースクラスタで削除されたビューを削除して、ソースクラスタとターゲットクラスタのビューを一致させることを許可するかどうか。デフォルトは `true` で、削除されることを意味します。この項目にはデフォルト値を使用できます。 |
+| enable_table_property_sync                | テーブルプロパティの同期を有効にするかどうか。                     |
 
 ### クラスタトークンの取得
 
@@ -267,19 +316,24 @@ vi conf/hosts.properties
 ファイルのデフォルトの内容は次のとおりで、ネットワークアドレスのマッピングがどのように設定されているかを説明しています。
 
 ```Properties
-# <SOURCE/TARGET>_<domain>=<IP>
+# <SOURCE/TARGET>_<host>=<mappedHost>[;<srcPort>:<dstPort>[,<srcPort>:<dstPort>...]]
 ```
+
+:::note
+`<host>` は `SHOW FRONTENDS`、`SHOW BACKENDS`、または `SHOW COMPUTE NODES` の `IP` 列に表示される値と一致する必要があります。
+:::
 
 次の例では、以下の操作を行います。
 
 1. ソースクラスタのプライベートネットワークアドレス `192.1.1.1` と `192.1.1.2` を `10.1.1.1` と `10.1.1.2` にマッピングします。
-2. ターゲットクラスタのプライベートネットワークアドレス `fe-0.starrocks.svc.cluster.local` を `10.1.2.1` にマッピングします。
+2. ソースクラスタの FE ポート `8030` と `9030` を `10.1.1.1` の `38030` と `39030` にマッピングします。
+3. ターゲットクラスタのプライベートネットワークアドレス `fe-0.starrocks.svc.cluster.local` を `10.1.2.1` にマッピングし、ポート `9030` を再マッピングします。
 
 ```Properties
-# <SOURCE/TARGET>_<domain>=<IP>
-SOURCE_192.1.1.1=10.1.1.1
+# <SOURCE/TARGET>_<host>=<mappedHost>[;<srcPort>:<dstPort>[,<srcPort>:<dstPort>...]]
+SOURCE_192.1.1.1=10.1.1.1;8030:38030,9030:39030
 SOURCE_192.1.1.2=10.1.1.2
-TARGET_fe-0.starrocks.svc.cluster.local=10.1.2.1
+TARGET_fe-0.starrocks.svc.cluster.local=10.1.2.1;9030:19030
 ```
 
 ## ステップ 3: 移行ツールの起動
@@ -383,17 +437,3 @@ ORDER BY TABLE_NAME;
 - 内部テーブルとそのデータ
 - マテリアライズドビューのスキーマとそのビルドステートメント (マテリアライズドビュー内のデータは同期されません。また、マテリアライズドビューのベーステーブルがターゲットクラスタに同期されていない場合、マテリアライズドビューのバックグラウンドリフレッシュタスクはエラーを報告します。)
 - ビュー
-
-## Q&A
-
-### Q1: クラスタ間で開く必要のあるポートはどれですか？
-
-ファイアウォールを有効にしている場合、これらのポートを開く必要があります。
-
-| **コンポーネント** | **ポート**     | **デフォルト** |
-| ----------- | -------------- | ----------- |
-| FE          | query_port     | 9030 |
-| FE          | http_port      | 8030 |
-| FE          | rpc_port       | 9020 |
-| BE          | be_http_port   | 8040 |
-| BE          | be_port        | 9060 |

@@ -1,0 +1,1648 @@
+# StarRocks Parameter Dictionary - Query Optimization
+# CBO rules, rewrite toggles, predicate pushdown, aggregate optimization
+
+query_optimization:
+
+  cbo_join_reorder:
+
+    - name: "cbo_max_reorder_node_use_exhaustive"
+      type: Integer
+      default: 4
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of join nodes to consider for exhaustive join reorder enumeration.
+        If the number of joins exceeds this, the optimizer falls back to DP or greedy algorithms.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 407
+            context: "constant CBO_MAX_REORDER_NODE_USE_EXHAUSTIVE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1711
+            context: "@VarAttr field cboMaxReorderNodeUseExhaustive = 4"
+        thrift_propagation: null
+      behavior:
+        low_values: "Only small join graphs use exhaustive search"
+        high_values: "More joins use exhaustive (optimal) search but planning is slower"
+      related_variables:
+        - "cbo_max_reorder_node_use_dp"
+        - "cbo_max_reorder_node_use_greedy"
+        - "cbo_reorder_threshold_use_exhaustive"
+        - "cbo_max_reorder_node"
+
+    - name: "cbo_reorder_threshold_use_exhaustive"
+      type: Integer
+      default: 6
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Threshold for the number of relations in a join group before switching from
+        exhaustive to DP-based join reordering.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 837
+            context: "constant CBO_REORDER_THRESHOLD_USE_EXHAUSTIVE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2814
+            context: "@VarAttr field cboReorderThresholdUseExhaustive = 6"
+        thrift_propagation: null
+      related_variables:
+        - "cbo_max_reorder_node_use_exhaustive"
+
+    - name: "cbo_enable_dp_join_reorder"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables dynamic programming based join reorder algorithm. Used for medium-sized
+        join graphs where exhaustive is too expensive but greedy is too imprecise.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 408
+            context: "constant CBO_ENABLE_DP_JOIN_REORDER"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1717
+            context: "@VarAttr field cboEnableDPJoinReorder = true, INVISIBLE"
+        thrift_propagation: null
+      behavior:
+        "true": "DP join reorder available for medium-sized join graphs"
+        "false": "Falls back to greedy for all non-exhaustive cases"
+      related_variables:
+        - "cbo_max_reorder_node_use_dp"
+        - "cbo_enable_greedy_join_reorder"
+
+    - name: "cbo_max_reorder_node_use_dp"
+      type: Long
+      default: 10
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of join nodes for DP-based join reorder. Beyond this, greedy is used.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 409
+            context: "constant CBO_MAX_REORDER_NODE_USE_DP"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1720
+            context: "@VarAttr field cboMaxReorderNodeUseDP = 10"
+        thrift_propagation: null
+
+    - name: "cbo_enable_greedy_join_reorder"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables greedy join reorder algorithm. Used as fallback for large join graphs.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 410
+            context: "constant CBO_ENABLE_GREEDY_JOIN_REORDER"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1726
+            context: "@VarAttr field cboEnableGreedyJoinReorder = true, INVISIBLE"
+        thrift_propagation: null
+
+    - name: "cbo_max_reorder_node_use_greedy"
+      type: Long
+      default: 16
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of join nodes for greedy join reorder.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 411
+            context: "constant CBO_MAX_REORDER_NODE_USE_GREEDY"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1723
+            context: "@VarAttr field cboMaxReorderNodeUseGreedy = 16"
+        thrift_propagation: null
+
+    - name: "cbo_max_reorder_node"
+      type: Integer
+      default: 50
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Absolute maximum number of join nodes considered for any reorder algorithm.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 436
+            context: "constant CBO_MAX_REORDER_NODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1714
+            context: "@VarAttr field cboMaxReorderNode = 50, INVISIBLE"
+        thrift_propagation: null
+
+    - name: "disable_join_reorder"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Completely disables join reorder in the optimizer. When enabled, joins are
+        executed in the order written in the SQL statement. Useful for debugging.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 354
+            context: "constant DISABLE_JOIN_REORDER"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1687
+            context: "@VarAttr field disableJoinReorder = false"
+        thrift_propagation: null
+      behavior:
+        "true": "Joins execute in SQL-written order; no optimization"
+        "false": "Optimizer freely reorders joins for best plan"
+
+    - name: "enable_outer_join_reorder"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Allows the optimizer to reorder outer joins. Outer join reorder is more
+        complex than inner join reorder due to null-preserving semantics.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 835
+            context: "constant ENABLE_OUTER_JOIN_REORDER"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2809
+            context: "@VarAttr field enableOuterJoinReorder = true"
+        thrift_propagation: null
+
+  cbo_estimation:
+
+    - name: "cbo_use_correlated_join_estimate"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables correlated join cardinality estimation. When enabled, the optimizer
+        accounts for correlation between join predicates when estimating result sizes.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 413
+            context: "constant CBO_USE_CORRELATED_JOIN_ESTIMATE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1401
+            context: "@VarAttr field useCorrelatedJoinEstimate = true, INVISIBLE"
+        thrift_propagation: null
+
+    - name: "cbo_use_correlated_predicate_estimate"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables correlated predicate cardinality estimation. Accounts for correlation
+        between multiple filter predicates.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 414
+            context: "constant CBO_USE_CORRELATED_PREDICATE_ESTIMATE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1404
+            context: "@VarAttr field useCorrelatedPredicateEstimate = true"
+        thrift_propagation: null
+
+    - name: "cbo_enable_histogram_join_estimation"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Uses histogram statistics for more accurate join cardinality estimation.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 443
+            context: "constant CBO_ENABLE_HISTOGRAM_JOIN_ESTIMATION"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1990
+            context: "@VarAttr field cboEnableHistogramJoinEstimation = true, INVISIBLE"
+        thrift_propagation: null
+
+    - name: "cbo_use_histogram_evaluate_list_partition"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Uses histogram statistics to evaluate list partition pruning.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 461
+            context: "constant CBO_USE_HISTOGRAM_EVALUDATE_LIST_PARTITION"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1444
+            context: "@VarAttr field cboUseHistogramEvaluateListPartition = false, INVISIBLE"
+        thrift_propagation: null
+
+    - name: "enable_partition_level_cardinality_estimation"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables partition-level cardinality estimation instead of table-level estimates.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 464
+            context: "constant ENABLE_PARTITION_LEVEL_CARDINALITY_ESTIMATION"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1790
+            context: "@VarAttr field, INVISIBLE"
+        thrift_propagation: null
+
+    - name: "select_ratio_threshold"
+      type: Double
+      default: 0.15
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Selectivity ratio threshold used by the optimizer to decide predicate ordering
+        and optimization strategies. Predicates estimated below this ratio are considered
+        highly selective.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 910
+            context: "constant SELECT_RATIO_THRESHOLD"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2884
+            context: "@VarAttr field selectRatioThreshold = 0.15, INVISIBLE"
+        thrift_propagation: null
+
+  cbo_aggregate:
+
+    - name: "cbo_push_down_aggregate_mode"
+      type: Integer
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Controls aggregate pushdown strategy. 0 = auto (optimizer decides), -1 = disable,
+        other values select specific pushdown modes.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 438
+            context: "constant CBO_PUSH_DOWN_AGGREGATE_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1964
+            context: "@VarAttr field cboPushDownAggregateMode = 0, alias/show versioned, INVISIBLE"
+        thrift_propagation: null
+      behavior:
+        "0": "Auto mode — optimizer decides aggregate pushdown"
+        "-1": "Aggregate pushdown disabled"
+
+    - name: "cbo_push_down_aggregate"
+      type: String
+      default: "global"
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        String-based aggregate pushdown control. Values: global, local, none.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 453
+            context: "constant CBO_PUSH_DOWN_AGGREGATE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1978
+            context: "@VarAttr field cboPushDownAggregate = 'global', INVISIBLE"
+        thrift_propagation: null
+
+    - name: "cbo_push_down_aggregate_on_broadcast_join"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Allows pushing aggregate below broadcast join when the broadcast table is small.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 439
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1968
+        thrift_propagation: null
+      related_variables:
+        - "cbo_push_down_aggregate_on_broadcast_join_row_count_limit"
+
+    - name: "cbo_push_down_aggregate_on_broadcast_join_row_count_limit"
+      type: Long
+      default: 250000
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Row count limit for pushing aggregate below broadcast join.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 440
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1971
+        thrift_propagation: null
+
+    - name: "cbo_push_down_groupingset"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables pushing down grouping set operations.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 454
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1981
+        thrift_propagation: null
+
+    - name: "cbo_push_down_groupingset_reshuffle"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables reshuffling when pushing down grouping sets.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 455
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1984
+        thrift_propagation: null
+
+    - name: "cbo_push_down_aggregate_with_multi_column_stats"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables aggregate pushdown using multi-column statistics.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 460
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1987
+        thrift_propagation: null
+
+    - name: "cbo_enable_single_node_prefer_two_stage_aggregate"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        On single-node deployments, prefer two-stage aggregation over one-stage.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 444
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1993
+        thrift_propagation: null
+
+    - name: "cbo_push_down_distinct_below_window"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables pushing DISTINCT below window function operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 452
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2860
+        thrift_propagation: null
+
+    - name: "cbo_push_down_distinct"
+      type: String
+      default: "global"
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Controls distinct pushdown strategy. Values: global, local, none.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1059
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2158
+        thrift_propagation: null
+
+    - name: "cbo_push_down_topn_limit"
+      type: Long
+      default: 1000
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum LIMIT value for pushing TopN below joins or other operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 944
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2082
+        thrift_propagation: null
+
+    - name: "cbo_push_down_distinct_limit"
+      type: Long
+      default: 4096
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum LIMIT value for pushing DISTINCT below other operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 946
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2085
+        thrift_propagation: null
+
+    - name: "new_planner_agg_stage"
+      type: Integer
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Forces a specific aggregation stage. 0 = auto, 1 = one stage, 2 = two stage,
+        3 = three stage, 4 = four stage.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 387
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1803
+        thrift_propagation: null
+      behavior:
+        "0": "Auto — optimizer chooses optimal aggregation staging"
+        "1-4": "Forces specific aggregation stage count"
+
+    - name: "enable_cost_based_multi_stage_agg"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Uses cost-based optimization to decide multi-stage aggregation.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 388
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1806
+        thrift_propagation: null
+
+    - name: "enable_eliminate_agg"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Allows the optimizer to eliminate unnecessary aggregation operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 258
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1659
+        thrift_propagation: null
+
+    - name: "enable_distinct_column_bucketization"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables distinct column bucketization for more efficient distinct aggregation.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 885
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2848
+        thrift_propagation: null
+
+    - name: "enable_group_by_compressed_key"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables compressed key optimization for GROUP BY operations.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 365
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1702
+        thrift_propagation: null
+
+  cbo_cte:
+
+    - name: "cbo_cte_reuse"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables Common Table Expression (CTE) reuse optimization. When enabled, the
+        optimizer materializes CTEs referenced multiple times.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 427
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1410
+        thrift_propagation: null
+      related_variables:
+        - "cbo_cte_reuse_rate"
+        - "cbo_cte_max_limit"
+
+    - name: "cbo_cte_reuse_rate"
+      type: Double
+      default: 1.15
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Cost ratio threshold for CTE reuse. A CTE is reused when the ratio of
+        re-computation cost to materialization cost exceeds this value.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 428
+            context: "constant CBO_CTE_REUSE_RATE (alias)"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1414
+            context: "@VarAttr name=CBO_CTE_REUSE_RATE_V2, alias=CBO_CTE_REUSE_RATE"
+        thrift_propagation: null
+
+    - name: "cbo_cte_max_limit"
+      type: Integer
+      default: 10
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum number of CTEs that can be reused in a single query.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 429
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1418
+        thrift_propagation: null
+
+    - name: "cbo_cte_force_reuse_node_count"
+      type: Integer
+      default: 2000
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        If a CTE subtree has more than this many nodes, force CTE reuse regardless
+        of the reuse rate threshold.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 432
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1423
+        thrift_propagation: null
+
+    - name: "cbo_cte_force_reuse_limit_without_order_by"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Force CTE reuse for queries with LIMIT but without ORDER BY.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 433
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1428
+        thrift_propagation: null
+
+  cbo_subfield_pruning:
+
+    - name: "cbo_prune_subfield"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables pruning of struct/map subfields. Only referenced subfields are read.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 457
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1434
+        thrift_propagation: null
+      related_variables:
+        - "cbo_prune_json_subfield"
+        - "enable_prune_complex_types"
+
+    - name: "cbo_prune_json_subfield"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables pruning of JSON subfields. Only referenced JSON paths are read.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 458
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1438
+            context: "internal name CBO_PRUNE_JSON_SUBFIELD + '_v2', alias/show = CBO_PRUNE_JSON_SUBFIELD"
+        thrift_propagation: null
+
+    - name: "cbo_prune_json_subfield_depth"
+      type: Integer
+      default: 20
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum depth for JSON subfield pruning.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 459
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1441
+        thrift_propagation: null
+
+    - name: "cbo_prune_shuffle_column_rate"
+      type: Double
+      default: 0.1
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Rate threshold for pruning shuffle columns in data redistribution.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 437
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1960
+        thrift_propagation: null
+
+    - name: "cbo_enable_predicate_subfield_path"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables subfield path extraction from predicates for pruning.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 472
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2956
+        thrift_propagation: null
+
+    - name: "enable_prune_complex_types"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables pruning of complex types (STRUCT, MAP, ARRAY) to only read used fields.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 843
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2817
+        thrift_propagation: null
+
+    - name: "enable_prune_complex_types_in_unnest"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables pruning of complex types inside UNNEST operations.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 845
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2823
+        thrift_propagation: null
+
+    - name: "enable_subfield_no_copy"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables zero-copy subfield access for struct/map types.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 844
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2820
+        thrift_propagation: null
+
+  rewrite_rules:
+
+    - name: "enable_rewrite_simple_agg_to_meta_scan"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Rewrites simple MIN/MAX/COUNT aggregations on OLAP tables to read from tablet
+        metadata (zone maps) instead of scanning data. Dramatically speeds up full-table
+        aggregates with no GROUP BY or WHERE.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 839
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2047
+        thrift_propagation: null
+      behavior:
+        "true": "MIN/MAX/COUNT answered from metadata in milliseconds"
+        "false": "Full table scan to compute aggregates"
+      related_variables:
+        - "enable_rewrite_simple_agg_to_hdfs_scan"
+
+    - name: "enable_rewrite_simple_agg_to_hdfs_scan"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Rewrites simple MIN/MAX/COUNT aggregations on external (HDFS/S3) tables to
+        use file metadata instead of full scans.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 840
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2053
+        thrift_propagation: null
+
+    - name: "enable_rewrite_sum_by_associative_rule"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables rewriting SUM expressions using the associative rule for optimization.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 838
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2044
+        thrift_propagation: null
+
+    - name: "enable_rewrite_partition_column_minmax"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Rewrites MIN/MAX on partition columns to use partition metadata.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 841
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2050
+        thrift_propagation: null
+
+    - name: "enable_rewrite_bitmap_union_to_bitamp_agg"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Rewrites bitmap_union to bitmap_agg for better performance. Note: SQL name
+        contains a typo ('bitamp' instead of 'bitmap').
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 983
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2355
+        thrift_propagation: null
+
+    - name: "enable_rewrite_unnest_bitmap_to_array"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Rewrites UNNEST on bitmap columns to use array-based implementation.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1036
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3339
+        thrift_propagation: null
+
+    - name: "enable_rewrite_groupingsets_to_union_all"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Rewrites GROUPING SETS queries to UNION ALL for potential parallelism gains.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 462
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1787
+        thrift_propagation: null
+
+    - name: "cbo_rewrite_monotonic_minmax_aggregation"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Rewrites monotonic function MIN/MAX aggregations to leverage ordering.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 474
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2959
+        thrift_propagation: null
+
+    - name: "enable_count_distinct_rewrite_by_hll_bitmap"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Rewrites COUNT(DISTINCT) to use HLL/Bitmap pre-aggregated columns when available.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 938
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2109
+        thrift_propagation: null
+
+    - name: "enable_min_max_optimization"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables min/max optimization for scan operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 842
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2896
+        thrift_propagation: null
+
+    - name: "enable_count_star_optimization"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables COUNT(*) optimization using metadata instead of full scan.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 916
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2893
+        thrift_propagation: null
+
+  predicate_optimization:
+
+    - name: "enable_predicate_reorder"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables reordering predicates by estimated selectivity for more efficient filtering.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 357
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1690
+        thrift_propagation: null
+
+    - name: "enable_predicate_move_around"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables moving predicates between operators for better pushdown.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 985
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3096
+        thrift_propagation: null
+
+    - name: "enable_predicate_expr_reuse"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables reuse of computed predicate expressions across operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1039
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2118
+        thrift_propagation: null
+
+    - name: "enable_pushdown_or_predicate"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables pushing OR predicates down to scan operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 906
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2875
+        thrift_propagation: null
+      related_variables:
+        - "max_pushdown_or_predicates"
+
+    - name: "max_pushdown_or_predicates"
+      type: Integer
+      default: 32
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum number of OR predicates that can be pushed down.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 908
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2881
+        thrift_propagation: null
+
+    - name: "push_down_heavy_exprs"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables pushing computationally expensive expressions down to scan operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1083
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2289
+        thrift_propagation: null
+
+    - name: "enable_fine_grained_range_predicate"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables fine-grained range predicate derivation for better partition pruning.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 717
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3078
+        thrift_propagation: null
+
+    - name: "cbo_derive_range_join_predicate"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Derives range predicates from join conditions.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 968
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3075
+        thrift_propagation: null
+
+    - name: "cbo_derive_join_is_null_predicate"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Derives IS NULL predicates from join conditions.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 970
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3081
+        thrift_propagation: null
+
+  pushdown_and_pruning:
+
+    - name: "enable_filter_unused_columns_in_scan_stage"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Filters unused columns at scan stage to reduce data transfer.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 359
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1693
+        thrift_propagation: null
+
+    - name: "enable_prune_column_after_index_filter"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Prunes columns after index filter application for reduced I/O.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 367
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1705
+        thrift_propagation: null
+
+    - name: "enable_push_down_pre_agg_with_rank"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables pushing pre-aggregation below rank window functions.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1032
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3117
+        thrift_propagation: null
+
+    - name: "enable_multi_cast_limit_push_down"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables pushing LIMIT through multi-cast (UNION) operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1069
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2199
+        thrift_propagation: null
+
+    - name: "enable_defer_project_after_topn"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Defers projection until after TopN to reduce data movement in sort.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1067
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2182
+        thrift_propagation: null
+
+    - name: "topn_push_down_agg_mode"
+      type: Integer
+      default: 1
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Controls TopN pushdown through aggregation operators. 0 = disabled, 1 = enabled.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1088
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2297
+        thrift_propagation: null
+
+    - name: "enable_expr_prune_partition"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables expression-based partition pruning.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 950
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2913
+        thrift_propagation: null
+
+    - name: "range_pruner_max_predicate"
+      type: Integer
+      default: 100
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of predicates the range pruner will process.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 846
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2826
+        thrift_propagation: null
+
+  table_prune:
+
+    - name: "enable_rbo_table_prune"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables rule-based table pruning. Removes tables from joins when they
+        contribute no columns to the output and have FK-PK relationships.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 246
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1638
+        thrift_propagation: null
+      related_variables:
+        - "enable_cbo_table_prune"
+        - "enable_ukfk_opt"
+
+    - name: "enable_cbo_table_prune"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables cost-based table pruning.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 249
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1641
+        thrift_propagation: null
+
+    - name: "enable_table_prune_on_update"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables table pruning during UPDATE statements.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 252
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1644
+        thrift_propagation: null
+
+    - name: "enable_ukfk_opt"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables unique key / foreign key optimization for join elimination and table pruning.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 254
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1647
+        thrift_propagation: null
+
+  json_optimization:
+
+    - name: "cbo_json_v2_rewrite"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables JSON v2 rewrite optimization for JSON operations.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 447
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1453
+        thrift_propagation: null
+
+    - name: "cbo_json_v2_dict_opt"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables dictionary optimization for JSON v2.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 448
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1456
+        thrift_propagation: null
+
+  low_cardinality:
+
+    - name: "cbo_enable_low_cardinality_optimize"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables low cardinality optimization (global dictionary encoding). Strings with
+        low cardinality are encoded as integers for faster processing.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 417
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1763
+        thrift_propagation: null
+      related_variables:
+        - "cbo_enable_low_cardinality_optimize_for_join"
+
+  misc_optimizer:
+
+    - name: "new_planner_optimize_timeout"
+      type: Long
+      default: 3000
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Optimizer timeout in milliseconds. If the optimizer cannot find a plan within
+        this time, it returns the best plan found so far.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 392
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1744
+        thrift_propagation: null
+
+    - name: "cbo_use_nth_exec_plan"
+      type: Integer
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Forces the optimizer to use the Nth execution plan instead of the best one.
+        0 = use best plan. Useful for debugging optimizer choices.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 426
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1407
+        thrift_propagation: null
+
+    - name: "cbo_disabled_rules"
+      type: String
+      default: ""
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Comma-separated list of optimizer rule names to disable. Useful for debugging
+        specific optimization rules.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 450
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1278
+        thrift_propagation: null
+
+    - name: "cbo_debug_alive_backend_number"
+      type: Integer
+      default: 0
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Overrides the alive backend count for CBO cost estimation. 0 = use actual count.
+        Useful for reproducible plan testing.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 456
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1729
+        thrift_propagation: null
+
+    - name: "cbo_use_lock_db"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Uses database-level lock during optimization for metadata consistency.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 471
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1450
+        thrift_propagation: null
+
+    - name: "cbo_decimal_cast_string_strict"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables strict decimal-to-string casting in the optimizer.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 972
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3084
+        thrift_propagation: null
+
+    - name: "cbo_eq_base_type"
+      type: String
+      default: "decimal"
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Base type used for equality comparisons in CBO. Values: decimal, double.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 974
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3087
+        thrift_propagation: null
+
+    - name: "enable_plan_validation"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables plan validation checks after optimization.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 892
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2863
+        thrift_propagation: null
+
+    - name: "enable_short_circuit"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables short-circuit evaluation for point queries on primary key tables.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 976
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2936
+        thrift_propagation: null
+
+    - name: "enable_simplify_case_when"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Enables CASE WHEN simplification in the optimizer.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 914
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2890
+        thrift_propagation: null
+
+    - name: "disable_function_fold_constants"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Disables constant folding for functions. When true, constant expressions are
+        not evaluated at plan time.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 912
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2887
+        thrift_propagation: null
+
+    - name: "enable_partition_column_value_only_optimization"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Optimizes scan of partition column values from metadata.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 918
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2902
+        thrift_propagation: null
+
+    - name: "enable_evaluate_schema_scan_rule"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables schema scan evaluation rule for information_schema queries.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 847
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2056
+        thrift_propagation: null
+
+    - name: "enable_array_distinct_after_agg_opt"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables optimization of array_distinct after aggregation.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 759
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3152
+        thrift_propagation: null
+
+    - name: "cbo_prepare_metadata_thread_pool_size"
+      type: Integer
+      default: 16
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Thread pool size for parallel metadata preparation in the optimizer.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 473
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2965
+        thrift_propagation: null
+
+    - name: "enable_parallel_prepare_metadata"
+      type: Boolean
+      default: false
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables parallel metadata preparation during optimization.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 476
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2968
+        thrift_propagation: null
+
+    - name: "cbo_enable_intersect_add_distinct"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Adds DISTINCT to INTERSECT operations for optimization.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 442
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1974
+        thrift_propagation: null
+
+  be_configs:
+
+    - name: "predicate_sampling_trigger_selectivity_threshold"
+      type: Double
+      default: 0.2
+      scope: "BE config"
+      mutable: true
+      description: >
+        Selectivity threshold that triggers predicate sampling in segment iteration.
+        When predicate selectivity falls below this ratio, sampling-based optimization
+        strategies may be activated.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            line: 1923
+            context: "CONF_mDouble(predicate_sampling_trigger_selectivity_threshold, \"0.2\")"
+        thrift_propagation: null

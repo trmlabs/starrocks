@@ -19,9 +19,11 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.starrocks.qe.feedback.guide.TuningGuide;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 public class OperatorTuningGuides {
@@ -40,6 +42,21 @@ public class OperatorTuningGuides {
 
         public OperatorGuideInfo(int nodeId) {
             this.nodeId = nodeId;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+
+            OperatorGuideInfo that = (OperatorGuideInfo) o;
+            return nodeId == that.nodeId && Objects.equals(tuningGuides, that.tuningGuides);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(nodeId);
         }
     }
 
@@ -120,17 +137,30 @@ public class OperatorTuningGuides {
     public String getTuneGuidesInfo(boolean isFull) {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<Integer, OperatorGuideInfo> entry : operatorIdToTuningGuideInfo.entrySet()) {
-            sb.append("PlanNode ").append(entry.getValue().nodeId).append(":").append("\n");
+            sb.append("[PlanNode ").append(entry.getValue().nodeId).append("] ");
             for (TuningGuide guide : entry.getValue().tuningGuides) {
-                sb.append(guide.getClass().getSimpleName()).append("\n");
+                sb.append("(").append(guide.getClass().getSimpleName()).append(") ");
                 if (isFull) {
-                    sb.append(guide.getDescription()).append("\n");
-                    sb.append(guide.getAdvice()).append("\n");
+                    sb.append("(").append(guide.getDescription()).append(") ");
+                    sb.append("(").append(guide.getAdvice()).append(") ");
                 }
             }
-            sb.append("\n");
+            sb.append(" ");
         }
-        return sb.toString();
+        return StringUtils.trim(sb.toString());
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        return Objects.equals(operatorIdToTuningGuideInfo, ((OperatorTuningGuides) o).operatorIdToTuningGuideInfo);
+    }
+
+    @Override
+    public int hashCode() {
+        return 1;
     }
 
     public static class OptimizedRecord {

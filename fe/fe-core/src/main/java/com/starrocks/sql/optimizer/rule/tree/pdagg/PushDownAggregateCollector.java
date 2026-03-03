@@ -58,6 +58,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static com.starrocks.sql.optimizer.statistics.StatisticsEstimateCoefficient.LOWER_AGGREGATE_EFFECT_COEFFICIENT;
 import static com.starrocks.sql.optimizer.statistics.StatisticsEstimateCoefficient.SMALL_BROADCAST_JOIN_MAX_COMBINED_NDV_LIMIT;
 import static com.starrocks.sql.optimizer.statistics.StatisticsEstimateCoefficient.SMALL_BROADCAST_JOIN_MAX_NDV_LIMIT;
 
@@ -72,7 +73,7 @@ import static com.starrocks.sql.optimizer.statistics.StatisticsEstimateCoefficie
  * mark push down which aggregation, the value will multi-rewrite by path, for check
  * which aggregation needs push down
  */
-class PushDownAggregateCollector extends OptExpressionVisitor<Void, AggregatePushDownContext> {
+public class PushDownAggregateCollector extends OptExpressionVisitor<Void, AggregatePushDownContext> {
     private static final Logger LOG = LogManager.getLogger(PushDownAggregateCollector.class);
 
     private static final int DISABLE_PUSH_DOWN_AGG = -1;
@@ -519,7 +520,8 @@ class PushDownAggregateCollector extends OptExpressionVisitor<Void, AggregatePus
             if (maxSingleColumnDistinct > SMALL_BROADCAST_JOIN_MAX_NDV_LIMIT) {
                 return false;
             }
-            if (maxMultiColumnDistinct > SMALL_BROADCAST_JOIN_MAX_COMBINED_NDV_LIMIT) {
+            if (maxMultiColumnDistinct > SMALL_BROADCAST_JOIN_MAX_COMBINED_NDV_LIMIT ||
+                    maxMultiColumnDistinct * LOWER_AGGREGATE_EFFECT_COEFFICIENT >= outputRowCount) {
                 return false;
             }
         }
@@ -598,7 +600,7 @@ class PushDownAggregateCollector extends OptExpressionVisitor<Void, AggregatePus
     // high(2): row_count / cardinality < MEDIUM_AGGREGATE_EFFECT_COEFFICIENT
     // medium(1): row_count / cardinality >= MEDIUM_AGGREGATE_EFFECT_COEFFICIENT and < LOW_AGGREGATE_EFFECT_COEFFICIENT
     // lower(0): row_count / cardinality >= LOW_AGGREGATE_EFFECT_COEFFICIENT
-    private int groupByCardinality(ColumnStatistic statistic, double rowCount) {
+    public static int groupByCardinality(ColumnStatistic statistic, double rowCount) {
         if (statistic.isUnknown()) {
             return 2;
         }
@@ -698,6 +700,13 @@ class PushDownAggregateCollector extends OptExpressionVisitor<Void, AggregatePus
 
         ColumnRefSet allGroupByColumns = new ColumnRefSet();
         context.groupBys.values().forEach(c -> allGroupByColumns.union(c.getUsedColumns()));
+
+        for (int colId : allGroupByColumns.getColumnIds()) {
+            ColumnRefOperator colRef = factory.getColumnRef(colId);
+            if (colRef.getType() != null && !colRef.getType().canGroupBy()) {
+                return false;
+            }
+        }
 
         ColumnRefSet allAggregateColumns = new ColumnRefSet();
         context.aggregations.values().forEach(c -> allAggregateColumns.union(c.getUsedColumns()));

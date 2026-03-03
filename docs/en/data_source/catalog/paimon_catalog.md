@@ -3,7 +3,11 @@ displayed_sidebar: docs
 toc_max_heading_level: 5
 ---
 
+import Beta from '../../_assets/commonMarkdown/_beta.mdx'
+
 # Paimon catalog
+
+<Beta />
 
 StarRocks supports Paimon catalogs from v3.1 onwards.
 
@@ -19,6 +23,30 @@ To ensure successful SQL workloads on your Paimon cluster, your StarRocks cluste
 ## Usage notes
 
 You can only use Paimon catalogs to query data. You cannot use Paimon catalogs to drop, delete, or insert data into your Paimon cluster.
+
+## Paimon to StarRocks data types
+
+| Paimon Type           | StarRocks Type              |
+|-----------------------|-----------------------------|
+| `BINARY`              | `VARBINARY`                 |
+| `VARBINARY`           | `VARBINARY`                 |
+| `CHAR`                | `CHAR(length)`              |
+| `VARCHAR`             | `VARCHAR`                   |
+| `BOOLEAN`             | `BOOLEAN`                   |
+| `DECIMAL`             | `DECIMAL(precision, scale)` |
+| `TINYINT`             | `TINYINT`                   |
+| `SMALLINT`            | `SMALLINT`                  |
+| `INT`                 | `INT`                       |
+| `BIGINT`              | `BIGINT`                    |
+| `FLOAT`               | `FLOAT`                     |
+| `DOUBLE`              | `DOUBLE`                    |
+| `DATE`                | `DATE`                      |
+| `TIME`                | `TIME`                      |
+| `TIMESTAMP`           | `DATETIME`                  |
+| `LocalZonedTimestamp` | `DATETIME`                  |
+| `ARRAY`               | `ARRAY<element_type>`       |
+| `MAP`                 | `MAP<key_type, value_type>` |
+| `ROW/STRUCT`          | `STRUCT<field1:type1, ...>` |
 
 ## Integration preparations
 

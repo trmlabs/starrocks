@@ -45,6 +45,7 @@ import com.starrocks.catalog.Database;
 import com.starrocks.catalog.OdpsTable;
 import com.starrocks.catalog.PartitionKey;
 import com.starrocks.catalog.Table;
+import com.starrocks.common.tvr.TvrVersionRange;
 import com.starrocks.connector.ConnectorMetadatRequestContext;
 import com.starrocks.connector.ConnectorMetadata;
 import com.starrocks.connector.ConnectorTableId;
@@ -52,7 +53,6 @@ import com.starrocks.connector.GetRemoteFilesParams;
 import com.starrocks.connector.PartitionInfo;
 import com.starrocks.connector.RemoteFileDesc;
 import com.starrocks.connector.RemoteFileInfo;
-import com.starrocks.connector.TableVersionRange;
 import com.starrocks.connector.exception.StarRocksConnectorException;
 import com.starrocks.credential.CloudConfiguration;
 import com.starrocks.credential.aliyun.AliyunCloudConfiguration;
@@ -271,7 +271,7 @@ public class OdpsMetadata implements ConnectorMetadata {
                                          List<PartitionKey> partitionKeys,
                                          ScalarOperator predicate,
                                          long limit,
-                                         TableVersionRange version) {
+                                         TvrVersionRange version) {
         Statistics.Builder builder = Statistics.builder();
         for (ColumnRefOperator columnRefOperator : columns.keySet()) {
             builder.addColumnStatistic(columnRefOperator, ColumnStatistic.unknown());
@@ -366,9 +366,9 @@ public class OdpsMetadata implements ConnectorMetadata {
             remoteFileInfo.setFiles(remoteFileDescs);
             return Lists.newArrayList(remoteFileInfo);
         } catch (Exception e) {
-            LOG.error("getRemoteFiles error", e);
+            LOG.error("getRemoteFileInfos error", e);
+            throw new StarRocksConnectorException("Encounter error when try to split the maxcompute table: " + e.getMessage(), e);
         }
-        return Collections.emptyList();
     }
 
     private OdpsSplitsInfo callSizeSplitsInfo(TableReadSessionBuilder tableReadSessionBuilder)

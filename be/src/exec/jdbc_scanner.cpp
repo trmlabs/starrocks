@@ -16,6 +16,7 @@
 
 #include <memory>
 
+#include "base/utility/defer_op.h"
 #include "column/column_helper.h"
 #include "column/column_viewer.h"
 #include "column/nullable_column.h"
@@ -25,11 +26,11 @@
 #include "exprs/clone_expr.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "runtime/types.h"
+#include "exprs/expr_executor.h"
 #include "types/logical_type.h"
 #include "types/type_checker_manager.h"
+#include "types/type_descriptor.h"
 #include "udf/java/java_udf.h"
-#include "util/defer_op.h"
 
 namespace starrocks {
 
@@ -140,6 +141,9 @@ Status JDBCScanner::_init_jdbc_scan_context(RuntimeState* state) {
     // use query timeout or default value of HikariConfig
     int connection_timeout_ms =
             state->query_options().__isset.query_timeout ? state->query_options().query_timeout * 1000 : 30 * 1000;
+    // some driver (like sqlserver) needs connection timeout less than 65536
+    connection_timeout_ms = std::max(connection_timeout_ms, 30 * 1000);
+    connection_timeout_ms = std::min(connection_timeout_ms, 65535 * 1000);
     auto scan_ctx = env->NewObject(scan_context_cls, constructor, driver_class_name, jdbc_url, user, passwd, sql,
                                    statement_fetch_size, connection_pool_size, minimum_idle_connections,
                                    idle_timeout_ms, connection_timeout_ms);
@@ -246,8 +250,8 @@ Status JDBCScanner::_init_column_class_name(RuntimeState* state) {
 
         _cast_exprs.push_back(_pool.add(new ExprContext(cast_expr)));
     }
-    RETURN_IF_ERROR(Expr::prepare(_cast_exprs, state));
-    RETURN_IF_ERROR(Expr::open(_cast_exprs, state));
+    RETURN_IF_ERROR(ExprExecutor::prepare(_cast_exprs, state));
+    RETURN_IF_ERROR(ExprExecutor::open(_cast_exprs, state));
 
     return Status::OK();
 }
@@ -319,11 +323,10 @@ Status JDBCScanner::_fill_chunk(jobject jchunk, size_t num_rows, ChunkPtr* chunk
         for (size_t i = 0; i < _slot_descs.size(); i++) {
             ASSIGN_OR_RETURN(jobject jcolumn, list_stub.get(i));
             LOCAL_REF_GUARD_ENV(env, jcolumn);
-            auto& result_column = _result_chunk->columns()[i];
-            auto st =
-                    helper.get_result_from_boxed_array(_result_column_types[i], result_column.get(), jcolumn, num_rows);
+            auto* result_column = _result_chunk->get_column_raw_ptr_by_index(i);
+            auto st = helper.get_result_from_boxed_array(_result_column_types[i], result_column, jcolumn, num_rows);
             RETURN_IF_ERROR(st);
-            down_cast<NullableColumn*>(result_column.get())->update_has_null();
+            down_cast<NullableColumn*>(result_column)->update_has_null();
         }
     }
 
@@ -336,7 +339,7 @@ Status JDBCScanner::_fill_chunk(jobject jchunk, size_t num_rows, ChunkPtr* chunk
         ASSIGN_OR_RETURN(auto result, _cast_exprs[col_idx]->evaluate(_result_chunk.get()));
         // unfold const_nullable_column to avoid error down_cast.
         // unpack_and_duplicate_const_column is not suitable, we need set correct type.
-        result = ColumnHelper::unfold_const_column(slot_desc->type(), num_rows, result);
+        result = ColumnHelper::unfold_const_column(slot_desc->type(), num_rows, std::move(result));
         if (column->is_nullable() == result->is_nullable()) {
             column = result;
         } else if (column->is_nullable() && !result->is_nullable()) {
@@ -346,7 +349,7 @@ Status JDBCScanner::_fill_chunk(jobject jchunk, size_t num_rows, ChunkPtr* chunk
                 return Status::DataQualityError(
                         fmt::format("Unexpected NULL value occurs on NOT NULL column[{}]", slot_desc->col_name()));
             }
-            column = down_cast<NullableColumn*>(result.get())->data_column();
+            column = down_cast<const NullableColumn*>(result.get())->data_column();
         }
     }
     return Status::OK();

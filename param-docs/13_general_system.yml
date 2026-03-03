@@ -1,0 +1,1530 @@
+# =============================================================================
+# StarRocks General / System Parameters (Catch-All)
+# Source: fe/.../qe/SessionVariable.java, be/src/common/config.h
+#
+# Parameters that do not fit into the 12 specialized categories:
+#   01 query_optimization, 02 join_optimization, 03 scan_and_io,
+#   04 parquet_orc_reader, 05 memory_management, 06 parallelism_scheduling,
+#   07 materialized_views, 08 external_catalogs, 09 network_timeout,
+#   10 statistics_cost_estimation, 11 security_authentication,
+#   12 logging_debugging
+# =============================================================================
+
+session_variables:
+
+  # ---------------------------------------------------------------------------
+  # Character set and collation (MySQL-compat stubs)
+  # ---------------------------------------------------------------------------
+
+  - name: "character_set_client"
+    type: string
+    default: "utf8"
+    scope: "session"
+    mutable: true
+    description: >
+      Character set for statements arriving from the client. MySQL-compatible
+      stub; StarRocks only supports utf8.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 196
+          context: "public static final String CHARACTER_SET_CLIENT = \"character_set_client\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1321
+          context: "@VarAttr(name = CHARACTER_SET_CLIENT) private String charsetClient = \"utf8\""
+
+  - name: "character_set_connection"
+    type: string
+    default: "utf8"
+    scope: "session"
+    mutable: true
+    description: >
+      Character set used for literals that do not have a character set
+      introducer and for number-to-string conversion. MySQL-compatible stub.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 197
+          context: "public static final String CHARACTER_SET_CONNNECTION = \"character_set_connection\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1323
+          context: "@VarAttr(name = CHARACTER_SET_CONNNECTION) private String charsetConnection = \"utf8\""
+
+  - name: "character_set_results"
+    type: string
+    default: "utf8"
+    scope: "session"
+    mutable: true
+    description: >
+      Character set used for returning query results to the client.
+      MySQL-compatible stub.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 198
+          context: "public static final String CHARACTER_SET_RESULTS = \"character_set_results\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1325
+          context: "@VarAttr(name = CHARACTER_SET_RESULTS) private String charsetResults = \"utf8\""
+
+  - name: "character_set_server"
+    type: string
+    default: "utf8"
+    scope: "session"
+    mutable: true
+    description: >
+      Server default character set. MySQL-compatible stub.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 199
+          context: "public static final String CHARACTER_SET_SERVER = \"character_set_server\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1327
+          context: "@VarAttr(name = CHARACTER_SET_SERVER) private String charsetServer = \"utf8\""
+
+  - name: "collation_connection"
+    type: string
+    default: "utf8_general_ci"
+    scope: "session"
+    mutable: true
+    description: >
+      Collation of the connection character set. MySQL-compatible stub.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 200
+          context: "public static final String COLLATION_CONNECTION = \"collation_connection\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1329
+          context: "@VarAttr(name = COLLATION_CONNECTION) private String collationConnection = \"utf8_general_ci\""
+
+  - name: "collation_database"
+    type: string
+    default: "utf8_general_ci"
+    scope: "session"
+    mutable: true
+    description: >
+      Collation used by the default database. MySQL-compatible stub.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 201
+          context: "public static final String COLLATION_DATABASE = \"collation_database\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1331
+          context: "@VarAttr(name = COLLATION_DATABASE) private String collationDatabase = \"utf8_general_ci\""
+
+  - name: "collation_server"
+    type: string
+    default: "utf8_general_ci"
+    scope: "session"
+    mutable: true
+    description: >
+      Server default collation. MySQL-compatible stub.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 202
+          context: "public static final String COLLATION_SERVER = \"collation_server\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1333
+          context: "@VarAttr(name = COLLATION_SERVER) private String collationServer = \"utf8_general_ci\""
+
+  # ---------------------------------------------------------------------------
+  # Timezone
+  # ---------------------------------------------------------------------------
+
+  - name: "time_zone"
+    type: string
+    default: "(system timezone)"
+    scope: "session"
+    mutable: true
+    description: >
+      Session time zone used for DATETIME display and timezone-aware functions.
+      Accepts IANA zone names (e.g. "Asia/Shanghai") or UTC offsets ("+08:00").
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 214
+          context: "public static final String TIME_ZONE = \"time_zone\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1373
+          context: "@VarAttr(name = TIME_ZONE) private String timeZone = TimeUtils.getSystemTimeZone().getID()"
+
+  # ---------------------------------------------------------------------------
+  # Transaction and autocommit
+  # ---------------------------------------------------------------------------
+
+  - name: "autocommit"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether each SQL statement is automatically committed. StarRocks
+      defaults to autocommit mode; setting to false is meaningful only when
+      SQL transaction support is enabled.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 185
+          context: "public static final String AUTO_COMMIT = \"autocommit\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1286
+          context: "@VarAttr(name = AUTO_COMMIT) private boolean autoCommit = true"
+
+  - name: "enable_sql_transaction"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Enable SQL transaction capability. When false, BEGIN/COMMIT/ROLLBACK
+      syntax is accepted but transaction behavior is not enforced.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 191
+          context: "public static final String ENABLE_SQL_TRANSACTION = \"enable_sql_transaction\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1289
+          context: "@VarAttr(name = ENABLE_SQL_TRANSACTION) private boolean enableSqlTransaction = true"
+
+  - name: "tx_isolation"
+    type: string
+    default: "REPEATABLE-READ"
+    scope: "session"
+    mutable: true
+    description: >
+      Transaction isolation level. MySQL-compatible; StarRocks supports
+      REPEATABLE-READ semantics. Alias for transaction_isolation.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 186
+          context: "public static final String TX_ISOLATION = \"tx_isolation\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1301
+          context: "@VarAttr(name = TX_ISOLATION) private String txIsolation = \"REPEATABLE-READ\""
+
+  - name: "transaction_isolation"
+    type: string
+    default: "REPEATABLE-READ"
+    scope: "session"
+    mutable: true
+    description: >
+      Transaction isolation level (standard MySQL 8.0+ name). Same as
+      tx_isolation.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 188
+          context: "public static final String TRANSACTION_ISOLATION = \"transaction_isolation\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1305
+          context: "@VarAttr(name = TRANSACTION_ISOLATION) private String transactionIsolation = \"REPEATABLE-READ\""
+
+  - name: "transaction_read_only"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether the current transaction is read-only. Alias: tx_read_only.
+      MySQL-compatible stub.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 189
+          context: "public static final String TRANSACTION_READ_ONLY = \"transaction_read_only\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1307
+          context: "@VarAttr(name = TRANSACTION_READ_ONLY, alias = TX_READ_ONLY) private boolean transactionReadOnly = false"
+
+  # ---------------------------------------------------------------------------
+  # MySQL-compat metadata stubs
+  # ---------------------------------------------------------------------------
+
+  - name: "auto_increment_increment"
+    type: integer
+    default: 1
+    scope: "session"
+    mutable: true
+    description: >
+      Controls the increment between successive AUTO_INCREMENT values.
+      MySQL-compatible stub.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 206
+          context: "public static final String AUTO_INCREMENT_INCREMENT = \"auto_increment_increment\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1349
+          context: "@VarAttr(name = AUTO_INCREMENT_INCREMENT) private int autoIncrementIncrement = 1"
+
+  - name: "query_cache_type"
+    type: integer
+    default: 0
+    scope: "session"
+    mutable: true
+    description: >
+      MySQL-compatible stub for query cache type. 0 = OFF. Not related to
+      StarRocks' own query cache feature (enable_query_cache).
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 207
+          context: "public static final String QUERY_CACHE_TYPE = \"query_cache_type\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1353
+          context: "@VarAttr(name = QUERY_CACHE_TYPE) private int queryCacheType = 0"
+
+  - name: "SQL_AUTO_IS_NULL"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      MySQL-compatible stub. When true, the last inserted AUTO_INCREMENT
+      value can be retrieved with WHERE col IS NULL. Has no effect in
+      StarRocks.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 203
+          context: "public static final String SQL_AUTO_IS_NULL = \"SQL_AUTO_IS_NULL\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1337
+          context: "@VarAttr(name = SQL_AUTO_IS_NULL) private boolean sqlAutoIsNull = false"
+
+  - name: "sql_select_limit"
+    type: long
+    default: 9223372036854775807
+    scope: "session"
+    mutable: true
+    description: >
+      Maximum number of rows to return from SELECT. Default is effectively
+      unlimited (Long.MAX_VALUE). MySQL-compatible.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 204
+          context: "public static final String SQL_SELECT_LIMIT = \"sql_select_limit\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1341
+          context: "@VarAttr(name = SQL_SELECT_LIMIT) private long sqlSelectLimit = DEFAULT_SELECT_LIMIT"
+
+  - name: "innodb_read_only"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      MySQL-compatible stub. Always true in StarRocks (no InnoDB engine).
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 215
+          context: "public static final String INNODB_READ_ONLY = \"innodb_read_only\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1376
+          context: "@VarAttr(name = INNODB_READ_ONLY) private boolean innodbReadOnly = true"
+
+  - name: "event_scheduler"
+    type: string
+    default: "OFF"
+    scope: "session"
+    mutable: true
+    description: >
+      MySQL-compatible stub for the event scheduler state. Has no effect
+      in StarRocks.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 267
+          context: "public static final String EVENT_SCHEDULER = \"event_scheduler\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1666
+          context: "@VarAttr(name = EVENT_SCHEDULER) private String eventScheduler = \"OFF\""
+
+  - name: "storage_engine"
+    type: string
+    default: "olap"
+    scope: "session"
+    mutable: true
+    description: >
+      Default storage engine name exposed for MySQL compatibility. Value is
+      "olap" in StarRocks.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 268
+          context: "public static final String STORAGE_ENGINE = \"storage_engine\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1668
+          context: "@VarAttr(name = STORAGE_ENGINE) private String storageEngine = \"olap\""
+
+  - name: "default_storage_engine"
+    type: string
+    default: "InnoDB"
+    scope: "session"
+    mutable: true
+    description: >
+      MySQL-compatible stub for default storage engine. Reports "InnoDB"
+      for driver compatibility.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 192
+          context: "public static final String DEFAULT_STORAGE_ENGINE = \"default_storage_engine\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1311
+          context: "@VarAttr(name = DEFAULT_STORAGE_ENGINE) private String defaultStorageEngine = \"InnoDB\""
+
+  - name: "default_tmp_storage_engine"
+    type: string
+    default: "InnoDB"
+    scope: "session"
+    mutable: true
+    description: >
+      MySQL-compatible stub for default temporary table storage engine.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 193
+          context: "public static final String DEFAULT_TMP_STORAGE_ENGINE = \"default_tmp_storage_engine\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1313
+          context: "@VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE) private String defaultTmpStorageEngine = \"InnoDB\""
+
+  - name: "foreign_key_checks"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    deprecated: true
+    description: >
+      MySQL-compatible stub for foreign key constraint checking. Only for
+      Aliyun DTS compatibility; has no actual effect. Deprecated.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 380
+          context: "public static final String FOREIGN_KEY_CHECKS = \"foreign_key_checks\""
+
+  # ---------------------------------------------------------------------------
+  # Numeric precision and overflow
+  # ---------------------------------------------------------------------------
+
+  - name: "div_precision_increment"
+    type: integer
+    default: 4
+    scope: "session"
+    mutable: true
+    description: >
+      Number of digits by which to increase the scale of the result of
+      division operations. MySQL-compatible.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 269
+          context: "public static final String DIV_PRECISION_INCREMENT = \"div_precision_increment\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1670
+          context: "@VarAttr(name = DIV_PRECISION_INCREMENT) private int divPrecisionIncrement = 4"
+
+  - name: "decimal_overflow_to_double"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      When true, decimal computations that overflow the maximum precision
+      are automatically promoted to DOUBLE instead of returning an error.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 270
+          context: "public static final String DECIMAL_OVERFLOW_TO_DOUBLE = \"decimal_overflow_to_double\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1673
+          context: "@VarAttr(name = DECIMAL_OVERFLOW_TO_DOUBLE) private boolean decimalOverflowToDouble = false"
+
+  - name: "large_decimal_underlying_type"
+    type: string
+    default: "panic"
+    scope: "session"
+    mutable: true
+    description: >
+      Controls behavior when a DECIMAL literal exceeds Decimal128 range.
+      "panic" raises an error; "double" converts to DOUBLE; "decimal"
+      keeps it as wider decimal.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 708
+          context: "public static final String LARGE_DECIMAL_UNDERLYING_TYPE = \"large_decimal_underlying_type\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3072
+          context: "@VarAttr(name = LARGE_DECIMAL_UNDERLYING_TYPE) private String largeDecimalUnderlyingType = SessionVariableConstants.PANIC"
+
+  # ---------------------------------------------------------------------------
+  # Compression and encoding
+  # ---------------------------------------------------------------------------
+
+  - name: "default_table_compression"
+    type: string
+    default: "lz4_frame"
+    scope: "session"
+    mutable: true
+    description: >
+      Default compression algorithm for newly created tables. Supported:
+      lz4_frame, snappy, zstd, zlib, lz4, none.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 559
+          context: "public static final String DEFAULT_TABLE_COMPRESSION = \"default_table_compression\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1922
+          context: "@VarAttr(name = DEFAULT_TABLE_COMPRESSION) private String defaultTableCompressionAlgorithm = \"lz4_frame\""
+
+  - name: "transmission_compression_type"
+    type: string
+    default: "AUTO"
+    scope: "session"
+    mutable: true
+    description: >
+      Compression algorithm for data transmitted between FE/BE nodes during
+      query execution (shuffle data). "AUTO" selects based on network
+      conditions; explicit values: NO_COMPRESSION, LZ4, SNAPPY, ZSTD, GZIP.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 498
+          context: "public static final String TRANSMISSION_COMPRESSION_TYPE = \"transmission_compression_type\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1809
+          context: "@VarAttr(name = TRANSMISSION_COMPRESSION_TYPE) private String transmissionCompressionType = \"AUTO\""
+
+  - name: "load_transmission_compression_type"
+    type: string
+    default: "NO_COMPRESSION"
+    scope: "session"
+    mutable: true
+    description: >
+      Compression algorithm for data transmitted during load operations.
+      Defaults to no compression; same options as transmission_compression_type.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 499
+          context: "public static final String LOAD_TRANSMISSION_COMPRESSION_TYPE = \"load_transmission_compression_type\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1834
+          context: "@VarAttr(name = LOAD_TRANSMISSION_COMPRESSION_TYPE) private String loadTransmissionCompressionType = \"NO_COMPRESSION\""
+
+  # ---------------------------------------------------------------------------
+  # Load / insert behavior
+  # ---------------------------------------------------------------------------
+
+  - name: "enable_insert_strict"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether INSERT operations perform strict data quality checks. When
+      enabled, rows that violate column constraints (type mismatch, NULL
+      into NOT NULL, etc.) cause the INSERT to fail rather than being
+      silently filtered.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 227
+          context: "public static final String ENABLE_INSERT_STRICT = \"enable_insert_strict\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1547
+          context: "@VarAttr(name = ENABLE_INSERT_STRICT) private boolean enableInsertStrict = true"
+
+  - name: "insert_max_filter_ratio"
+    type: double
+    default: 0
+    scope: "session"
+    mutable: true
+    description: >
+      Maximum ratio (0-1) of rows that can be filtered during INSERT before
+      the operation is considered failed. 0 means any filtered row causes
+      failure.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 228
+          context: "public static final String INSERT_MAX_FILTER_RATIO = \"insert_max_filter_ratio\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1553
+          context: "@VarAttr(name = INSERT_MAX_FILTER_RATIO) private double insertMaxFilterRatio = 0"
+
+  - name: "dynamic_overwrite"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether INSERT OVERWRITE uses dynamic partition overwrite semantics.
+      When true, only partitions that have data in the source are replaced;
+      other partitions are left untouched.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 230
+          context: "public static final String DYNAMIC_OVERWRITE = \"dynamic_overwrite\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1550
+          context: "@VarAttr(name = DYNAMIC_OVERWRITE) private boolean dynamicOverwrite = false"
+
+  - name: "partial_update_mode"
+    type: string
+    default: "auto"
+    scope: "session"
+    mutable: true
+    description: >
+      Partial update strategy for Primary Key tables. "auto" lets the
+      system choose; "row" uses row-mode partial update; "column" uses
+      column-mode partial update.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 898
+          context: "public static final String PARTIAL_UPDATE_MODE = \"partial_update_mode\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2063
+          context: "@VarAttr(name = PARTIAL_UPDATE_MODE) private String partialUpdateMode = \"auto\""
+
+  - name: "enable_insert_partial_update"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether INSERT INTO on Primary Key tables uses partial update logic
+      (only updating the specified columns instead of full-row upsert).
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 900
+          context: "public static final String ENABLE_INSERT_PARTIAL_UPDATE = \"enable_insert_partial_update\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2066
+          context: "@VarAttr(name = ENABLE_INSERT_PARTIAL_UPDATE) private boolean enableInsertPartialUpdate = true"
+
+  - name: "log_rejected_record_num"
+    type: long
+    default: 0
+    scope: "session"
+    mutable: true
+    description: >
+      Number of rejected/filtered records to log during load operations.
+      0 means no rejected records are logged.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 312
+          context: "public static final String LOG_REJECTED_RECORD_NUM = \"log_rejected_record_num\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1164
+          context: "@VarAttr(name = LOG_REJECTED_RECORD_NUM) private long logRejectedRecordNum = 0"
+
+  # ---------------------------------------------------------------------------
+  # Query behavior and plan control
+  # ---------------------------------------------------------------------------
+
+  - name: "enable_strict_order_by"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      When true, ORDER BY columns must be unambiguous. Prevents
+      non-deterministic orderings when column references are ambiguous.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 716
+          context: "public static final String ENABLE_STRICT_ORDER_BY = \"enable_strict_order_by\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3240
+          context: "@VarAttr(name = ENABLE_STRICT_ORDER_BY) private boolean enableStrictOrderBy = true"
+
+  - name: "group_concat_max_len"
+    type: long
+    default: 1024
+    scope: "session"
+    mutable: true
+    description: >
+      Maximum length (in bytes) of the result of the GROUP_CONCAT function.
+      Outputs exceeding this length are truncated.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 849
+          context: "public static final String GROUP_CONCAT_MAX_LEN = \"group_concat_max_len\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2832
+          context: "@VarAttr(name = GROUP_CONCAT_MAX_LEN) private long groupConcatMaxLen = 1024"
+
+  - name: "streaming_preaggregation_mode"
+    type: string
+    default: "auto"
+    scope: "session"
+    mutable: true
+    description: >
+      Strategy for streaming pre-aggregation in the execution engine.
+      "auto" lets the optimizer decide; "force_streaming" always streams;
+      "force_preaggregation" always pre-aggregates.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 221
+          context: "public static final String STREAMING_PREAGGREGATION_MODE = \"streaming_preaggregation_mode\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1393
+          context: "@VarAttr(name = STREAMING_PREAGGREGATION_MODE) private String streamingPreaggregationMode = SessionVariableConstants.AUTO"
+
+  - name: "resource_group"
+    type: string
+    default: ""
+    scope: "session"
+    mutable: true
+    description: >
+      Name of the resource group (workgroup) to use for the current session.
+      An empty string means no specific resource group is assigned.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 184
+          context: "public static final String RESOURCE_GROUP = \"resource_group\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1282
+          context: "@VarAttr(name = RESOURCE_GROUP, flag = VariableMgr.SESSION_ONLY) private String resourceGroup = \"\""
+
+  - name: "enable_plan_serialize_concurrently"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to serialize query plan fragments concurrently when
+      distributing them to BEs. Reduces planning latency for queries with
+      many fragments.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 714
+          context: "public static final String ENABLE_PLAN_SERIALIZE_CONCURRENTLY = \"enable_plan_serialize_concurrently\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3231
+          context: "@VarAttr(name = ENABLE_PLAN_SERIALIZE_CONCURRENTLY) private boolean enablePlanSerializeConcurrently = true"
+
+  - name: "forward_to_leader"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to forward certain statements (e.g. SHOW, metadata queries) to
+      the leader FE to ensure consistent results. Alias: forward_to_master.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 263
+          context: "public static final String FORWARD_TO_LEADER = \"forward_to_leader\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1662
+          context: "@VarAttr(name = FORWARD_TO_LEADER, alias = FORWARD_TO_MASTER) private boolean forwardToLeader = false"
+
+  - name: "follower_query_forward_mode"
+    type: string
+    default: ""
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Controls whether a follower FE proxies queries to leader or serves
+      them locally. "" (default) decides by replay progress; "FOLLOWER"
+      always serves locally; "LEADER" always proxies to leader.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 757
+          context: "public static final String FOLLOWER_QUERY_FORWARD_MODE = \"follower_query_forward_mode\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3237
+          context: "@VarAttr(name = FOLLOWER_QUERY_FORWARD_MODE, flag = INVISIBLE | DISABLE_FORWARD_TO_LEADER) private String followerForwardMode = \"\""
+
+  - name: "parse_tokens_limit"
+    type: integer
+    default: 3500000
+    scope: "session"
+    mutable: true
+    description: >
+      Maximum number of tokens the SQL parser will process before aborting.
+      Protects against extremely large SQL statements consuming excessive
+      memory or CPU.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 627
+          context: "public static final String PARSE_TOKENS_LIMIT = \"parse_tokens_limit\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1996
+          context: "@VarAttr(name = PARSE_TOKENS_LIMIT) private int parseTokensLimit = 3500000"
+
+  - name: "enable_sql_digest"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Whether to compute and store SQL digest (normalized fingerprint) for
+      queries. Used for statement analysis and grouping.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 435
+          context: "public static final String ENABLE_SQL_DIGEST = \"enable_sql_digest\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1447
+          context: "@VarAttr(name = ENABLE_SQL_DIGEST, flag = INVISIBLE) private boolean enableSQLDigest = false"
+
+  - name: "enable_show_all_variables"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      When true, SHOW VARIABLES displays all variables including invisible
+      and internal ones.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 619
+          context: "public static final String ENABLE_SHOW_ALL_VARIABLES = \"enable_show_all_variables\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1957
+          context: "@VarAttr(name = ENABLE_SHOW_ALL_VARIABLES, flag = INVISIBLE) private boolean enableShowAllVariables = false"
+
+  - name: "sql_quote_show_create"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether SHOW CREATE TABLE quotes identifiers. MySQL-compatible.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 890
+          context: "public static final String SQL_QUOTE_SHOW_CREATE = \"sql_quote_show_create\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2829
+          context: "@VarAttr(name = SQL_QUOTE_SHOW_CREATE) private boolean quoteShowCreate = true"
+
+  - name: "enable_color_explain_output"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether EXPLAIN output includes ANSI color codes for terminal display.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 171
+          context: "public static final String COLOR_EXPLAIN_OUTPUT = \"enable_color_explain_output\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1253
+          context: "@VarAttr(name = COLOR_EXPLAIN_OUTPUT) private boolean colorExplainOutput = true"
+
+  - name: "custom_query_id"
+    type: string
+    default: ""
+    scope: "session"
+    mutable: true
+    description: >
+      User-specified query ID override. When non-empty, this value is used
+      as the query ID instead of the auto-generated UUID.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 727
+          context: "public static final String CUSTOM_QUERY_ID = \"custom_query_id\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3333
+          context: "@VarAttr(name = CUSTOM_QUERY_ID, flag = SESSION_ONLY) private String customQueryId = \"\""
+
+  - name: "custom_session_name"
+    type: string
+    default: ""
+    scope: "session"
+    mutable: true
+    description: >
+      User-specified session name for identification in logs and profiles.
+      Maximum 64 characters.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 747
+          context: "public static final String CUSTOM_SESSION_NAME = \"custom_session_name\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3336
+          context: "@VarAttr(name = CUSTOM_SESSION_NAME, flag = SESSION_ONLY) private String customSessionName = \"\""
+
+  - name: "enable_execution_only"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Execute SQL without returning results. Used for performance testing
+      to measure execution overhead without result serialization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 733
+          context: "public static final String ENABLE_EXECUTION_ONLY = \"enable_execution_only\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1514
+          context: "@VarAttr(name = ENABLE_EXECUTION_ONLY, flag = INVISIBLE) private boolean enableExecutionOnly = false"
+
+  - name: "enable_result_sink_accumulate"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether the result sink accumulates data before sending to reduce
+      RPC overhead.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 719
+          context: "private static final String ENABLE_RESULT_SINK_ACCUMULATE = \"enable_result_sink_accumulate\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3090
+          context: "@VarAttr(name = ENABLE_RESULT_SINK_ACCUMULATE) private boolean enableResultSinkAccumulate = true"
+
+  - name: "enable_wait_dependent_event"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Enable waiting for dependent events in the pipeline scheduler.
+      Experimental feature for fine-grained scheduling control.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 721
+          context: "public static final String ENABLE_WAIT_DEPENDENT_EVENT = \"enable_wait_dependent_event\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3249
+          context: "@VarAttr(name = ENABLE_WAIT_DEPENDENT_EVENT) private boolean enableWaitDependentEvent = false"
+
+  # ---------------------------------------------------------------------------
+  # Deprecated session variables (kept for compatibility)
+  # ---------------------------------------------------------------------------
+
+  - name: "codegen_level"
+    type: integer
+    default: 0
+    scope: "session"
+    mutable: true
+    deprecated: true
+    description: >
+      Code generation level. Deprecated; StarRocks uses vectorized
+      execution instead of codegen.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 218
+          context: "public static final String CODEGEN_LEVEL = \"codegen_level\""
+
+  - name: "max_execution_time"
+    type: integer
+    default: 0
+    scope: "session"
+    mutable: true
+    deprecated: true
+    description: >
+      Deprecated alias for query_timeout. Use query_timeout instead.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 169
+          context: "public static final String MAX_EXECUTION_TIME = \"max_execution_time\""
+
+  - name: "profiling"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    deprecated: true
+    description: >
+      Deprecated MySQL-compatible stub. Use enable_profile instead.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 175
+          context: "public static final String PROFILING = \"profiling\""
+
+  # ---------------------------------------------------------------------------
+  # Miscellaneous query features
+  # ---------------------------------------------------------------------------
+
+  - name: "interpolate_passthrough"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Whether to pass through interpolate columns directly in ASOF joins
+      or similar time-series operations.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 623
+          context: "public static final String INTERPOLATE_PASSTHROUGH = \"interpolate_passthrough\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1942
+          context: "@VarAttr(name = INTERPOLATE_PASSTHROUGH, flag = INVISIBLE) private boolean interpolatePassthrough = true"
+
+  - name: "hash_join_interpolate_passthrough"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Whether hash join supports interpolate passthrough optimization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 625
+          context: "public static final String HASH_JOIN_INTERPOLATE_PASSTHROUGH = \"hash_join_interpolate_passthrough\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1945
+          context: "@VarAttr(name = HASH_JOIN_INTERPOLATE_PASSTHROUGH, flag = INVISIBLE) private boolean hashJoinInterpolatePassthrough = false"
+
+  - name: "window_partition_mode"
+    type: integer
+    default: 1
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Implementation mode for window function partitioning. 1 = sort-based,
+      2 = hash-based.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 644
+          context: "public static final String WINDOW_PARTITION_MODE = \"window_partition_mode\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2041
+          context: "@VarAttr(name = WINDOW_PARTITION_MODE, flag = INVISIBLE) private int windowPartitionMode = 1"
+
+  - name: "scan_or_to_union_limit"
+    type: integer
+    default: 4
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Maximum number of OR predicates on a scan that can be rewritten to
+      UNION ALL for parallel scan optimization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 902
+          context: "public static final String SCAN_OR_TO_UNION_LIMIT = \"scan_or_to_union_limit\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2869
+          context: "@VarAttr(name = SCAN_OR_TO_UNION_LIMIT, flag = INVISIBLE) private int scanOrToUnionLimit = 4"
+
+  - name: "scan_or_to_union_threshold"
+    type: long
+    default: 50000000
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Row count threshold for the scan-OR-to-UNION rewrite. Only applies
+      the rewrite when estimated scan rows exceed this threshold.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 904
+          context: "public static final String SCAN_OR_TO_UNION_THRESHOLD = \"scan_or_to_union_threshold\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2872
+          context: "@VarAttr(name = SCAN_OR_TO_UNION_THRESHOLD, flag = INVISIBLE) private long scanOrToUnionThreshold = 50000000"
+
+  - name: "enable_pushdown_or_predicate"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Whether OR predicates can be pushed down to the storage layer for
+      filtering.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 906
+          context: "public static final String ENABLE_PUSHDOWN_OR_PREDICATE = \"enable_pushdown_or_predicate\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2875
+          context: "@VarAttr(name = ENABLE_PUSHDOWN_OR_PREDICATE, flag = INVISIBLE) private boolean enablePushdownOrPredicate = true"
+
+  - name: "select_ratio_threshold"
+    type: double
+    default: 0.15
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Selectivity ratio threshold used by the optimizer to decide whether
+      to push down predicates or use alternative plans.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 910
+          context: "public static final String SELECT_RATIO_THRESHOLD = \"select_ratio_threshold\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2884
+          context: "@VarAttr(name = SELECT_RATIO_THRESHOLD, flag = INVISIBLE) private double selectRatioThreshold = 0.15"
+
+  - name: "disable_function_fold_constants"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      When true, disables constant folding for functions during query
+      optimization. Useful for debugging.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 912
+          context: "public static final String DISABLE_FUNCTION_FOLD_CONSTANTS = \"disable_function_fold_constants\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2887
+          context: "@VarAttr(name = DISABLE_FUNCTION_FOLD_CONSTANTS, flag = INVISIBLE) private boolean disableFunctionFoldConstants = false"
+
+  - name: "enable_simplify_case_when"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Whether to simplify CASE WHEN expressions during optimization
+      (e.g. constant branch elimination).
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 914
+          context: "public static final String ENABLE_SIMPLIFY_CASE_WHEN = \"enable_simplify_case_when\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2890
+          context: "@VarAttr(name = ENABLE_SIMPLIFY_CASE_WHEN, flag = INVISIBLE) private boolean enableSimplifyCaseWhen = true"
+
+  - name: "enable_count_star_optimization"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Whether to optimize COUNT(*) queries by reading only metadata or
+      zone maps instead of full table scans.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 916
+          context: "public static final String ENABLE_COUNT_STAR_OPTIMIZATION = \"enable_count_star_optimization\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2893
+          context: "@VarAttr(name = ENABLE_COUNT_STAR_OPTIMIZATION, flag = INVISIBLE) private boolean enableCountStarOptimization = true"
+
+  - name: "enable_partition_column_value_only_optimization"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      Enables optimization for queries that only read partition column
+      values, avoiding actual data scan by reading partition metadata.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 918
+          context: "public static final String ENABLE_PARTITION_COLUMN_VALUE_ONLY_OPTIMIZATION"
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2902
+          context: "@VarAttr(name = ENABLE_PARTITION_COLUMN_VALUE_ONLY_OPTIMIZATION, flag = INVISIBLE) private boolean enablePartitionColumnValueOnlyOptimization = true"
+
+  - name: "enable_fine_grained_range_predicate"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to use fine-grained range predicates for more precise
+      partition pruning and data skipping.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 717
+          context: "private static final String ENABLE_FINE_GRAINED_RANGE_PREDICATE = \"enable_fine_grained_range_predicate\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3078
+          context: "@VarAttr(name = ENABLE_FINE_GRAINED_RANGE_PREDICATE) private boolean enableFineGrainedRangePredicate = false"
+
+  - name: "disable_generated_column_rewrite"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    flag: INVISIBLE
+    description: >
+      When true, disables the optimizer rewrite that replaces expressions
+      matching generated column definitions with direct column reads.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1030
+          context: "public static final String DISABLE_GENERATED_COLUMN_REWRITE = \"disable_generated_column_rewrite\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2112
+          context: "@VarAttr(name = DISABLE_GENERATED_COLUMN_REWRITE, flag = INVISIBLE) private boolean disableGeneratedColumnRewrite = false"
+
+# =============================================================================
+# BE configuration parameters (be/src/common/config.h)
+# =============================================================================
+
+be_config:
+
+  # ---------------------------------------------------------------------------
+  # BE server identity and ports
+  # ---------------------------------------------------------------------------
+
+  - name: "cluster_id"
+    type: Int32
+    default: -1
+    scope: "BE config"
+    mutable: false
+    description: >
+      Cluster identifier. -1 means auto-assigned by the FE during first
+      heartbeat. Should not be changed manually.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 41
+          context: "CONF_Int32(cluster_id, \"-1\")"
+
+  - name: "be_port"
+    type: Int32
+    default: 9060
+    scope: "BE config"
+    mutable: false
+    description: >
+      Thrift RPC port for the BE service. FE uses this port to communicate
+      with BE nodes.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 43
+          context: "CONF_Int32(be_port, \"9060\")"
+
+  - name: "storage_root_path"
+    type: String
+    default: "${STARROCKS_HOME}/storage"
+    scope: "BE config"
+    mutable: false
+    description: >
+      Root directory path for local data storage. Multiple paths can be
+      separated by semicolons. Each path can optionally specify storage
+      medium and capacity.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 306
+          context: "CONF_String(storage_root_path, \"${STARROCKS_HOME}/storage\")"
+
+  - name: "max_tablet_num_per_shard"
+    type: Int32
+    default: 1024
+    scope: "BE config"
+    mutable: false
+    description: >
+      Maximum number of tablets per shard directory. Controls the
+      directory structure for tablet data files.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 312
+          context: "CONF_Int32(max_tablet_num_per_shard, \"1024\")"
+
+  - name: "storage_format_version"
+    type: Int16
+    default: 2
+    scope: "BE config"
+    mutable: true
+    description: >
+      Storage format version. Version 1 uses legacy Date/Datetime/Decimal
+      types; version 2 uses DATE_V2, TIMESTAMP, and DECIMAL_V2 as the
+      storage format. Only 1 and 2 are valid.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 926
+          context: "CONF_mInt16(storage_format_version, \"2\")"
+
+  # ---------------------------------------------------------------------------
+  # Compaction threads
+  # ---------------------------------------------------------------------------
+
+  - name: "base_compaction_num_threads_per_disk"
+    type: Int32
+    default: 1
+    scope: "BE config"
+    mutable: false
+    description: >
+      Number of base compaction threads per disk. Controls parallelism of
+      base compaction operations.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 362
+          context: "CONF_Int32(base_compaction_num_threads_per_disk, \"1\")"
+
+  - name: "cumulative_compaction_num_threads_per_disk"
+    type: Int32
+    default: 1
+    scope: "BE config"
+    mutable: false
+    description: >
+      Number of cumulative compaction threads per disk.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 372
+          context: "CONF_Int32(cumulative_compaction_num_threads_per_disk, \"1\")"
+
+  - name: "base_compaction_check_interval_seconds"
+    type: Int32
+    default: 60
+    scope: "BE config"
+    mutable: true
+    description: >
+      Interval in seconds between base compaction eligibility checks.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 357
+          context: "CONF_mInt32(base_compaction_check_interval_seconds, \"60\")"
+
+  - name: "cumulative_compaction_check_interval_seconds"
+    type: Int32
+    default: 1
+    scope: "BE config"
+    mutable: true
+    description: >
+      Interval in seconds between cumulative compaction eligibility checks.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 367
+          context: "CONF_mInt32(cumulative_compaction_check_interval_seconds, \"1\")"
+
+  - name: "min_base_compaction_num_singleton_deltas"
+    type: Int64
+    default: 5
+    scope: "BE config"
+    mutable: true
+    description: >
+      Minimum number of singleton delta rowsets required before a base
+      compaction is triggered.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 358
+          context: "CONF_mInt64(min_base_compaction_num_singleton_deltas, \"5\")"
+
+  - name: "max_base_compaction_num_singleton_deltas"
+    type: Int64
+    default: 100
+    scope: "BE config"
+    mutable: true
+    description: >
+      Maximum number of singleton delta rowsets that can be included in
+      a single base compaction.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 359
+          context: "CONF_mInt64(max_base_compaction_num_singleton_deltas, \"100\")"
+
+  - name: "base_compaction_interval_seconds_since_last_operation"
+    type: Int64
+    default: 86400
+    scope: "BE config"
+    mutable: true
+    description: >
+      Minimum interval in seconds since the last base compaction before
+      triggering another one. Default is 24 hours.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 364
+          context: "CONF_mInt64(base_compaction_interval_seconds_since_last_operation, \"86400\")"
+
+  - name: "min_cumulative_compaction_num_singleton_deltas"
+    type: Int64
+    default: 5
+    scope: "BE config"
+    mutable: true
+    description: >
+      Minimum number of singleton delta rowsets required before a
+      cumulative compaction is triggered.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 368
+          context: "CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, \"5\")"
+
+  - name: "max_cumulative_compaction_num_singleton_deltas"
+    type: Int64
+    default: 500
+    scope: "BE config"
+    mutable: true
+    description: >
+      Maximum number of singleton delta rowsets that can be included in
+      a single cumulative compaction.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 369
+          context: "CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, \"500\")"
+
+  - name: "manual_compaction_threads"
+    type: Int32
+    default: 4
+    scope: "BE config"
+    mutable: false
+    description: >
+      Number of threads used for manually triggered compaction operations.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 401
+          context: "CONF_Int32(manual_compaction_threads, \"4\")"
+
+  - name: "min_cumulative_compaction_failure_interval_sec"
+    type: Int64
+    default: 30
+    scope: "BE config"
+    mutable: true
+    description: >
+      Minimum interval in seconds between retries after a failed cumulative
+      compaction.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 407
+          context: "CONF_mInt64(min_cumulative_compaction_failure_interval_sec, \"30\")"
+
+  # ---------------------------------------------------------------------------
+  # Storage page and cache
+  # ---------------------------------------------------------------------------
+
+  - name: "data_page_size"
+    type: Int32
+    default: 65536
+    scope: "BE config"
+    mutable: false
+    description: >
+      Size of data and index pages in bytes. Default is 64KB.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 331
+          context: "CONF_Int32(data_page_size, \"65536\")"
+
+  - name: "disable_storage_page_cache"
+    type: boolean
+    default: false
+    scope: "BE config"
+    mutable: true
+    description: >
+      Whether to disable the storage page cache entirely.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 341
+          context: "CONF_mBool(disable_storage_page_cache, \"false\")"
+
+  # ---------------------------------------------------------------------------
+  # Worker threads
+  # ---------------------------------------------------------------------------
+
+  - name: "number_tablet_writer_threads"
+    type: Int32
+    default: 0
+    scope: "BE config"
+    mutable: true
+    description: >
+      Number of threads for tablet writer operations. 0 means auto-detected
+      based on available CPU cores.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 541
+          context: "CONF_mInt32(number_tablet_writer_threads, \"0\")"
+
+  - name: "tablet_writer_open_rpc_timeout_sec"
+    type: Int32
+    default: 300
+    scope: "BE config"
+    mutable: true
+    description: >
+      Timeout in seconds for the tablet writer open RPC call during data
+      loading.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 591
+          context: "CONF_mInt32(tablet_writer_open_rpc_timeout_sec, \"300\")"
+
+  - name: "txn_commit_rpc_timeout_ms"
+    type: Int32
+    default: 60000
+    scope: "BE config"
+    mutable: true
+    description: >
+      Timeout in milliseconds for the transaction commit RPC call.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 771
+          context: "CONF_mInt32(txn_commit_rpc_timeout_ms, \"60000\")"

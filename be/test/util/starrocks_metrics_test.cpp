@@ -32,14 +32,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/starrocks_metrics.h"
+#include "runtime/starrocks_metrics.h"
 
 #include <gtest/gtest.h>
 
+#include "base/testutil/assert.h"
+#include "cache/mem_cache/lrucache_engine.h"
+#include "cache/mem_cache/page_cache.h"
 #include "common/config.h"
-#include "storage/page_cache.h"
-#include "testutil/assert.h"
-#include "util/logging.h"
+#include "util/global_metrics_registry.h"
 
 namespace starrocks {
 
@@ -49,11 +50,20 @@ public:
     ~StarRocksMetricsTest() override = default;
 
 protected:
-    void SetUp() override { _page_cache = CacheEnv::GetInstance()->page_cache(); }
+    void SetUp() override {
+        MemCacheOptions opts{.mem_space_size = 10 * 1024 * 1024};
+        _lru_cache = std::make_shared<LRUCacheEngine>();
+        ASSERT_OK(_lru_cache->init(opts));
+
+        _page_cache = std::make_shared<StoragePageCache>();
+        _page_cache->init(_lru_cache.get());
+        _page_cache->init_metrics();
+    }
 
     void TearDown() override {}
 
-    StoragePageCache* _page_cache;
+    std::shared_ptr<LRUCacheEngine> _lru_cache = nullptr;
+    std::shared_ptr<StoragePageCache> _page_cache = nullptr;
 };
 
 class TestMetricsVisitor : public MetricsVisitor {
@@ -102,9 +112,8 @@ private:
 TEST_F(StarRocksMetricsTest, Normal) {
     TestMetricsVisitor visitor;
     auto instance = StarRocksMetrics::instance();
-    auto metrics = instance->metrics();
+    auto metrics = GlobalMetricsRegistry::instance()->metrics();
     metrics->collect(&visitor);
-    LOG(INFO) << "\n" << visitor.to_string();
     // check metric
     {
         instance->fragment_requests_total.increment(12);
@@ -229,6 +238,13 @@ TEST_F(StarRocksMetricsTest, Normal) {
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("22", metric->to_string().c_str());
     }
+    {
+        instance->clone_requests_total.increment(23);
+        auto metric = metrics->get_metric("engine_requests_total",
+                                          MetricLabels().add("type", "clone").add("status", "total"));
+        ASSERT_TRUE(metric != nullptr);
+        ASSERT_STREQ("23", metric->to_string().c_str());
+    }
     //  comapction
     {
         instance->base_compaction_deltas_total.increment(30);
@@ -265,8 +281,7 @@ TEST_F(StarRocksMetricsTest, Normal) {
 
 TEST_F(StarRocksMetricsTest, PageCacheMetrics) {
     TestMetricsVisitor visitor;
-    auto instance = StarRocksMetrics::instance();
-    auto metrics = instance->metrics();
+    auto metrics = GlobalMetricsRegistry::instance()->metrics();
     metrics->collect(&visitor);
     LOG(INFO) << "\n" << visitor.to_string();
 
@@ -278,19 +293,23 @@ TEST_F(StarRocksMetricsTest, PageCacheMetrics) {
     ASSERT_TRUE(capacity_metric != nullptr);
     {
         {
-            StoragePageCache::CacheKey key("abc", 0);
+            std::string key("abc0");
             PageCacheHandle handle;
-            Slice data(new char[1024], 1024);
-            ASSERT_OK(_page_cache->insert(key, data, &handle, false));
+            auto data = std::make_unique<std::vector<uint8_t>>(1024);
+            MemCacheWriteOptions opts;
+            ASSERT_OK(_page_cache->insert(key, data.get(), opts, &handle));
             ASSERT_TRUE(_page_cache->lookup(key, &handle));
+            data.release();
         }
         for (int i = 0; i < 1024; i++) {
             PageCacheHandle handle;
-            StoragePageCache::CacheKey key(std::to_string(i), 0);
+            std::string key(std::to_string(i));
+            key.append("0");
             _page_cache->lookup(key, &handle);
         }
     }
     config::enable_metric_calculator = false;
+    metrics->set_collect_hook_enabled(true);
     metrics->collect(&visitor);
     ASSERT_STREQ("1025", lookup_metric->to_string().c_str());
     ASSERT_STREQ("1", hit_metric->to_string().c_str());
@@ -306,7 +325,9 @@ void assert_threadpool_metrics_register(const std::string& pool_name, MetricRegi
 }
 
 TEST_F(StarRocksMetricsTest, test_metrics_register) {
-    auto instance = StarRocksMetrics::instance()->metrics();
+    pipeline::ExecStateReporterMetrics exec_metrics;
+    exec_metrics.register_all_metrics();
+    auto instance = GlobalMetricsRegistry::instance()->metrics();
     ASSERT_NE(nullptr, instance->get_metric("memtable_flush_total"));
     ASSERT_NE(nullptr, instance->get_metric("memtable_flush_duration_us"));
     ASSERT_NE(nullptr, instance->get_metric("memtable_flush_io_time_us"));
@@ -343,6 +364,9 @@ TEST_F(StarRocksMetricsTest, test_metrics_register) {
     assert_threadpool_metrics_register("remote_snapshot", instance);
     assert_threadpool_metrics_register("replicate_snapshot", instance);
     assert_threadpool_metrics_register("load_channel", instance);
+    assert_threadpool_metrics_register("merge_commit", instance);
+    assert_threadpool_metrics_register("exec_state_report", instance);
+    assert_threadpool_metrics_register("priority_exec_state_report", instance);
     ASSERT_NE(nullptr, instance->get_metric("load_channel_add_chunks_total"));
     ASSERT_NE(nullptr, instance->get_metric("load_channel_add_chunks_eos_total"));
     ASSERT_NE(nullptr, instance->get_metric("load_channel_add_chunks_duration_us"));
@@ -360,6 +384,10 @@ TEST_F(StarRocksMetricsTest, test_metrics_register) {
     ASSERT_NE(nullptr, instance->get_metric("delta_writer_wait_replica_duration_us"));
     ASSERT_NE(nullptr, instance->get_metric("delta_writer_txn_commit_duration_us"));
     ASSERT_NE(nullptr, instance->get_metric("memtable_finalize_duration_us"));
+    ASSERT_NE(nullptr, instance->get_metric("clone_task_copy_bytes", MetricLabels().add("type", "INTER_NODE")));
+    ASSERT_NE(nullptr, instance->get_metric("clone_task_copy_bytes", MetricLabels().add("type", "INTRA_NODE")));
+    ASSERT_NE(nullptr, instance->get_metric("clone_task_copy_duration_ms", MetricLabels().add("type", "INTER_NODE")));
+    ASSERT_NE(nullptr, instance->get_metric("clone_task_copy_duration_ms", MetricLabels().add("type", "INTRA_NODE")));
 }
 
 } // namespace starrocks

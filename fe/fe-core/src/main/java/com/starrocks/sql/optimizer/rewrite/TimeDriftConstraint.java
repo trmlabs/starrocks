@@ -16,18 +16,19 @@ package com.starrocks.sql.optimizer.rewrite;
 
 import com.google.api.client.util.Lists;
 import com.google.common.collect.ImmutableMap;
-import com.starrocks.analysis.BetweenPredicate;
-import com.starrocks.analysis.Expr;
-import com.starrocks.analysis.FunctionCallExpr;
-import com.starrocks.analysis.IntLiteral;
-import com.starrocks.analysis.SlotRef;
-import com.starrocks.analysis.TimestampArithmeticExpr;
 import com.starrocks.catalog.FunctionSet;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Table;
+import com.starrocks.catalog.TableProperty;
 import com.starrocks.common.Pair;
 import com.starrocks.qe.SqlModeHelper;
 import com.starrocks.sql.analyzer.SemanticException;
+import com.starrocks.sql.ast.expression.BetweenPredicate;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.FunctionCallExpr;
+import com.starrocks.sql.ast.expression.IntLiteral;
+import com.starrocks.sql.ast.expression.SlotRef;
+import com.starrocks.sql.ast.expression.TimestampArithmeticExpr;
 import com.starrocks.sql.optimizer.Utils;
 import com.starrocks.sql.optimizer.operator.scalar.BinaryPredicateOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ColumnRefOperator;
@@ -100,7 +101,7 @@ public class TimeDriftConstraint {
         }
         FunctionCallExpr fcall = (FunctionCallExpr) expr;
 
-        String fname = fcall.getFnName().getFunction();
+        String fname = fcall.getFunctionName();
         if (!SUPPORT_BOUND_FUNCTIONS.containsKey(fname)) {
             throw new SemanticException(ERR_MSG_FORMAT, spec);
         }
@@ -190,6 +191,10 @@ public class TimeDriftConstraint {
             return predicate;
         }
         OlapTable olapTable = (OlapTable) table;
+        TableProperty tableProperty = olapTable.getTableProperty();
+        if (tableProperty == null) {
+            return predicate;
+        }
         String spec = olapTable.getTableProperty().getTimeDriftConstraintSpec();
         if (spec == null || spec.isEmpty()) {
             return predicate;

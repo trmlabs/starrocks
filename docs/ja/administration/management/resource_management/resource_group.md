@@ -41,6 +41,7 @@ BE 上のリソースグループに対して、次のパラメータを使用�
 | cpu_weight                 | BE ノード上のこのリソースグループの CPU スケジューリングの重み。 | (0, `avg_be_cpu_cores`] (0 より大きい場合に有効)     | 0       |
 | exclusive_cpu_cores        | このリソースグループの CPU ハードアイソレーションパラメータ。          | (0, `min_be_cpu_cores - 1`] (0 より大きい場合に有効) | 0       |
 | mem_limit                  | 現在の BE ノード上でこのリソースグループがクエリに利用できるメモリの割合。 | (0, 1] (必須)               | -       |
+| mem_pool | リソースグループをグループ化して、メモリ制限を共有します。 | 文字列 | default_mem_pool |
 | spill_mem_limit_threshold  | ディスクへのスピリングをトリガーするメモリ使用量のしきい値。         | (0, 1]                                                         | 1.0     |
 | concurrency_limit          | このリソースグループでの同時クエリの最大数。   | 整数 (0 より大きい場合に有効)                     | 0       |
 | big_query_cpu_second_limit | 各 BE ノードでの大規模クエリタスクの最大 CPU 時間（秒単位）。   | 整数 (0 より大きい場合に有効)               | 0       |
@@ -89,6 +90,30 @@ UPDATE information_schema.be_configs SET VALUE = "false" WHERE NAME = "enable_re
 
 現在の BE ノードでリソースグループが利用できるメモリ（クエリプール）の割合を指定します。値の範囲は (0,1] です。
 
+##### `mem_pool`
+
+v4.0 以降、共有メモリプール識別子を指定します。同じ `mem_pool` 識別子を持つリソースグループは共有メモリプールからメモリを取得し、`mem_limit` によってまとめて制限されます。指定しない場合、リソースグループは `default_mem_pool` に割り当てられ、そのメモリ使用量は自身の `mem_limit` のみによって制限されます。
+
+同じ `mem_pool` を共有するすべてのリソースグループは、同一の `mem_limit` で設定する必要があります。
+
+2つのリソースグループが合計でメモリの 50% を消費するように制限するには、次のように定義できます:
+
+```SQL
+CREATE RESOURCE GROUP rg1
+TO (db='db1')
+WITH (
+    'mem_limit' = '50%',
+    'mem_pool' = 'shared_pool'
+);
+
+CREATE RESOURCE GROUP rg2
+TO (db='db1')
+WITH (
+    'mem_limit' = '50%',
+    'mem_pool' = 'shared_pool'
+);
+```
+
 ##### `spill_mem_limit_threshold`
 
 ディスクへのスピリングをトリガーするメモリ使用量のしきい値を定義します。値の範囲は (0,1] で、デフォルトは 1（非アクティブ）です。v3.1.7 で導入されました。
@@ -136,7 +161,7 @@ v3.3.5 以前は、StarRocks はリソースグループの `type` を `short_qu
 
 `default_wg` は、リソースグループの管理下にあるが、どのクラシファイアにも一致しない通常のクエリに割り当てられます。`default_wg` のデフォルトのリソース制限は次のとおりです。
 
-- `cpu_core_limit`: 1（v2.3.7 以前）または BE の CPU コア数（v2.3.7 以降）。
+- `cpu_weight`: BE の CPU コア数。
 - `mem_limit`: 100%。
 - `concurrency_limit`: 0。
 - `big_query_cpu_second_limit`: 0。
@@ -148,7 +173,7 @@ v3.3.5 以前は、StarRocks はリソースグループの `type` を `short_qu
 
 `default_mv_wg` は、マテリアライズドビューの作成時にプロパティ `resource_group` で対応するマテリアライズドビューにリソースグループが割り当てられていない場合、非同期マテリアライズドビューのリフレッシュタスクに割り当てられます。`default_mv_wg` のデフォルトのリソース制限は次のとおりです。
 
-- `cpu_core_limit`: 1。
+- `cpu_weight`: 1。
 - `mem_limit`: 80%。
 - `concurrency_limit`: 0。
 - `spill_mem_limit_threshold`: 80%。
@@ -226,12 +251,6 @@ StarRocks は、次のルールを使用してクエリとクラシファイア�
 SET enable_pipeline_engine = true;
 -- グローバルに Pipeline Engine を有効にします。
 SET GLOBAL enable_pipeline_engine = true;
-```
-
-ロードタスクの場合、FE 設定項目 `enable_pipeline_load` を設定して、ロードタスクのために Pipeline エンジンを有効にする必要があります。この項目は v2.5.0 以降でサポートされています。
-
-```sql
-ADMIN SET FRONTEND CONFIG ("enable_pipeline_load" = "true");
 ```
 
 > **注意**

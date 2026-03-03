@@ -58,7 +58,9 @@ enum TDataSinkType {
     BLACKHOLE_TABLE_SINK,
     DICTIONARY_CACHE_SINK,
     MULTI_OLAP_TABLE_SINK,
-    SPLIT_DATA_STREAM_SINK
+    SPLIT_DATA_STREAM_SINK,
+    NOOP_SINK,
+    ICEBERG_DELETE_SINK
 }
 
 enum TResultSinkType {
@@ -77,13 +79,6 @@ enum TResultSinkFormatType {
     OTHERS
 }
 
-struct TParquetOptions {
-    // parquet row group max size in bytes
-    1: optional i64 parquet_max_group_bytes
-    2: optional Types.TCompressionType compression_type
-    3: optional bool use_dict
-}
-
 struct TResultFileSinkOptions {
     1: required string file_path
     2: required PlanNodes.TFileFormatType file_format
@@ -99,7 +94,7 @@ struct TResultFileSinkOptions {
     9: optional i32 hdfs_write_buffer_size_kb = 0
     // properties from hdfs-site.xml, core-site.xml and load_properties
     10: optional PlanNodes.THdfsProperties hdfs_properties
-    11: optional TParquetOptions parquet_options
+    11: optional Types.TParquetOptions parquet_options
     12: optional list<string> file_column_names
 }
 
@@ -148,7 +143,10 @@ struct TDataStreamSink {
   5: optional i32 dest_dop
 
   // Specify the columns which need to send
-  6: optional list<i32> output_columns;
+  6: optional list<i32> output_columns
+
+  // Specify limit on output columns
+  7: optional i64 limit;
 }
 
 struct TMultiCastDataStreamSink {
@@ -161,6 +159,8 @@ struct TResultSink {
     2: optional TResultFileSinkOptions file_options;
     3: optional TResultSinkFormatType format;
     4: optional bool is_binary_row;
+    // It is non-empty only for ARROW_FLIGHT_PROTOCAL.
+    5: optional list<string> output_column_names;
 }
 
 struct TMysqlTableSink {
@@ -191,6 +191,10 @@ struct TExportSink {
 
     // export file name prefix
     30: optional string file_name_prefix
+    // column names for CSV header row
+    31: optional list<string> column_names
+    // whether to include header row in CSV output
+    32: optional bool with_header = false
 }
 
 struct TDictionaryCacheSink {
@@ -236,6 +240,8 @@ struct TOlapTableSink {
     30: optional bool ignore_out_of_partition
     31: optional binary encryption_meta;
     32: optional bool dynamic_overwrite
+    33: optional bool enable_data_file_bundling
+    34: optional bool is_multi_statements_txn
 }
 
 struct TSchemaTableSink {
@@ -244,6 +250,7 @@ struct TSchemaTableSink {
 }
 
 struct TIcebergTableSink {
+    // table location
     1: optional string location
     2: optional string file_format
     3: optional i64 target_table_id
@@ -251,6 +258,8 @@ struct TIcebergTableSink {
     5: optional bool is_static_partition_sink
     6: optional CloudConfiguration.TCloudConfiguration cloud_configuration
     7: optional i64 target_max_file_size
+    8: optional i32 tuple_id
+    9: optional string data_location
 }
 
 struct THiveTableSink {

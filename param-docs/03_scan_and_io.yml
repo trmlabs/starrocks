@@ -1,0 +1,1127 @@
+# StarRocks Parameter Dictionary - Scan and I/O
+# Scan limits, split sizes, data cache, page cache
+
+scan_and_io:
+
+  scan_session_variables:
+
+    - name: "chunk_size"
+      type: Integer
+      default: 4096
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Number of rows per chunk for vectorized execution. Controls the batch size for
+        scan and processing operators. Larger values improve throughput but use more memory.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 220
+            context: "constant CHUNK_SIZE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1389
+            context: "@VarAttr field chunkSize = 4096, INVISIBLE"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6031
+            context: "Field batch_size in TQueryOptions"
+      behavior:
+        low_values: "Smaller batches, less memory per operator, more overhead per batch"
+        high_values: "Larger batches, better vectorization throughput, more memory per operator"
+
+    - name: "max_scan_key_num"
+      type: Integer
+      default: -1
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of scan keys (point lookups) to use when converting IN-list
+        predicates to scan ranges. -1 means use the BE default.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 273
+            context: "constant MAX_SCAN_KEY_NUM"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1677
+            context: "@VarAttr field maxScanKeyNum = -1"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6034
+            context: "Field max_scan_key_num in TQueryOptions"
+
+    - name: "max_pushdown_conditions_per_column"
+      type: Integer
+      default: -1
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum number of conditions per column that can be pushed down to the storage
+        layer. -1 means use the BE default.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 274
+            context: "constant MAX_PUSHDOWN_CONDITIONS_PER_COLUMN"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1679
+            context: "@VarAttr field maxPushdownConditionsPerColumn = -1"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6037
+            context: "Field max_pushdown_conditions_per_column in TQueryOptions"
+
+    - name: "enable_tablet_internal_parallel"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables intra-tablet parallelism for OLAP scan. When enabled, a single tablet
+        scan can be split across multiple threads for better scan throughput.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 331
+            context: "constant ENABLE_TABLET_INTERNAL_PARALLEL"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1202
+            context: "@VarAttr field enableTabletInternalParallel = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6120
+            context: "Field enable_tablet_internal_parallel in TQueryOptions"
+      related_variables:
+        - "tablet_internal_parallel_mode"
+        - "enable_lake_tablet_internal_parallel"
+
+    - name: "enable_lake_tablet_internal_parallel"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables intra-tablet parallelism for lake (shared-data) tablet scans.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 333
+            context: "constant ENABLE_LAKE_TABLET_INTERNAL_PARALLEL"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1206
+            context: "@VarAttr field enableLakeTabletInternalParallel = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6121
+            context: "Field enable_lake_tablet_internal_parallel in TQueryOptions"
+
+    - name: "tablet_internal_parallel_mode"
+      type: String
+      default: "auto"
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Controls the mode for tablet internal parallelism. Values: auto (system decides
+        based on data size), force_split (always split).
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 335
+            context: "constant TABLET_INTERNAL_PARALLEL_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1211
+            context: "@VarAttr field tabletInternalParallelMode = 'auto', INVISIBLE"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6126
+            context: "Field tablet_internal_parallel_mode in TQueryOptions"
+
+    - name: "enable_scan_datacache"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      alias: "enable_scan_block_cache"
+      description: >
+        Enables data cache for scan operations. When enabled, scanned data from remote
+        storage is cached locally for subsequent reads.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 646
+            context: "constant ENABLE_SCAN_DATACACHE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2529
+            context: "@VarAttr field enableScanDataCache = true, alias=enable_scan_block_cache"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6134
+            context: "Field enable_scan_datacache in TQueryOptions"
+
+    - name: "enable_populate_datacache"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      alias: "enable_populate_block_cache"
+      description: >
+        Enables populating the data cache during scans. When disabled, scans may read
+        from cache but will not insert new data into it.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 647
+            context: "constant ENABLE_POPULATE_DATACACHE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2532
+            context: "@VarAttr field enablePopulateDataCache = true, INVISIBLE, alias=enable_populate_block_cache"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6135
+            context: "Field enable_populate_datacache in TQueryOptions"
+
+    - name: "populate_datacache_mode"
+      type: String
+      default: "auto"
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Controls when data cache is populated. Values: auto (system decides based on
+        access patterns), always, never.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 648
+            context: "constant POPULATE_DATACACHE_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2535
+            context: "@VarAttr field populateDataCacheMode = 'auto'"
+        thrift_propagation: null
+
+    - name: "enable_datacache_async_populate_mode"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables asynchronous data cache population. Cache writes happen in background
+        threads instead of blocking the scan path.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 649
+            context: "constant ENABLE_DATACACHE_ASYNC_POPULATE_MODE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2549
+            context: "@VarAttr field enableDataCacheAsyncPopulateMode = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6136
+            context: "Field enable_datacache_async_populate_mode in TQueryOptions"
+
+    - name: "enable_datacache_io_adaptor"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables the data cache I/O adaptor for optimized cache read/write paths.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 650
+            context: "constant ENABLE_DATACACHE_IO_ADAPTOR"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2552
+            context: "@VarAttr field enableDataCacheIOAdaptor = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6137
+            context: "Field enable_datacache_io_adaptor in TQueryOptions"
+
+    - name: "datacache_evict_probability"
+      type: Integer
+      default: 100
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Probability (0-100) of evicting a cache entry when the cache is full. Lower values
+        reduce eviction churn but may result in stale data.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 651
+            context: "constant DATACACHE_EVICT_PROBABILITY"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2555
+            context: "@VarAttr field dataCacheEvictProbability = 100, INVISIBLE"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6138
+            context: "Field datacache_evict_probability in TQueryOptions"
+
+    - name: "enable_dynamic_prune_scan_range"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables dynamic pruning of scan ranges at runtime based on runtime filters
+        and partition information.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 663
+            context: "constant ENABLE_DYNAMIC_PRUNE_SCAN_RANGE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2564
+            context: "@VarAttr field enableDynamicPruneScanRange = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6147
+            context: "Field enable_dynamic_prune_scan_range in TQueryOptions"
+
+    - name: "io_tasks_per_scan_operator"
+      type: Integer
+      default: 4
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Number of concurrent I/O tasks per OLAP scan operator instance.
+        Controls scan I/O parallelism for native tables.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 664
+            context: "constant IO_TASKS_PER_SCAN_OPERATOR"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2567
+            context: "@VarAttr field ioTasksPerScanOperator = 4"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6145
+            context: "Field io_tasks_per_scan_operator in TQueryOptions"
+
+    - name: "connector_io_tasks_per_scan_operator"
+      type: Integer
+      default: 16
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Number of concurrent I/O tasks per connector (external table) scan operator.
+        Higher than OLAP default because external storage has higher latency.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 665
+            context: "constant CONNECTOR_IO_TASKS_PER_SCAN_OPERATOR"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2570
+            context: "@VarAttr field connectorIoTasksPerScanOperator = 16"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6146
+            context: "Field connector_io_tasks_per_scan_operator in TQueryOptions"
+
+    - name: "enable_connector_adaptive_io_tasks"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables adaptive I/O task scheduling for connector scans. Dynamically adjusts
+        the number of I/O tasks based on observed latency.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 666
+            context: "constant ENABLE_CONNECTOR_ADAPTIVE_IO_TASKS"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2573
+            context: "@VarAttr field enableConnectorAdaptiveIoTasks = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6150
+            context: "Field enable_connector_adaptive_io_tasks in TQueryOptions"
+      related_variables:
+        - "connector_io_tasks_slow_io_latency_ms"
+
+    - name: "connector_io_tasks_slow_io_latency_ms"
+      type: Integer
+      default: 50
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Latency threshold (ms) for classifying connector I/O as slow. When adaptive I/O
+        tasks is enabled, tasks exceeding this latency trigger increased parallelism.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 667
+            context: "constant CONNECTOR_IO_TASKS_SLOW_IO_LATENCY_MS"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2579
+            context: "@VarAttr field connectorIoTasksSlowIoLatencyMs = 50, INVISIBLE"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6152
+            context: "Field connector_io_tasks_slow_io_latency_ms in TQueryOptions"
+
+    - name: "enable_connector_split_io_tasks"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables splitting large I/O tasks for connector scans into smaller ones for
+        better parallelism and load balancing.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 673
+            context: "constant ENABLE_CONNECTOR_SPLIT_IO_TASKS"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2576
+            context: "@VarAttr field enableConnectorSplitIoTasks = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6151
+            context: "Field enable_connector_split_io_tasks in TQueryOptions"
+
+    - name: "scan_use_query_mem_ratio"
+      type: Double
+      default: 0.3
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Fraction of query memory budget allocated to scan operators for OLAP tables.
+        Controls how much memory scan operators can use relative to the total query memory.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 668
+            context: "constant SCAN_USE_QUERY_MEM_RATIO"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2582
+            context: "@VarAttr field scanUseQueryMemRatio = 0.3"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6154
+            context: "Field scan_use_query_mem_ratio in TQueryOptions"
+
+    - name: "connector_scan_use_query_mem_ratio"
+      type: Double
+      default: 0.3
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Fraction of query memory budget allocated to connector (external table) scan operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 669
+            context: "constant CONNECTOR_SCAN_USE_QUERY_MEM_RATIO"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2585
+            context: "@VarAttr field connectorScanUseQueryMemRatio = 0.3"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6153
+            context: "Field connector_scan_use_query_mem_ratio in TQueryOptions"
+
+    - name: "use_page_cache"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables the storage page cache for scan operations. When true, recently read
+        data pages are cached in memory.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 166
+            context: "constant USE_PAGE_CACHE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1238
+            context: "@VarAttr field usePageCache = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6148
+            context: "Field use_page_cache in TQueryOptions"
+
+    - name: "enable_file_metacache"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables caching of file metadata (e.g., Parquet/ORC footer) to avoid redundant
+        remote reads of file structure information.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 659
+            context: "constant ENABLE_FILE_METACACHE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2610
+            context: "@VarAttr field enableFileMetaCache = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6142
+            context: "Field enable_file_metacache in TQueryOptions"
+
+    - name: "enable_file_pagecache"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables caching of file data pages for external table scans.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 660
+            context: "constant ENABLE_FILE_PAGECACHE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2613
+            context: "@VarAttr field enableFilePageCache = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6143
+            context: "Field enable_file_pagecache in TQueryOptions"
+
+    - name: "connector_max_split_size"
+      type: Long
+      default: 67108864
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Maximum split size (bytes) for connector scans. Default is 64MB. Larger splits
+        reduce scheduling overhead but may limit parallelism.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 999
+            context: "constant CONNECTOR_MAX_SPLIT_SIZE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2945
+            context: "@VarAttr field connectorMaxSplitSize = 67108864"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6166
+            context: "Field connector_max_split_size in TQueryOptions"
+
+    - name: "scan_or_to_union_limit"
+      type: Integer
+      default: 4
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Maximum number of OR branches that can be rewritten into a UNION ALL scan.
+        Limits the fan-out of the OR-to-UNION transformation.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 902
+            context: "constant SCAN_OR_TO_UNION_LIMIT"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2869
+            context: "@VarAttr field scanOrToUnionLimit = 4, INVISIBLE"
+        thrift_propagation: null
+      related_variables:
+        - "scan_or_to_union_threshold"
+
+    - name: "scan_or_to_union_threshold"
+      type: Long
+      default: 50000000
+      scope: "FE session variable"
+      mutable: true
+      flag: INVISIBLE
+      description: >
+        Row count threshold for the OR-to-UNION transformation. Only applied when
+        estimated row count exceeds this value.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 904
+            context: "constant SCAN_OR_TO_UNION_THRESHOLD"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2872
+            context: "@VarAttr field scanOrToUnionThreshold = 50000000, INVISIBLE"
+        thrift_propagation: null
+
+    - name: "enable_collect_table_level_scan_stats"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables collection of table-level scan statistics during query execution.
+        Used for query profiling and optimization feedback.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 929
+            context: "constant ENABLE_COLLECT_TABLE_LEVEL_SCAN_STATS"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2907
+            context: "@VarAttr field enableCollectTableLevelScanStats = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6158
+            context: "Field enable_collect_table_level_scan_stats in TQueryOptions"
+
+    - name: "enable_hyperscan_vec"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables vectorized Hyperscan library for regex matching in scan predicates.
+        Hyperscan provides SIMD-accelerated regex evaluation.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 980
+            context: "constant ENABLE_HYPERSCAN_VEC"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2091
+            context: "@VarAttr field enableHyperscanVec = true"
+        thrift_propagation:
+          - file: "gensrc/thrift/InternalService.thrift"
+            line: 6161
+            context: "Field enable_hyperscan_vec in TQueryOptions"
+
+    - name: "enable_connector_incremental_scan_ranges"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables incremental delivery of scan ranges to connector scan operators.
+        Instead of sending all ranges upfront, ranges are delivered in batches.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1020
+            context: "constant ENABLE_CONNECTOR_INCREMENTAL_SCAN_RANGES"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3105
+            context: "@VarAttr field enableConnectorIncrementalScanRanges = true"
+        thrift_propagation: null
+      related_variables:
+        - "connector_incremental_scan_ranges_size"
+
+    - name: "connector_incremental_scan_ranges_size"
+      type: Integer
+      default: 500
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Batch size for incremental scan range delivery to connector scan operators.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1021
+            context: "constant CONNECTOR_INCREMENTAL_SCAN_RANGES_SIZE"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 3111
+            context: "@VarAttr field connectorIncrementalScanRangesSize = 500"
+        thrift_propagation: null
+
+    - name: "enable_datacache_sharing"
+      type: Boolean
+      default: true
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Enables data cache sharing across queries and sessions. When enabled,
+        cache entries populated by one query can be used by other queries.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1061
+            context: "constant ENABLE_DATACACHE_SHARING"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2161
+            context: "@VarAttr field enableDataCacheSharing = true"
+        thrift_propagation: null
+      related_variables:
+        - "datacache_sharing_work_period"
+
+    - name: "datacache_sharing_work_period"
+      type: Integer
+      default: 600
+      scope: "FE session variable"
+      mutable: true
+      description: >
+        Work period (seconds) for data cache sharing coordination. Controls how frequently
+        the cache sharing metadata is refreshed.
+      code_references:
+        definition:
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 1062
+            context: "constant DATACACHE_SHARING_WORK_PERIOD"
+          - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+            line: 2164
+            context: "@VarAttr field dataCacheSharingWorkPeriod = 600"
+        thrift_propagation: null
+
+  scan_be_configs:
+
+    - name: "scanner_thread_pool_thread_num"
+      type: Integer
+      default: 48
+      scope: "BE config"
+      mutable: false
+      description: >
+        Number of threads in the scanner thread pool. Controls the maximum concurrent
+        scan operations on a single BE.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_Int32(scanner_thread_pool_thread_num, \"48\")"
+        thrift_propagation: null
+
+    - name: "scanner_row_num"
+      type: Integer
+      default: 16384
+      scope: "BE config"
+      mutable: true
+      description: >
+        Default number of rows returned per scanner read batch.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(scanner_row_num, \"16384\")"
+        thrift_propagation: null
+
+    - name: "max_hdfs_scanner_num"
+      type: Integer
+      default: 50
+      scope: "BE config"
+      mutable: false
+      description: >
+        Maximum number of concurrent HDFS scanners per BE node.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_Int32(max_hdfs_scanner_num, \"50\")"
+        thrift_propagation: null
+
+    - name: "max_scan_key_num"
+      type: Integer
+      default: 1024
+      scope: "BE config"
+      mutable: true
+      description: >
+        BE-side maximum number of scan keys per scan request. Used when the FE session
+        variable max_scan_key_num is -1 (defer to BE default).
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(max_scan_key_num, \"1024\")"
+        thrift_propagation: null
+
+    - name: "max_pushdown_conditions_per_column"
+      type: Integer
+      default: 1024
+      scope: "BE config"
+      mutable: true
+      description: >
+        BE-side maximum pushdown conditions per column. Used when the FE session
+        variable is -1 (defer to BE default).
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(max_pushdown_conditions_per_column, \"1024\")"
+        thrift_propagation: null
+
+    - name: "scan_use_query_mem_ratio"
+      type: Double
+      default: 0.25
+      scope: "BE config"
+      mutable: true
+      description: >
+        BE-side default ratio of query memory allocated to scan operators.
+        May be overridden by the FE session variable.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(scan_use_query_mem_ratio, \"0.25\")"
+        thrift_propagation: null
+
+    - name: "connector_scan_use_query_mem_ratio"
+      type: Double
+      default: 0.3
+      scope: "BE config"
+      mutable: true
+      description: >
+        BE-side default ratio of query memory allocated to connector scan operators.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(connector_scan_use_query_mem_ratio, \"0.3\")"
+        thrift_propagation: null
+
+    - name: "io_tasks_per_scan_operator"
+      type: Integer
+      default: 4
+      scope: "BE config"
+      mutable: true
+      description: >
+        BE-side default I/O tasks per OLAP scan operator.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(io_tasks_per_scan_operator, \"4\")"
+        thrift_propagation: null
+
+    - name: "connector_io_tasks_per_scan_operator"
+      type: Integer
+      default: 16
+      scope: "BE config"
+      mutable: true
+      description: >
+        BE-side default I/O tasks per connector scan operator.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(connector_io_tasks_per_scan_operator, \"16\")"
+        thrift_propagation: null
+
+    - name: "connector_io_tasks_min_size"
+      type: Integer
+      default: 2
+      scope: "BE config"
+      mutable: true
+      description: >
+        Minimum number of I/O tasks for connector scan adaptive scheduling.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(connector_io_tasks_min_size, \"2\")"
+        thrift_propagation: null
+
+    - name: "connector_io_tasks_adjust_interval_ms"
+      type: Integer
+      default: 50
+      scope: "BE config"
+      mutable: true
+      description: >
+        Interval (ms) between adaptive I/O task count adjustments for connector scans.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(connector_io_tasks_adjust_interval_ms, \"50\")"
+        thrift_propagation: null
+
+    - name: "connector_io_tasks_adjust_step"
+      type: Integer
+      default: 1
+      scope: "BE config"
+      mutable: true
+      description: >
+        Step size for adaptive I/O task count adjustments.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(connector_io_tasks_adjust_step, \"1\")"
+        thrift_propagation: null
+
+    - name: "connector_io_tasks_adjust_smooth"
+      type: Double
+      default: 0.2
+      scope: "BE config"
+      mutable: true
+      description: >
+        Smoothing factor for adaptive I/O task adjustments. Controls how aggressively
+        the system responds to latency changes.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(connector_io_tasks_adjust_smooth, \"0.2\")"
+        thrift_propagation: null
+
+    - name: "connector_io_tasks_slow_io_latency_ms"
+      type: Integer
+      default: 50
+      scope: "BE config"
+      mutable: true
+      description: >
+        BE-side slow I/O latency threshold (ms) for connector adaptive scheduling.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(connector_io_tasks_slow_io_latency_ms, \"50\")"
+        thrift_propagation: null
+
+    - name: "tablet_internal_parallel_min_splitted_scan_rows"
+      type: Long
+      default: 16384
+      scope: "BE config"
+      mutable: true
+      description: >
+        Minimum rows per split for tablet internal parallel scan. Avoids creating
+        splits that are too small to benefit from parallelism.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(tablet_internal_parallel_min_splitted_scan_rows, \"16384\")"
+        thrift_propagation: null
+
+    - name: "tablet_internal_parallel_max_splitted_scan_rows"
+      type: Long
+      default: 1048576
+      scope: "BE config"
+      mutable: true
+      description: >
+        Maximum rows per split for tablet internal parallel scan.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(tablet_internal_parallel_max_splitted_scan_rows, \"1048576\")"
+        thrift_propagation: null
+
+    - name: "tablet_internal_parallel_max_splitted_scan_bytes"
+      type: Long
+      default: 536870912
+      scope: "BE config"
+      mutable: true
+      description: >
+        Maximum bytes per split for tablet internal parallel scan. Default is 512MB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt64(tablet_internal_parallel_max_splitted_scan_bytes, \"536870912\")"
+        thrift_propagation: null
+
+    - name: "tablet_internal_parallel_min_scan_dop"
+      type: Integer
+      default: 4
+      scope: "BE config"
+      mutable: true
+      description: >
+        Minimum degree of parallelism for tablet internal parallel scan.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(tablet_internal_parallel_min_scan_dop, \"4\")"
+        thrift_propagation: null
+
+  cache_be_configs:
+
+    - name: "datacache_enable"
+      type: Boolean
+      default: false
+      scope: "BE config"
+      mutable: true
+      description: >
+        Master switch for the BE data cache. Must be enabled for any data cache
+        functionality to work on this BE node.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mBool(datacache_enable, \"false\")"
+        thrift_propagation: null
+
+    - name: "datacache_mem_size"
+      type: String
+      default: "10%"
+      scope: "BE config"
+      mutable: false
+      description: >
+        Memory size for data cache. Can be a percentage of total memory (e.g., "10%")
+        or an absolute value (e.g., "10G").
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_String(datacache_mem_size, \"10%\")"
+        thrift_propagation: null
+
+    - name: "datacache_disk_size"
+      type: String
+      default: "0"
+      scope: "BE config"
+      mutable: false
+      description: >
+        Disk size for data cache. 0 disables disk-based caching. Can be an absolute value
+        (e.g., "100G") or percentage of disk.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_String(datacache_disk_size, \"0\")"
+        thrift_propagation: null
+
+    - name: "datacache_block_size"
+      type: Long
+      default: 262144
+      scope: "BE config"
+      mutable: false
+      description: >
+        Block size (bytes) for data cache. Default is 256KB. Smaller blocks allow finer
+        granularity but increase metadata overhead.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_Int64(datacache_block_size, \"262144\")"
+        thrift_propagation: null
+
+    - name: "datacache_eviction_policy"
+      type: String
+      default: "lru"
+      scope: "BE config"
+      mutable: false
+      description: >
+        Eviction policy for data cache. Values: lru (least recently used).
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_String(datacache_eviction_policy, \"lru\")"
+        thrift_propagation: null
+
+    - name: "storage_page_cache_limit"
+      type: String
+      default: "20%"
+      scope: "BE config"
+      mutable: false
+      description: >
+        Memory limit for the storage page cache. Can be percentage of BE memory or
+        absolute value. Controls the cache used for OLAP tablet data pages.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_String(storage_page_cache_limit, \"20%\")"
+        thrift_propagation: null
+
+    - name: "disable_storage_page_cache"
+      type: Boolean
+      default: false
+      scope: "BE config"
+      mutable: true
+      description: >
+        Disables the storage page cache entirely. Useful for memory-constrained
+        environments or when page cache causes memory pressure.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mBool(disable_storage_page_cache, \"false\")"
+        thrift_propagation: null
+
+    - name: "query_cache_capacity"
+      type: Long
+      default: 536870912
+      scope: "BE config"
+      mutable: false
+      description: >
+        Capacity (bytes) of the query result cache. Default is 512MB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_Int64(query_cache_capacity, \"536870912\")"
+        thrift_propagation: null
+
+    - name: "enable_bitmap_index_memory_page_cache"
+      type: Boolean
+      default: false
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables memory page cache for bitmap index. Caches bitmap index pages to avoid
+        repeated disk reads.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mBool(enable_bitmap_index_memory_page_cache, \"false\")"
+        thrift_propagation: null
+
+    - name: "enable_zonemap_index_memory_page_cache"
+      type: Boolean
+      default: false
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables memory page cache for zonemap (min/max) index.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mBool(enable_zonemap_index_memory_page_cache, \"false\")"
+        thrift_propagation: null
+
+    - name: "enable_ordinal_index_memory_page_cache"
+      type: Boolean
+      default: false
+      scope: "BE config"
+      mutable: true
+      description: >
+        Enables memory page cache for ordinal index.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mBool(enable_ordinal_index_memory_page_cache, \"false\")"
+        thrift_propagation: null
+
+  dictionary_encoding_be_configs:
+
+    - name: "dictionary_encoding_ratio"
+      type: Double
+      default: 0.7
+      scope: "BE config"
+      mutable: true
+      description: >
+        Threshold ratio for applying dictionary encoding to string columns.
+        If the ratio of distinct values to total rows is below this, dictionary encoding
+        is used.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(dictionary_encoding_ratio, \"0.7\")"
+        thrift_propagation: null
+
+    - name: "dictionary_encoding_ratio_for_non_string_column"
+      type: Double
+      default: 0.9
+      scope: "BE config"
+      mutable: true
+      description: >
+        Threshold ratio for applying dictionary encoding to non-string columns.
+        Higher than string threshold since non-string dictionary encoding is more efficient.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mDouble(dictionary_encoding_ratio_for_non_string_column, \"0.9\")"
+        thrift_propagation: null
+
+    - name: "dictionary_speculate_min_chunk_size"
+      type: Integer
+      default: 10000
+      scope: "BE config"
+      mutable: true
+      description: >
+        Minimum chunk size for dictionary encoding speculation. Below this size,
+        the system does not speculate on dictionary encoding effectiveness.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_mInt32(dictionary_speculate_min_chunk_size, \"10000\")"
+        thrift_propagation: null
+
+    - name: "dictionary_page_size"
+      type: Integer
+      default: 1048576
+      scope: "BE config"
+      mutable: false
+      description: >
+        Size (bytes) of dictionary pages in columnar storage. Default is 1MB.
+      code_references:
+        definition:
+          - file: "be/src/common/config.h"
+            context: "CONF_Int32(dictionary_page_size, \"1048576\")"
+        thrift_propagation: null

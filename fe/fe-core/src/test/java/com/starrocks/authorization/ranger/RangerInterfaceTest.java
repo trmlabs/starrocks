@@ -14,19 +14,16 @@
 package com.starrocks.authorization.ranger;
 
 import com.google.common.collect.Lists;
-import com.starrocks.analysis.ArithmeticExpr;
-import com.starrocks.analysis.BinaryPredicate;
-import com.starrocks.analysis.Expr;
-import com.starrocks.analysis.NullLiteral;
-import com.starrocks.analysis.TableName;
 import com.starrocks.authorization.AccessControlProvider;
 import com.starrocks.authorization.AccessDeniedException;
 import com.starrocks.authorization.NativeAccessController;
 import com.starrocks.authorization.PrivilegeType;
+import com.starrocks.authorization.ranger.hive.RangerHiveAccessController;
 import com.starrocks.authorization.ranger.starrocks.RangerStarRocksAccessController;
 import com.starrocks.authorization.ranger.starrocks.RangerStarRocksResource;
 import com.starrocks.catalog.Column;
-import com.starrocks.catalog.Type;
+import com.starrocks.catalog.TableName;
+import com.starrocks.catalog.UserIdentity;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.sql.analyzer.Authorizer;
 import com.starrocks.sql.ast.AstTraverser;
@@ -35,8 +32,12 @@ import com.starrocks.sql.ast.Relation;
 import com.starrocks.sql.ast.SelectRelation;
 import com.starrocks.sql.ast.StatementBase;
 import com.starrocks.sql.ast.SubqueryRelation;
-import com.starrocks.sql.ast.UserIdentity;
+import com.starrocks.sql.ast.expression.ArithmeticExpr;
+import com.starrocks.sql.ast.expression.BinaryPredicate;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.NullLiteral;
 import com.starrocks.sql.parser.SqlParser;
+import com.starrocks.type.IntegerType;
 import com.starrocks.utframe.StarRocksAssert;
 import com.starrocks.utframe.UtFrameUtils;
 import mockit.Mock;
@@ -48,9 +49,9 @@ import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -64,7 +65,7 @@ public class RangerInterfaceTest {
     static ConnectContext connectContext;
     static StarRocksAssert starRocksAssert;
 
-    @BeforeClass
+    @BeforeAll
     public static void beforeClass() throws Exception {
         new MockUp<RangerBasePlugin>() {
             @Mock
@@ -104,13 +105,13 @@ public class RangerInterfaceTest {
         ConnectContext connectContext = new ConnectContext();
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         TableName tableName = new TableName("db", "tbl");
-        List<Column> columns = Lists.newArrayList(new Column("v1", Type.INT));
+        List<Column> columns = Lists.newArrayList(new Column("v1", IntegerType.INT));
 
         RangerStarRocksAccessController connectScheduler = new RangerStarRocksAccessController();
         try {
             connectScheduler.getColumnMaskingPolicy(connectContext, tableName, columns);
         } catch (Exception e) {
-            Assert.fail();
+            Assertions.fail();
         }
     }
 
@@ -122,18 +123,18 @@ public class RangerInterfaceTest {
 
         accessControlProvider.setAccessControl("hive", new NativeAccessController());
         accessControlProvider.setAccessControl("hive", new RangerStarRocksAccessController());
-        Assert.assertTrue(accessControlProvider.getAccessControlOrDefault("hive")
+        Assertions.assertTrue(accessControlProvider.getAccessControlOrDefault("hive")
                 instanceof RangerStarRocksAccessController);
         accessControlProvider.removeAccessControl("hive");
 
-        Assert.assertTrue(accessControlProvider.getAccessControlOrDefault("hive")
+        Assertions.assertTrue(accessControlProvider.getAccessControlOrDefault("hive")
                 instanceof NativeAccessController);
 
         accessControlProvider.setAccessControl("hive", new RangerStarRocksAccessController());
-        Assert.assertTrue(accessControlProvider.getAccessControlOrDefault("hive")
+        Assertions.assertTrue(accessControlProvider.getAccessControlOrDefault("hive")
                 instanceof RangerStarRocksAccessController);
         accessControlProvider.setAccessControl("hive", new NativeAccessController());
-        Assert.assertTrue(accessControlProvider.getAccessControlOrDefault("hive")
+        Assertions.assertTrue(accessControlProvider.getAccessControlOrDefault("hive")
                 instanceof NativeAccessController);
     }
 
@@ -154,10 +155,10 @@ public class RangerInterfaceTest {
         ConnectContext connectContext = new ConnectContext();
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         TableName tableName = new TableName("db", "tbl");
-        List<Column> columns = Lists.newArrayList(new Column("v1", Type.INT));
+        List<Column> columns = Lists.newArrayList(new Column("v1", IntegerType.INT));
 
         Map<String, Expr> e = rangerStarRocksAccessController.getColumnMaskingPolicy(connectContext, tableName, columns);
-        Assert.assertTrue(new ArrayList<>(e.values()).get(0) instanceof NullLiteral);
+        Assertions.assertTrue(new ArrayList<>(e.values()).get(0) instanceof NullLiteral);
 
         new MockUp<RangerBasePlugin>() {
             @Mock
@@ -171,7 +172,7 @@ public class RangerInterfaceTest {
         };
 
         e = rangerStarRocksAccessController.getColumnMaskingPolicy(connectContext, tableName, columns);
-        Assert.assertTrue(new ArrayList<>(e.values()).get(0) instanceof ArithmeticExpr);
+        Assertions.assertTrue(new ArrayList<>(e.values()).get(0) instanceof ArithmeticExpr);
     }
 
     @Test
@@ -192,7 +193,7 @@ public class RangerInterfaceTest {
         TableName tableName = new TableName("db", "tbl");
 
         Expr rowFilter = rangerStarRocksAccessController.getRowAccessPolicy(connectContext, tableName);
-        Assert.assertTrue(rowFilter instanceof BinaryPredicate);
+        Assertions.assertTrue(rowFilter instanceof BinaryPredicate);
     }
 
     @Test
@@ -215,7 +216,7 @@ public class RangerInterfaceTest {
             rangerStarRocksAccessController.hasPermission(
                     RangerStarRocksResource.builder().setSystem().build(), UserIdentity.ROOT, Set.of(), PrivilegeType.OPERATE);
         } catch (Exception e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         new MockUp<RangerBasePlugin>() {
@@ -228,7 +229,7 @@ public class RangerInterfaceTest {
             }
         };
 
-        Assert.assertThrows(AccessDeniedException.class, () -> rangerStarRocksAccessController.hasPermission(
+        Assertions.assertThrows(AccessDeniedException.class, () -> rangerStarRocksAccessController.hasPermission(
                 RangerStarRocksResource.builder().setSystem().build(), UserIdentity.ROOT, Set.of(), PrivilegeType.OPERATE));
     }
 
@@ -255,7 +256,20 @@ public class RangerInterfaceTest {
             com.starrocks.sql.analyzer.Analyzer.analyze(stmt, connectContext);
 
             QueryStatement queryStatement = (QueryStatement) stmt;
-            Assert.assertTrue(((SelectRelation) queryStatement.getQueryRelation()).getRelation() instanceof SubqueryRelation);
+            Assertions.assertTrue(((SelectRelation) queryStatement.getQueryRelation()).getRelation() instanceof SubqueryRelation);
         }
+    }
+
+    @Test
+    public void testHiveConvertToAccessTypeCreate() {
+        RangerHiveAccessController controller = new RangerHiveAccessController("hive-service");
+        Assertions.assertEquals("select", controller.convertToAccessType(PrivilegeType.SELECT));
+        Assertions.assertEquals("update", controller.convertToAccessType(PrivilegeType.INSERT));
+        Assertions.assertEquals("create", controller.convertToAccessType(PrivilegeType.CREATE_TABLE));
+        Assertions.assertEquals("create", controller.convertToAccessType(PrivilegeType.CREATE_VIEW));
+        Assertions.assertEquals("create", controller.convertToAccessType(PrivilegeType.CREATE_DATABASE));
+        Assertions.assertEquals("refresh", controller.convertToAccessType(PrivilegeType.REFRESH));
+        Assertions.assertEquals("drop", controller.convertToAccessType(PrivilegeType.DROP));
+        Assertions.assertEquals("alter", controller.convertToAccessType(PrivilegeType.ALTER));
     }
 }

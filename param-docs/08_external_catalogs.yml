@@ -1,0 +1,1411 @@
+# =============================================================================
+# StarRocks External Catalogs & Connector Parameters
+# Source: fe/.../qe/SessionVariable.java, be/src/common/config.h
+# =============================================================================
+
+session_variables:
+
+  - name: "catalog"
+    type: String
+    default: "default_catalog"
+    scope: "session_only"
+    mutable: true
+    description: >
+      The current catalog context for the session. Determines which catalog
+      (internal or external) is used for unqualified table references.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 211
+          context: "public static final String CATALOG = \"catalog\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2538
+          context: "@VariableMgr.VarAttr(name = CATALOG, flag = VariableMgr.SESSION_ONLY) private String catalog = InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME"
+      thrift_propagation: null
+
+  - name: "plan_mode"
+    type: String
+    default: "auto"
+    scope: "session"
+    mutable: true
+    description: >
+      Controls the planning mode for queries involving external catalogs.
+      Options: auto, local, dual. Affects how scan ranges are planned for
+      external connector tables.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 551
+          context: "public static final String PLAN_MODE = \"plan_mode\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3049
+          context: "@VarAttr(name = PLAN_MODE) private String planMode = PlanMode.AUTO.modeName()"
+      thrift_propagation: null
+
+  - name: "warehouse"
+    type: String
+    default: "default_warehouse"
+    scope: "session_only"
+    mutable: true
+    description: >
+      The warehouse name for the current session. Used in shared-data
+      deployments to route queries to specific compute resources.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 921
+          context: "public static final String WAREHOUSE_NAME = \"warehouse\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2899
+          context: "@VariableMgr.VarAttr(name = WAREHOUSE_NAME, flag = VariableMgr.SESSION_ONLY) private String warehouseName = WarehouseManager.DEFAULT_WAREHOUSE_NAME"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Hive parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "enable_hive_column_stats"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to use column statistics from Hive Metastore for cost-based
+      query optimization on Hive external tables.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 553
+          context: "public static final String ENABLE_HIVE_COLUMN_STATS = \"enable_hive_column_stats\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1910
+          context: "@VariableMgr.VarAttr(name = ENABLE_HIVE_COLUMN_STATS) private boolean enableHiveColumnStats = true"
+      thrift_propagation: null
+
+  - name: "enable_write_hive_external_table"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Enables writing data to Hive external tables. When false, INSERT
+      operations to Hive tables are blocked.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 555
+          context: "public static final String ENABLE_WRITE_HIVE_EXTERNAL_TABLE = \"enable_write_hive_external_table\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1913
+          context: "@VariableMgr.VarAttr(name = ENABLE_WRITE_HIVE_EXTERNAL_TABLE) private boolean enableWriteHiveExternalTable = false"
+      thrift_propagation: null
+
+  - name: "enable_hive_metadata_cache_with_insert"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to update Hive metadata cache when inserting data into
+      Hive external tables, avoiding stale cache after writes.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 557
+          context: "public static final String ENABLE_HIVE_METADATA_CACHE_WITH_INSERT = \"enable_hive_metadata_cache_with_insert\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1916
+          context: "@VariableMgr.VarAttr(name = ENABLE_HIVE_METADATA_CACHE_WITH_INSERT) private boolean enableHiveMetadataCacheWithInsert = false"
+      thrift_propagation: null
+
+  - name: "hive_partition_stats_sample_size"
+    type: int
+    default: 3000
+    scope: "session"
+    mutable: true
+    description: >
+      The number of partitions to sample when estimating partition-level
+      statistics for Hive tables. Higher values improve accuracy but
+      increase metadata collection latency.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 564
+          context: "public static final String HIVE_PARTITION_STATS_SAMPLE_SIZE = \"hive_partition_stats_sample_size\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1919
+          context: "@VariableMgr.VarAttr(name = HIVE_PARTITION_STATS_SAMPLE_SIZE) private int hivePartitionStatsSampleSize = 3000"
+      thrift_propagation: null
+
+  - name: "hive_temp_staging_dir"
+    type: String
+    default: "/tmp/starrocks"
+    scope: "session"
+    mutable: true
+    description: >
+      Temporary staging directory on HDFS/object storage used for
+      writing data to Hive tables before committing.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 931
+          context: "public static final String HIVE_TEMP_STAGING_DIR = \"hive_temp_staging_dir\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2910
+          context: "@VarAttr(name = HIVE_TEMP_STAGING_DIR) private String hiveTempStagingDir = \"/tmp/starrocks\""
+      thrift_propagation: null
+
+  - name: "allow_hive_without_partition_filter"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to allow queries on partitioned Hive tables without a
+      partition filter predicate. When false, queries without partition
+      pruning predicates are rejected.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 952
+          context: "public static final String ALLOW_HIVE_WITHOUT_PARTITION_FILTER = \"allow_hive_without_partition_filter\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2916
+          context: "@VarAttr(name = ALLOW_HIVE_WITHOUT_PARTITION_FILTER) private boolean allowHiveWithoutPartitionFilter = true"
+      thrift_propagation: null
+
+  - name: "scan_hive_partition_num_limit"
+    type: int
+    default: 0
+    scope: "session"
+    mutable: true
+    description: >
+      Maximum number of partitions scanned in a single lake/Hive table
+      scan. 0 means no limit. Alias for scan_lake_partition_num_limit.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 954
+          context: "public static final String SCAN_HIVE_PARTITION_NUM_LIMIT = \"scan_hive_partition_num_limit\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2924
+          context: "@VarAttr(name = SCAN_LAKE_PARTITION_NUM_LIMIT, alias = SCAN_HIVE_PARTITION_NUM_LIMIT) private int scanLakePartitionNumLimit = 0"
+      thrift_propagation: null
+
+  - name: "force_schedule_local"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Force scheduling scan tasks to local BE nodes for Hive external
+      tables using HybridBackendSelector. Improves data locality.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 384
+          context: "public static final String FORCE_SCHEDULE_LOCAL = \"force_schedule_local\""
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Iceberg parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "enable_prune_iceberg_manifest"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to prune Iceberg manifest files during query planning.
+      Reduces I/O by skipping irrelevant manifests based on partition
+      predicates.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 535
+          context: "public static final String ENABLE_PRUNE_ICEBERG_MANIFEST = \"enable_prune_iceberg_manifest\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3025
+          context: "@VarAttr(name = ENABLE_PRUNE_ICEBERG_MANIFEST) private boolean enablePruneIcebergManifest = true"
+      thrift_propagation: null
+
+  - name: "enable_read_iceberg_puffin_ndv"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to read NDV (number of distinct values) statistics from
+      Iceberg Puffin files for cost-based optimization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 537
+          context: "public static final String ENABLE_READ_ICEBERG_PUFFIN_NDV = \"enable_read_iceberg_puffin_ndv\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3028
+          context: "@VarAttr(name = ENABLE_READ_ICEBERG_PUFFIN_NDV) private boolean enableReadIcebergPuffinNdv = true"
+      thrift_propagation: null
+
+  - name: "enable_iceberg_column_statistics"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to use Iceberg column-level statistics for cost-based
+      query optimization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 539
+          context: "public static final String ENABLE_ICEBERG_COLUMN_STATISTICS = \"enable_iceberg_column_statistics\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3031
+          context: "@VarAttr(name = ENABLE_ICEBERG_COLUMN_STATISTICS) private boolean enableIcebergColumnStatistics = false"
+      thrift_propagation: null
+
+  - name: "enable_read_iceberg_equality_delete_with_partition_evolution"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to support reading Iceberg equality delete files when
+      partition evolution has occurred. May incur extra I/O overhead.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 540
+          context: "public static final String ENABLE_READ_ICEBERG_EQUALITY_DELETE_WITH_PARTITION_EVOLUTION"
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3034
+          context: "@VarAttr(name = ENABLE_READ_ICEBERG_EQUALITY_DELETE_WITH_PARTITION_EVOLUTION) private boolean enableReadIcebergEqDeleteWithPartitionEvolution = false"
+      thrift_propagation: null
+
+  - name: "enable_iceberg_identity_column_optimize"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Enables optimization that uses identity partition columns in
+      Iceberg tables to skip unnecessary data reads.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 710
+          context: "public static final String ENABLE_ICEBERG_IDENTITY_COLUMN_OPTIMIZE = \"enable_iceberg_identity_column_optimize\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3228
+          context: "@VarAttr(name = ENABLE_ICEBERG_IDENTITY_COLUMN_OPTIMIZE) private boolean enableIcebergIdentityColumnOptimize = true"
+      thrift_propagation: null
+
+  - name: "enable_iceberg_sink_global_shuffle"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Deprecated: Use connector_sink_shuffle_mode instead. Whether to
+      enable global shuffle for Iceberg table sink operations.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 574
+          context: "public static final String ENABLE_ICEBERG_SINK_GLOBAL_SHUFFLE = \"enable_iceberg_sink_global_shuffle\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1492
+          context: "@VariableMgr.VarAttr(name = ENABLE_ICEBERG_SINK_GLOBAL_SHUFFLE, flag = VariableMgr.INVISIBLE) private boolean enableIcebergSinkGlobalShuffle = false"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Delta Lake parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "enable_delta_lake_column_statistics"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to use Delta Lake column-level statistics for cost-based
+      query optimization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 542
+          context: "public static final String ENABLE_DELTA_LAKE_COLUMN_STATISTICS = \"enable_delta_lake_column_statistics\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3037
+          context: "@VarAttr(name = ENABLE_DELTA_LAKE_COLUMN_STATISTICS) private boolean enableDeltaLakeColumnStatistics = false"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Paimon parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "enable_paimon_column_statistics"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to use Paimon column-level statistics for cost-based
+      query optimization.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 549
+          context: "public static final String ENABLE_PAIMON_COLUMN_STATISTICS = \"enable_paimon_column_statistics\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3046
+          context: "@VarAttr(name = ENABLE_PAIMON_COLUMN_STATISTICS) private boolean enablePaimonColumnStatistics = false"
+      thrift_propagation: null
+
+  - name: "paimon_force_jni_reader"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Force using JNI reader for Paimon tables instead of native C++
+      reader. Useful for compatibility when native reader has issues.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 662
+          context: "public static final String PAIMON_FORCE_JNI_READER = \"paimon_force_jni_reader\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2619
+          context: "@VariableMgr.VarAttr(name = PAIMON_FORCE_JNI_READER) private boolean paimonForceJNIReader = false"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Hudi parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "hudi_mor_force_jni_reader"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Force using JNI reader for Hudi MOR (Merge on Read) tables instead
+      of native C++ reader.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 661
+          context: "public static final String HUDI_MOR_FORCE_JNI_READER = \"hudi_mor_force_jni_reader\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2616
+          context: "@VariableMgr.VarAttr(name = HUDI_MOR_FORCE_JNI_READER) private boolean hudiMORForceJNIReader = false"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Connector I/O and scan parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "connector_io_tasks_per_scan_operator"
+    type: int
+    default: 16
+    scope: "session"
+    mutable: true
+    description: >
+      Number of I/O tasks per scan operator for external connector tables.
+      Controls parallelism of data reading from external sources.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 665
+          context: "public static final String CONNECTOR_IO_TASKS_PER_SCAN_OPERATOR = \"connector_io_tasks_per_scan_operator\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2570
+          context: "@VariableMgr.VarAttr(name = CONNECTOR_IO_TASKS_PER_SCAN_OPERATOR) private int connectorIoTasksPerScanOperator = 16"
+      thrift_propagation: null
+
+  - name: "enable_connector_adaptive_io_tasks"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to adaptively adjust the number of I/O tasks for connector
+      scans based on I/O latency.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 666
+          context: "public static final String ENABLE_CONNECTOR_ADAPTIVE_IO_TASKS = \"enable_connector_adaptive_io_tasks\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2573
+          context: "@VariableMgr.VarAttr(name = ENABLE_CONNECTOR_ADAPTIVE_IO_TASKS) private boolean enableConnectorAdaptiveIoTasks = true"
+      thrift_propagation: null
+
+  - name: "enable_connector_split_io_tasks"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to split large I/O tasks into smaller chunks for connector
+      scans, improving parallelism on large files.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 673
+          context: "public static final String ENABLE_CONNECTOR_SPLIT_IO_TASKS = \"enable_connector_split_io_tasks\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2576
+          context: "@VariableMgr.VarAttr(name = ENABLE_CONNECTOR_SPLIT_IO_TASKS) private boolean enableConnectorSplitIoTasks = true"
+      thrift_propagation: null
+
+  - name: "connector_io_tasks_slow_io_latency_ms"
+    type: int
+    default: 50
+    scope: "session"
+    mutable: true
+    description: >
+      Latency threshold in milliseconds to classify I/O as slow for
+      adaptive I/O task adjustment. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 667
+          context: "public static final String CONNECTOR_IO_TASKS_SLOW_IO_LATENCY_MS = \"connector_io_tasks_slow_io_latency_ms\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2579
+          context: "@VariableMgr.VarAttr(name = CONNECTOR_IO_TASKS_SLOW_IO_LATENCY_MS, flag = VariableMgr.INVISIBLE) private int connectorIoTasksSlowIoLatency = 50"
+      thrift_propagation: null
+
+  - name: "connector_scan_use_query_mem_ratio"
+    type: double
+    default: 0.3
+    scope: "session"
+    mutable: true
+    description: >
+      Fraction of query memory budget that connector scans can use.
+      Controls memory allocation for external table scans.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 669
+          context: "public static final String CONNECTOR_SCAN_USE_QUERY_MEM_RATIO = \"connector_scan_use_query_mem_ratio\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2585
+          context: "@VariableMgr.VarAttr(name = CONNECTOR_SCAN_USE_QUERY_MEM_RATIO) private double connectorScanUseQueryMemRatio = 0.3"
+      thrift_propagation: null
+
+  - name: "connector_max_split_size"
+    type: long
+    default: 67108864
+    scope: "session"
+    mutable: true
+    description: >
+      Maximum split size in bytes for files in object storage or HDFS.
+      Default is 64 MB. Splits larger files into smaller scan ranges.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 999
+          context: "public static final String CONNECTOR_MAX_SPLIT_SIZE = \"connector_max_split_size\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2945
+          context: "@VarAttr(name = CONNECTOR_MAX_SPLIT_SIZE) private long connectorMaxSplitSize = 64L * 1024L * 1024L"
+      thrift_propagation: null
+
+  - name: "connector_huge_file_size"
+    type: long
+    default: 536870912
+    scope: "session"
+    mutable: true
+    description: >
+      Threshold in bytes above which FE forces file splitting across
+      BEs even for formats that BE can split natively. Default 512 MB.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1006
+          context: "public static final String CONNECTOR_HUGE_FILE_SIZE = \"connector_huge_file_size\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2948
+          context: "@VarAttr(name = CONNECTOR_HUGE_FILE_SIZE) private long connectorHugeFileSize = 512L * 1024L * 1024L"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Connector sink parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "enable_connector_sink_global_shuffle"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to add a global shuffle between the connector sink fragment
+      and its child fragment. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 566
+          context: "public static final String ENABLE_CONNECTOR_SINK_GLOBAL_SHUFFLE = \"enable_connector_sink_global_shuffle\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1488
+          context: "@VariableMgr.VarAttr(name = ENABLE_CONNECTOR_SINK_GLOBAL_SHUFFLE, flag = VariableMgr.INVISIBLE) private boolean enableConnectorSinkGlobalShuffle = true"
+      thrift_propagation: null
+
+  - name: "connector_sink_shuffle_mode"
+    type: String
+    default: "auto"
+    scope: "session"
+    mutable: true
+    description: >
+      Controls the shuffle mode for connector table sinks (Iceberg, Hive,
+      File, etc.). Options: auto, none, global, local.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 582
+          context: "public static final String CONNECTOR_SINK_SHUFFLE_MODE = \"connector_sink_shuffle_mode\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1495
+          context: "@VariableMgr.VarAttr(name = CONNECTOR_SINK_SHUFFLE_MODE) private String connectorSinkShuffleMode = ConnectorSinkShuffleMode.AUTO.modeName()"
+      thrift_propagation: null
+
+  - name: "connector_sink_shuffle_partition_threshold"
+    type: long
+    default: 500
+    scope: "session"
+    mutable: true
+    description: >
+      Partition count threshold for deciding shuffle strategy in connector
+      sinks. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 587
+          context: "public static final String CONNECTOR_SINK_SHUFFLE_PARTITION_THRESHOLD = \"connector_sink_shuffle_partition_threshold\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1498
+          context: "@VariableMgr.VarAttr(name = CONNECTOR_SINK_SHUFFLE_PARTITION_THRESHOLD, flag = VariableMgr.INVISIBLE) private long connectorSinkShufflePartitionThreshold = 500"
+      thrift_propagation: null
+
+  - name: "connector_sink_shuffle_partition_node_ratio"
+    type: double
+    default: 2.0
+    scope: "session"
+    mutable: true
+    description: >
+      Ratio of partitions to nodes used when deciding shuffle strategy
+      for connector sinks. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 592
+          context: "public static final String CONNECTOR_SINK_SHUFFLE_PARTITION_NODE_RATIO = \"connector_sink_shuffle_partition_node_ratio\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1501
+          context: "@VariableMgr.VarAttr(name = CONNECTOR_SINK_SHUFFLE_PARTITION_NODE_RATIO, flag = VariableMgr.INVISIBLE) private double connectorSinkShufflePartitionNodeRatio = 2.0"
+      thrift_propagation: null
+
+  - name: "enable_connector_sink_spill"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to enable spilling for connector sink operations when memory
+      pressure is high. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 594
+          context: "public static final String ENABLE_CONNECTOR_SINK_SPILL = \"enable_connector_sink_spill\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1504
+          context: "@VariableMgr.VarAttr(name = ENABLE_CONNECTOR_SINK_SPILL, flag = VariableMgr.INVISIBLE) private boolean enableConnectorSinkSpill = true"
+      thrift_propagation: null
+
+  - name: "connector_sink_spill_mem_limit_threshold"
+    type: double
+    default: 0.5
+    scope: "session"
+    mutable: true
+    description: >
+      Memory fraction threshold that triggers spilling in connector sinks.
+      Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 595
+          context: "public static final String CONNECTOR_SINK_SPILL_MEM_LIMIT_THRESHOLD = \"connector_sink_spill_mem_limit_threshold\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1507
+          context: "@VariableMgr.VarAttr(name = CONNECTOR_SINK_SPILL_MEM_LIMIT_THRESHOLD, flag = VariableMgr.INVISIBLE) private double connectorSinkSpillMemLimitThreshold = 0.5"
+      thrift_propagation: null
+
+  - name: "connector_sink_sort_scope"
+    type: String
+    default: "file"
+    scope: "session"
+    mutable: true
+    description: >
+      Controls the sort scope for connector sink writes. Options include
+      file-level and partition-level sorting.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 596
+          context: "public static final String CONNECTOR_SINK_SORT_SCOPE = \"connector_sink_sort_scope\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1510
+          context: "@VariableMgr.VarAttr(name = CONNECTOR_SINK_SORT_SCOPE) private String connectorSinkSortScope = ConnectorSinkSortScope.FILE.scopeName()"
+      thrift_propagation: null
+
+  - name: "connector_sink_compression_codec"
+    type: String
+    default: "uncompressed"
+    scope: "session"
+    mutable: true
+    description: >
+      Compression codec used when writing data via connector sinks.
+      Supported values depend on the target file format.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 670
+          context: "public static final String CONNECTOR_SINK_COMPRESSION_CODEC = \"connector_sink_compression_codec\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2588
+          context: "@VariableMgr.VarAttr(name = CONNECTOR_SINK_COMPRESSION_CODEC) private String connectorSinkCompressionCodec = \"uncompressed\""
+      thrift_propagation: null
+
+  - name: "connector_sink_target_max_file_size"
+    type: long
+    default: 1073741824
+    scope: "session"
+    mutable: true
+    description: >
+      Target maximum file size in bytes for connector sink output files.
+      Default is 1 GB. Files are rolled when approaching this size.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 672
+          context: "public static final String CONNECTOR_SINK_TARGET_MAX_FILE_SIZE = \"connector_sink_target_max_file_size\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2595
+          context: "@VariableMgr.VarAttr(name = CONNECTOR_SINK_TARGET_MAX_FILE_SIZE) private long connectorSinkTargetMaxFileSize = 1024L * 1024 * 1024"
+      thrift_propagation: null
+
+  - name: "enable_connector_sink_writer_scaling"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to dynamically scale the number of sink writers based
+      on throughput for connector table writes.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1008
+          context: "public static final String ENABLE_CONNECTOR_SINK_WRITER_SCALING = \"enable_connector_sink_writer_scaling\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2951
+          context: "@VarAttr(name = ENABLE_CONNECTOR_SINK_WRITER_SCALING) private boolean enableConnectorSinkWriterScaling = true"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Connector async/incremental scan parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "connector_remote_file_async_queue_size"
+    type: int
+    default: 1000
+    scope: "session"
+    mutable: true
+    description: >
+      Queue size for async remote file listing operations. Invisible
+      session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1018
+          context: "public static final String CONNECTOR_REMOTE_FILE_ASYNC_QUEUE_SIZE = \"connector_remote_file_async_queue_size\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3099
+          context: "@VarAttr(name = CONNECTOR_REMOTE_FILE_ASYNC_QUEUE_SIZE, flag = VariableMgr.INVISIBLE) private int connectorRemoteFileAsyncQueueSize = 1000"
+      thrift_propagation: null
+
+  - name: "connector_remote_file_async_task_size"
+    type: int
+    default: 4
+    scope: "session"
+    mutable: true
+    description: >
+      Number of concurrent async tasks for remote file listing. Invisible
+      session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1019
+          context: "public static final String CONNECTOR_REMOTE_FILE_ASYNC_TASK_SIZE = \"connector_remote_file_async_task_size\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3102
+          context: "@VarAttr(name = CONNECTOR_REMOTE_FILE_ASYNC_TASK_SIZE, flag = VariableMgr.INVISIBLE) private int connectorRemoteFileAsyncTaskSize = 4"
+      thrift_propagation: null
+
+  - name: "enable_connector_incremental_scan_ranges"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to incrementally deliver scan ranges to BE nodes rather
+      than all at once, reducing planning latency for large tables.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1020
+          context: "public static final String ENABLE_CONNECTOR_INCREMENTAL_SCAN_RANGES = \"enable_connector_incremental_scan_ranges\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3105
+          context: "@VarAttr(name = ENABLE_CONNECTOR_INCREMENTAL_SCAN_RANGES) private boolean enableConnectorIncrementalScanRanges = true"
+      thrift_propagation: null
+
+  - name: "connector_incremental_scan_ranges_size"
+    type: int
+    default: 500
+    scope: "session"
+    mutable: true
+    description: >
+      Number of scan ranges per incremental batch when delivering scan
+      ranges to BE nodes incrementally.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1021
+          context: "public static final String CONNECTOR_INCREMENTAL_SCAN_RANGE_SIZE = \"connector_incremental_scan_ranges_size\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3111
+          context: "@VarAttr(name = CONNECTOR_INCREMENTAL_SCAN_RANGE_SIZE) private int connectorIncrementalScanRangeSize = 500"
+      thrift_propagation: null
+
+  - name: "enable_connector_async_list_partitions"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to asynchronously list partitions for connector tables
+      during query planning.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1022
+          context: "public static final String ENABLE_CONNECTOR_ASYNC_LIST_PARTITIONS = \"enable_connector_async_list_partitions\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3114
+          context: "@VarAttr(name = ENABLE_CONNECTOR_ASYNC_LIST_PARTITIONS) private boolean enableConnectorAsyncListPartitions = false"
+      thrift_propagation: null
+
+  - name: "enable_connector_deploy_scan_ranges_background"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to deploy scan ranges to BE nodes in background threads
+      to reduce planning latency.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1023
+          context: "public static final String ENABLE_CONNECTOR_DEPLOY_SCAN_RANGES_BACKGROUND"
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3108
+          context: "@VarAttr(name = ENABLE_CONNECTOR_DEPLOY_SCAN_RANGES_BACKGROUND) private boolean enableConnectorDeployScanRangesBackground = true"
+      thrift_propagation: null
+
+  - name: "enable_insert_select_external_auto_refresh"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to automatically refresh external table metadata cache
+      after INSERT INTO ... SELECT from an external table.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1080
+          context: "public static final String ENABLE_INSERT_SELECT_EXTERNAL_AUTO_REFRESH = \"enable_insert_select_external_auto_refresh\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2283
+          context: "@VarAttr(name = ENABLE_INSERT_SELECT_EXTERNAL_AUTO_REFRESH) private boolean enableInsertSelectExternalAutoRefresh = true"
+      thrift_propagation: null
+
+# =============================================================================
+# BE Configs - External storage and connector
+# =============================================================================
+
+be_configs:
+
+  - name: "max_hdfs_scanner_num"
+    type: Int32
+    default: 50
+    scope: "BE"
+    mutable: false
+    description: >
+      Maximum number of HDFS scanner threads per BE node.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 284
+          context: "CONF_Int32(max_hdfs_scanner_num, \"50\")"
+      thrift_propagation: null
+
+  - name: "max_hdfs_file_handle"
+    type: Int32
+    default: 1000
+    scope: "BE"
+    mutable: true
+    description: >
+      Maximum number of cached HDFS file handles per BE node.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1046
+          context: "CONF_mInt32(max_hdfs_file_handle, \"1000\")"
+      thrift_propagation: null
+
+  - name: "pipeline_connector_scan_thread_num_per_cpu"
+    type: double
+    default: 8.0
+    scope: "BE"
+    mutable: true
+    description: >
+      Number of connector scan threads per CPU core for pipeline engine.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 985
+          context: "CONF_mDouble(pipeline_connector_scan_thread_num_per_cpu, \"8\")"
+      thrift_propagation: null
+
+  - name: "connector_io_tasks_per_scan_operator"
+    type: Int32
+    default: 16
+    scope: "BE"
+    mutable: false
+    description: >
+      Default number of I/O tasks per connector scan operator on BE side.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1135
+          context: "CONF_Int32(connector_io_tasks_per_scan_operator, \"16\")"
+      thrift_propagation: null
+
+  - name: "connector_io_tasks_min_size"
+    type: Int32
+    default: 2
+    scope: "BE"
+    mutable: false
+    description: >
+      Minimum number of I/O tasks for connector scan operators.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1136
+          context: "CONF_Int32(connector_io_tasks_min_size, \"2\")"
+      thrift_propagation: null
+
+  - name: "connector_io_tasks_adjust_interval_ms"
+    type: Int32
+    default: 50
+    scope: "BE"
+    mutable: false
+    description: >
+      Interval in milliseconds between I/O task count adjustments for
+      adaptive connector scanning.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1137
+          context: "CONF_Int32(connector_io_tasks_adjust_interval_ms, \"50\")"
+      thrift_propagation: null
+
+  - name: "connector_io_tasks_adjust_step"
+    type: Int32
+    default: 1
+    scope: "BE"
+    mutable: false
+    description: >
+      Step size for adjusting the number of I/O tasks during adaptive
+      connector scanning.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1138
+          context: "CONF_Int32(connector_io_tasks_adjust_step, \"1\")"
+      thrift_propagation: null
+
+  - name: "connector_io_tasks_adjust_smooth"
+    type: Int32
+    default: 4
+    scope: "BE"
+    mutable: false
+    description: >
+      Smoothing factor for I/O task adjustment to avoid oscillation.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1139
+          context: "CONF_Int32(connector_io_tasks_adjust_smooth, \"4\")"
+      thrift_propagation: null
+
+  - name: "connector_io_tasks_slow_io_latency_ms"
+    type: Int32
+    default: 50
+    scope: "BE"
+    mutable: false
+    description: >
+      Latency threshold in ms for classifying I/O as slow on BE side.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1140
+          context: "CONF_Int32(connector_io_tasks_slow_io_latency_ms, \"50\")"
+      thrift_propagation: null
+
+  - name: "connector_scan_use_query_mem_ratio"
+    type: double
+    default: 0.3
+    scope: "BE"
+    mutable: false
+    description: >
+      Fraction of query memory that connector scans can use on BE side.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1142
+          context: "CONF_Double(connector_scan_use_query_mem_ratio, \"0.3\")"
+      thrift_propagation: null
+
+  - name: "connector_sink_mem_high_watermark_ratio"
+    type: double
+    default: 0.3
+    scope: "BE"
+    mutable: true
+    description: >
+      High watermark ratio of memory usage that triggers backpressure
+      on connector sinks.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1728
+          context: "CONF_mDouble(connector_sink_mem_high_watermark_ratio, \"0.3\")"
+      thrift_propagation: null
+
+  - name: "connector_sink_mem_low_watermark_ratio"
+    type: double
+    default: 0.1
+    scope: "BE"
+    mutable: true
+    description: >
+      Low watermark ratio of memory usage that releases backpressure
+      on connector sinks.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1729
+          context: "CONF_mDouble(connector_sink_mem_low_watermark_ratio, \"0.1\")"
+      thrift_propagation: null
+
+  - name: "connector_sink_mem_urgent_space_ratio"
+    type: double
+    default: 0.05
+    scope: "BE"
+    mutable: true
+    description: >
+      Urgent space ratio for connector sink memory management.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1730
+          context: "CONF_mDouble(connector_sink_mem_urgent_space_ratio, \"0.05\")"
+      thrift_propagation: null
+
+  - name: "enable_connector_sink_spill"
+    type: boolean
+    default: true
+    scope: "BE"
+    mutable: true
+    description: >
+      Whether to enable spilling for connector sink operations on BE side.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1732
+          context: "CONF_mBool(enable_connector_sink_spill, \"true\")"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Object storage configs
+  # ---------------------------------------------------------------------------
+
+  - name: "object_storage_access_key_id"
+    type: String
+    default: ""
+    scope: "BE"
+    mutable: false
+    description: >
+      Access key ID for object storage (S3, GCS, etc.) authentication.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1058
+          context: "CONF_String(object_storage_access_key_id, \"\")"
+      thrift_propagation: null
+
+  - name: "object_storage_secret_access_key"
+    type: String
+    default: ""
+    scope: "BE"
+    mutable: false
+    description: >
+      Secret access key for object storage authentication.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1059
+          context: "CONF_String(object_storage_secret_access_key, \"\")"
+      thrift_propagation: null
+
+  - name: "object_storage_endpoint"
+    type: String
+    default: ""
+    scope: "BE"
+    mutable: false
+    description: >
+      Endpoint URL for object storage service.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1060
+          context: "CONF_String(object_storage_endpoint, \"\")"
+      thrift_propagation: null
+
+  - name: "object_storage_bucket"
+    type: String
+    default: ""
+    scope: "BE"
+    mutable: false
+    description: >
+      Default bucket name for object storage operations.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1061
+          context: "CONF_String(object_storage_bucket, \"\")"
+      thrift_propagation: null
+
+  - name: "object_storage_region"
+    type: String
+    default: ""
+    scope: "BE"
+    mutable: false
+    description: >
+      Region for object storage service.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1063
+          context: "CONF_String(object_storage_region, \"\")"
+      thrift_propagation: null
+
+  - name: "object_storage_max_connection"
+    type: Int64
+    default: 102400
+    scope: "BE"
+    mutable: false
+    description: >
+      Maximum number of connections to object storage service.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1064
+          context: "CONF_Int64(object_storage_max_connection, \"102400\")"
+      thrift_propagation: null
+
+  - name: "object_storage_endpoint_use_https"
+    type: boolean
+    default: false
+    scope: "BE"
+    mutable: false
+    description: >
+      Whether to use HTTPS for object storage endpoint connections.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1067
+          context: "CONF_Bool(object_storage_endpoint_use_https, \"false\")"
+      thrift_propagation: null
+
+  - name: "object_storage_endpoint_path_style_access"
+    type: boolean
+    default: false
+    scope: "BE"
+    mutable: false
+    description: >
+      Whether to use path-style access for object storage (vs virtual-hosted).
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1070
+          context: "CONF_Bool(object_storage_endpoint_path_style_access, \"false\")"
+      thrift_propagation: null
+
+  - name: "object_storage_connect_timeout_ms"
+    type: Int64
+    default: -1
+    scope: "BE"
+    mutable: false
+    description: >
+      Connection timeout in milliseconds for object storage. -1 uses SDK default.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1074
+          context: "CONF_Int64(object_storage_connect_timeout_ms, \"-1\")"
+      thrift_propagation: null
+
+  - name: "object_storage_request_timeout_ms"
+    type: Int64
+    default: -1
+    scope: "BE"
+    mutable: true
+    description: >
+      Request timeout in milliseconds for object storage. -1 uses SDK default.
+      Aliased as starlet_fslib_s3client_request_timeout_ms.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1082
+          context: "CONF_mInt64(object_storage_request_timeout_ms, \"-1\")"
+      thrift_propagation: null
+
+  - name: "object_storage_rename_file_request_timeout_ms"
+    type: Int64
+    default: 30000
+    scope: "BE"
+    mutable: false
+    description: >
+      Timeout in milliseconds for object storage rename file requests.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1085
+          context: "CONF_Int64(object_storage_rename_file_request_timeout_ms, \"30000\")"
+      thrift_propagation: null
+
+  - name: "object_storage_max_retries"
+    type: Int64
+    default: 10
+    scope: "BE"
+    mutable: false
+    description: >
+      Maximum number of retries for failed object storage requests.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1089
+          context: "CONF_Int64(object_storage_max_retries, \"10\")"
+      thrift_propagation: null
+
+  - name: "object_storage_retry_scale_factor"
+    type: Int64
+    default: 25
+    scope: "BE"
+    mutable: false
+    description: >
+      Scale factor for exponential backoff between object storage retries.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1090
+          context: "CONF_Int64(object_storage_retry_scale_factor, \"25\")"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # S3 and HDFS configs
+  # ---------------------------------------------------------------------------
+
+  - name: "s3_compatible_fs_list"
+    type: Strings
+    default: "s3n://, s3a://, s3://, oss://, cos://, cosn://, obs://, ks3://, tos://"
+    scope: "BE"
+    mutable: false
+    description: >
+      Comma-separated list of S3-compatible filesystem URI schemes.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1093
+          context: "CONF_Strings(s3_compatible_fs_list, ...)"
+      thrift_propagation: null
+
+  - name: "s3_use_list_objects_v1"
+    type: boolean
+    default: false
+    scope: "BE"
+    mutable: true
+    description: >
+      Whether to use ListObjectsV1 API instead of V2 for S3-compatible
+      storage. Needed for some S3-compatible implementations.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1094
+          context: "CONF_mBool(s3_use_list_objects_v1, \"false\")"
+      thrift_propagation: null
+
+  - name: "hdfs_client_enable_hedged_read"
+    type: boolean
+    default: false
+    scope: "BE"
+    mutable: false
+    description: >
+      Whether to enable hedged reads for HDFS client to reduce tail latency.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1145
+          context: "CONF_Bool(hdfs_client_enable_hedged_read, \"false\")"
+      thrift_propagation: null
+
+  - name: "hdfs_client_hedged_read_threadpool_size"
+    type: Int32
+    default: 128
+    scope: "BE"
+    mutable: false
+    description: >
+      Thread pool size for HDFS hedged reads.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1147
+          context: "CONF_Int32(hdfs_client_hedged_read_threadpool_size, \"128\")"
+      thrift_propagation: null
+
+  - name: "hdfs_client_hedged_read_threshold_millis"
+    type: Int32
+    default: 2500
+    scope: "BE"
+    mutable: false
+    description: >
+      Time threshold in milliseconds before a hedged read is initiated.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1149
+          context: "CONF_Int32(hdfs_client_hedged_read_threshold_millis, \"2500\")"
+      thrift_propagation: null
+
+  - name: "hdfs_client_max_cache_size"
+    type: Int32
+    default: 64
+    scope: "BE"
+    mutable: false
+    description: >
+      Maximum number of cached HDFS client instances.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1150
+          context: "CONF_Int32(hdfs_client_max_cache_size, \"64\")"
+      thrift_propagation: null
+
+  - name: "hdfs_client_io_read_retry"
+    type: Int32
+    default: 0
+    scope: "BE"
+    mutable: false
+    description: >
+      Number of retries for HDFS read I/O errors. 0 means no retry.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1151
+          context: "CONF_Int32(hdfs_client_io_read_retry, \"0\")"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # JDBC configs
+  # ---------------------------------------------------------------------------
+
+  - name: "jdbc_connection_pool_size"
+    type: Int16
+    default: 8
+    scope: "BE"
+    mutable: false
+    description: >
+      Size of the JDBC connection pool per BE node.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1340
+          context: "CONF_Int16(jdbc_connection_pool_size, \"8\")"
+      thrift_propagation: null
+
+  - name: "jdbc_minimum_idle_connections"
+    type: Int16
+    default: 1
+    scope: "BE"
+    mutable: false
+    description: >
+      Minimum number of idle connections maintained in JDBC pool.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1344
+          context: "CONF_Int16(jdbc_minimum_idle_connections, \"1\")"
+      thrift_propagation: null
+
+  - name: "jdbc_connection_idle_timeout_ms"
+    type: Int32
+    default: 600000
+    scope: "BE"
+    mutable: false
+    description: >
+      Idle timeout in milliseconds before a JDBC connection is evicted
+      from the pool. Default is 10 minutes.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1348
+          context: "CONF_Int32(jdbc_connection_idle_timeout_ms, \"600000\")"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Cloud-native / shared-data configs
+  # ---------------------------------------------------------------------------
+
+  - name: "cloud_native_pk_index_rebuild_files_threshold"
+    type: Int32
+    default: 50
+    scope: "BE"
+    mutable: true
+    description: >
+      File count threshold for triggering primary key index rebuild
+      in cloud-native (shared-data) mode.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1313
+          context: "CONF_mInt32(cloud_native_pk_index_rebuild_files_threshold, \"50\")"
+      thrift_propagation: null

@@ -15,6 +15,10 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#include "starrocks_macos_posix_shims.h"
+#endif
+
 #include <cerrno>
 #include <climits>
 #include <cstdio>
@@ -22,6 +26,10 @@
 #include <filesystem>
 #include <memory>
 
+#include "base/concurrency/stopwatch.hpp"
+#include "base/string/slice.h"
+#include "base/system/errno.h"
+#include "base/testutil/sync_point.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "fs/encrypt_file.h"
@@ -34,10 +42,6 @@
 #include "gutil/strings/util.h"
 #include "io/fd_input_stream.h"
 #include "io/io_profiler.h"
-#include "testutil/sync_point.h"
-#include "util/errno.h"
-#include "util/slice.h"
-#include "util/stopwatch.hpp"
 
 #ifdef USE_STAROS
 #include "fslib/metric_key.h"
@@ -225,7 +229,9 @@ public:
 #ifdef USE_STAROS
         s_sr_posix_write_iosize.Observe(bytes_written);
 #endif
+#ifndef __APPLE__
         IOProfiler::add_write(bytes_written, watch.elapsed_time());
+#endif
         return Status::OK();
     }
 
@@ -314,7 +320,9 @@ public:
             _pending_sync = false;
             RETURN_IF_ERROR(do_sync(_fd, _filename));
         }
+#ifndef __APPLE__
         IOProfiler::add_sync(watch.elapsed_time());
+#endif
         return Status::OK();
     }
 
@@ -537,24 +545,29 @@ public:
         // On CentOS create_directories() will fail in this situation, but on Ubuntu, it won't.
         // So we make a precheck here in order to have the same expected behavior on both and probably
         // all the other platforms.
-        if (std::filesystem::is_symlink(dirname)) {
-            char real_path[PATH_MAX];
-            char* result = realpath(dirname.c_str(), real_path);
-            if (result == nullptr) {
-                return io_error(fmt::format("create {} recursively", dirname), errno);
+        try {
+            if (std::filesystem::is_symlink(dirname)) {
+                char real_path[PATH_MAX];
+                char* result = realpath(dirname.c_str(), real_path);
+                if (result == nullptr) {
+                    return io_error(fmt::format("create {} recursively", dirname), errno);
+                }
+                if (std::filesystem::is_directory(real_path)) {
+                    return Status::OK();
+                } else {
+                    return io_error(fmt::format("create {} recursively", dirname), ENOTDIR);
+                }
             }
-            if (std::filesystem::is_directory(real_path)) {
-                return Status::OK();
-            } else {
-                return io_error(fmt::format("create {} recursively", dirname), ENOTDIR);
-            }
+        } catch (const std::filesystem::filesystem_error& e) {
+            // is_symlink throws error when BE has no permission to access the path
+            return io_error(fmt::format("create {} recursively", dirname), e.code().value());
         }
 
         std::error_code ec;
         // If `dirname` already exist and is a directory, the return value would be false and ec.value() would be 0
         (void)std::filesystem::create_directories(dirname, ec);
         if (ec.value() != 0) {
-            return io_error(fmt::format("create {} recursive", dirname), ec.value());
+            return io_error(fmt::format("create {} recursively", dirname), ec.value());
         }
         return Status::OK();
     }

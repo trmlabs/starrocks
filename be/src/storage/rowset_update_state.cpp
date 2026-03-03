@@ -14,11 +14,16 @@
 
 #include "rowset_update_state.h"
 
+#include "base/debug/trace.h"
+#include "base/phmap/phmap.h"
+#include "base/time/time.h"
+#include "base/utility/defer_op.h"
 #include "column/binary_column.h"
 #include "common/tracer.h"
 #include "fs/fs_util.h"
 #include "fs/key_cache.h"
 #include "gutil/strings/substitute.h"
+#include "runtime/current_thread.h"
 #include "serde/column_array_serde.h"
 #include "storage/chunk_helper.h"
 #include "storage/primary_key_encoder.h"
@@ -27,11 +32,7 @@
 #include "storage/rowset/rowset_options.h"
 #include "storage/rowset/segment_rewriter.h"
 #include "storage/tablet.h"
-#include "util/defer_op.h"
-#include "util/phmap/phmap.h"
 #include "util/stack_util.h"
-#include "util/time.h"
-#include "util/trace.h"
 
 namespace starrocks {
 
@@ -50,12 +51,12 @@ Status RowsetUpdateState::load(Tablet* tablet, Rowset* rowset) {
     std::call_once(_load_once_flag, [&] {
         _tablet_id = tablet->tablet_id();
         _status = _do_load(tablet, rowset);
-        if (!_status.ok()) {
+        if (!_status.ok() && !_status.is_mem_limit_exceeded() && !_status.is_time_out()) {
             LOG(WARNING) << "load RowsetUpdateState error: " << _status << " tablet:" << _tablet_id << " stack:\n"
                          << get_stack_trace();
-            if (_status.is_mem_limit_exceeded()) {
-                LOG(WARNING) << CurrentThread::mem_tracker()->debug_string();
-            }
+        }
+        if (_status.is_mem_limit_exceeded()) {
+            LOG(WARNING) << CurrentThread::mem_tracker()->debug_string();
         }
     });
     return _status;
@@ -85,9 +86,8 @@ Status RowsetUpdateState::_load_deletes(Rowset* rowset, uint32_t idx, Column* pk
     TRY_CATCH_BAD_ALLOC(read_buffer.resize(file_size));
     RETURN_IF_ERROR(read_file->read_at_fully(0, read_buffer.data(), read_buffer.size()));
     auto col = pk_column->clone();
-    if (serde::ColumnArraySerde::deserialize(read_buffer.data(), col.get()) == nullptr) {
-        return Status::InternalError("column deserialization failed");
-    }
+    const auto* end = read_buffer.data() + read_buffer.size();
+    RETURN_IF_ERROR(serde::ColumnArraySerde::deserialize(read_buffer.data(), end, col.get()));
     TRY_CATCH_BAD_ALLOC(col->raw_data());
     _memory_usage += col != nullptr ? col->memory_usage() : 0;
     _deletes[idx] = std::move(col);
@@ -112,7 +112,7 @@ Status RowsetUpdateState::_load_upserts(Rowset* rowset, uint32_t idx, Column* pk
         pk_columns.push_back((uint32_t)i);
     }
     Schema pkey_schema = ChunkHelper::convert_schema(schema, pk_columns);
-    auto res = rowset->get_segment_iterators2(pkey_schema, schema, nullptr, 0, &stats);
+    auto res = rowset->get_segment_iterators2(pkey_schema, schema, MetaLoadMode::NONE, 0, &stats);
     if (!res.ok()) {
         return res.status();
     }
@@ -137,7 +137,8 @@ Status RowsetUpdateState::_load_upserts(Rowset* rowset, uint32_t idx, Column* pk
             } else if (!st.ok()) {
                 return st;
             } else {
-                TRY_CATCH_BAD_ALLOC(PrimaryKeyEncoder::encode(pkey_schema, *chunk, 0, chunk->num_rows(), col.get()));
+                TRY_CATCH_BAD_ALLOC(PrimaryKeyEncoder::encode(pkey_schema, *chunk, 0, chunk->num_rows(), col.get(),
+                                                              PrimaryKeyEncodingType::PK_ENCODING_TYPE_V1));
             }
         }
         RETURN_ERROR_IF_FALSE(col->size() == num_rows, "read segment: iter rows != num rows");
@@ -168,7 +169,8 @@ Status RowsetUpdateState::_do_load(Tablet* tablet, Rowset* rowset) {
     }
     Schema pkey_schema = ChunkHelper::convert_schema(schema, pk_columns);
     MutableColumnPtr pk_column;
-    RETURN_IF_ERROR(PrimaryKeyEncoder::create_column(pkey_schema, &pk_column));
+    RETURN_IF_ERROR(
+            PrimaryKeyEncoder::create_column(pkey_schema, &pk_column, PrimaryKeyEncodingType::PK_ENCODING_TYPE_V1));
     // if rowset is partial rowset, we need to load rowset totally because we don't support load multiple load
     // for partial update so far
     bool ignore_mem_limit =
@@ -201,7 +203,8 @@ Status RowsetUpdateState::load_deletes(Rowset* rowset, uint32_t idx) {
     }
     Schema pkey_schema = ChunkHelper::convert_schema(schema, pk_columns);
     MutableColumnPtr pk_column;
-    RETURN_IF_ERROR(PrimaryKeyEncoder::create_column(pkey_schema, &pk_column));
+    RETURN_IF_ERROR(
+            PrimaryKeyEncoder::create_column(pkey_schema, &pk_column, PrimaryKeyEncodingType::PK_ENCODING_TYPE_V1));
     return _load_deletes(rowset, idx, pk_column.get());
 }
 
@@ -213,7 +216,8 @@ Status RowsetUpdateState::load_upserts(Rowset* rowset, uint32_t upsert_id) {
     }
     Schema pkey_schema = ChunkHelper::convert_schema(schema, pk_columns);
     MutableColumnPtr pk_column;
-    RETURN_IF_ERROR(PrimaryKeyEncoder::create_column(pkey_schema, &pk_column, true));
+    RETURN_IF_ERROR(PrimaryKeyEncoder::create_column(pkey_schema, &pk_column,
+                                                     PrimaryKeyEncodingType::PK_ENCODING_TYPE_V1, true));
     return _load_upserts(rowset, upsert_id, pk_column.get());
 }
 
@@ -330,8 +334,8 @@ Status RowsetUpdateState::_prepare_partial_update_value_columns(Tablet* tablet, 
         }
         _partial_update_value_columns_schema =
                 ChunkHelper::convert_schema(tablet_schema, _partial_update_value_column_ids);
-        auto res = rowset->get_segment_iterators2(_partial_update_value_columns_schema, tablet_schema, nullptr, 0,
-                                                  &_partial_update_value_column_read_stats);
+        auto res = rowset->get_segment_iterators2(_partial_update_value_columns_schema, tablet_schema,
+                                                  MetaLoadMode::NONE, 0, &_partial_update_value_column_read_stats);
         if (!res.ok()) {
             return res.status();
         }
@@ -413,9 +417,9 @@ Status RowsetUpdateState::_prepare_partial_update_states(Tablet* tablet, Rowset*
 
     int64_t t_read_index = MonotonicMillis();
     if (need_lock) {
-        RETURN_IF_ERROR(tablet->updates()->get_rss_rowids_by_pk(tablet, *_upserts[idx],
-                                                                &(_partial_update_states[idx].read_version),
-                                                                &(_partial_update_states[idx].src_rss_rowids)));
+        RETURN_IF_ERROR(tablet->updates()->get_rss_rowids_by_pk(
+                tablet, *_upserts[idx], &(_partial_update_states[idx].read_version),
+                &(_partial_update_states[idx].src_rss_rowids), 3000 /* timeout_ms */));
     } else {
         RETURN_IF_ERROR(tablet->updates()->get_rss_rowids_by_pk_unlock(tablet, *_upserts[idx],
                                                                        &(_partial_update_states[idx].read_version),
@@ -562,13 +566,10 @@ Status RowsetUpdateState::_prepare_auto_increment_partial_update_states(Tablet* 
 }
 
 bool RowsetUpdateState::_check_partial_update(Rowset* rowset) {
-    if (!rowset->rowset_meta()->get_meta_pb_without_schema().has_txn_meta() || rowset->num_segments() == 0) {
+    if (rowset->num_segments() == 0) {
         return false;
     }
-    // Merge condition and auto-increment-column-only partial update will also set txn_meta
-    // but will not set partial_update_column_ids
-    const auto& txn_meta = rowset->rowset_meta()->get_meta_pb_without_schema().txn_meta();
-    return !txn_meta.partial_update_column_ids().empty();
+    return rowset->is_partial_update();
 }
 
 Status RowsetUpdateState::_rebuild_partial_update_states(Tablet* tablet, Rowset* rowset, uint32_t rowset_id,

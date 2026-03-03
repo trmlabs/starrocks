@@ -407,6 +407,8 @@ struct TMaterializedViewStatus {
     27: optional string query_rewrite_status
 
     28: optional string creator
+    29: optional string last_refresh_process_time
+    30: optional string last_refresh_job_id
 }
 
 struct TListPipesParams {
@@ -530,6 +532,8 @@ struct TTaskRunInfo {
     13: optional string properties
 
     14: optional string catalog
+    15: optional string job_id
+    16: optional i64 process_time
 }
 
 struct TGetTaskRunInfoResult {
@@ -542,6 +546,15 @@ struct TGetLoadsParams {
     3: optional i64 txn_id
     4: optional string label
     5: optional string load_type
+    6: optional string table_name
+    7: optional string user
+    8: optional string state
+    9: optional string load_start_time_from
+    10: optional string load_start_time_to
+    11: optional string load_finish_time_from
+    12: optional string load_finish_time_to
+    13: optional string create_time_from
+    14: optional string create_time_to
 }
 
 struct TTrackingLoadInfo {
@@ -781,7 +794,10 @@ struct TAuditStatistics {
     6: optional i64 cpu_cost_ns
     7: optional i64 mem_cost_bytes
     8: optional i64 spill_bytes
+    10: optional i64 transmitted_bytes
     9: optional list<TAuditStatisticsItem> stats_items
+    11: optional i64 read_local_cnt
+    12: optional i64 read_remote_cnt
 }
 
 struct TReportAuditStatisticsParams {
@@ -830,8 +846,23 @@ struct TMasterOpRequest {
     34: optional i32 forward_times
     35: optional string session_id
     36: optional i32 connectionId
+    37: optional i64 txn_id;
+    38: optional bool isInternalStmt;
+
+    39: optional bool is_arrow_flight_sql;
 
     101: optional i64 warehouse_id    // begin from 101, in case of conflict with other's change
+}
+
+struct TNotifyForwardDeploymentFinishedRequest {
+    1: optional Types.TUniqueId query_id
+    2: optional Types.TUniqueId arrow_flight_sql_result_fragment_id;
+    3: optional i64 arrow_flight_sql_result_backend_id;
+    4: optional binary arrow_flight_sql_result_schema;
+}
+
+struct TNotifyForwardDeploymentFinishedRespone {
+    1: optional Status.TStatus status
 }
 
 struct TColumnDefinition {
@@ -862,6 +893,9 @@ struct TMasterOpResult {
     6: optional string resource_group_name;
     7: optional TAuditStatistics audit_statistics;
     8: optional string errorMsg;
+    9: optional i64 txn_id;
+    // SQL digest computed by Leader after analyze
+    10:optional string sql_digest;
 }
 
 struct TIsMethodSupportedRequest {
@@ -1054,6 +1088,8 @@ struct TLoadTxnCommitRequest {
     11: optional TTxnCommitAttachment txnCommitAttachment
     12: optional i64 thrift_rpc_timeout_ms
     13: optional list<Types.TTabletFailInfo> failInfos
+    // The timeout for prepared transaction. Only valid if this requerst is sent by rpc loadTxnPrepare
+    14: optional i32 prepared_timeout_second
 }
 
 struct TLoadTxnCommitResult {
@@ -1497,7 +1533,7 @@ struct TPartitionMetaInfo {
     14: optional string storage_medium
     15: optional i64 cooldown_time
     16: optional i64 last_consistency_check_time
-    17: optional bool is_in_memory
+    17: optional bool is_in_memory // Deprecated
     18: optional bool is_temp
     19: optional string data_size
     20: optional i64 row_count
@@ -1509,6 +1545,10 @@ struct TPartitionMetaInfo {
     26: optional i64 data_version
     27: optional i64 version_epoch
     28: optional Types.TTxnType version_txn_type = Types.TTxnType.TXN_NORMAL
+    29: optional i64 storage_size
+    30: optional bool tablet_balanced
+    31: optional i64 metadata_switch_version
+    32: optional i64 path_id // deprecated
 }
 
 struct TGetPartitionsMetaResponse {
@@ -1569,15 +1609,26 @@ struct TTabletSchedule {
     4: optional string type
     5: optional string priority
     6: optional string state
-    7: optional string tablet_status
+    7: optional string schedule_reason
     8: optional double create_time
     9: optional double schedule_time
     10: optional double finish_time
-    11: optional i64 clone_src
-    12: optional i64 clone_dest
+    11: optional i64 src_be_id
+    12: optional i64 dest_be_id
     13: optional i64 clone_bytes
     14: optional double clone_duration
     15: optional string error_msg
+    16: optional double clone_rate
+    17: optional i64 timeout
+    18: optional string medium
+    19: optional string src_path
+    20: optional string dest_path
+    21: optional string orig_priority
+    22: optional i64 last_priority_adjust_time
+    23: optional i64 visible_version
+    24: optional i64 committed_version
+    25: optional i32 failed_schedule_count
+    26: optional i32 failed_running_count
 }
 
 struct TGetTabletScheduleRequest {
@@ -1622,6 +1673,8 @@ struct TQueryStatisticsInfo {
     13: optional string wareHouseName
     14: optional string customQueryId
     15: optional string resourceGroupName
+    16: optional string execProgress
+    17: optional string execState
 }
 
 struct TGetQueryStatisticsResponse {
@@ -1900,6 +1953,7 @@ struct TPartitionReplicationInfo {
     2: optional i64 src_version
     3: optional map<i64, TIndexReplicationInfo> index_replication_infos
     4: optional i64 src_version_epoch
+    5: optional i64 src_partition_id
 }
 
 struct TTableReplicationRequest {
@@ -1912,6 +1966,11 @@ struct TTableReplicationRequest {
     7: optional i64 src_table_data_size
     8: optional map<i64, TPartitionReplicationInfo> partition_replication_infos
     9: optional string job_id
+    10: optional Types.TRunMode src_cluster_run_mode
+    11: optional string src_storage_volume_name
+    12: optional string src_service_id
+    13: optional i64 src_database_id
+    14: optional i64 src_table_id
 }
 
 struct TTableReplicationResponse {
@@ -1960,6 +2019,10 @@ struct TConnectionInfo {
     8: optional string state;
     9: optional string info;
     10: optional string isPending;
+    11: optional string warehouse;
+    12: optional string cngroup;
+    13: optional string catalog;
+    14: optional string queryId;
 }
 
 struct TListConnectionResponse {
@@ -1989,6 +2052,7 @@ struct TGetWarehouseMetricsResponeItem {
     9: optional string sum_required_slots;
     10: optional string remain_slots;
     11: optional string max_slots;
+    12: optional string extra_message;
 }
 struct TGetWarehouseMetricsRespone {
     1:optional list<TGetWarehouseMetricsResponeItem> metrics;
@@ -2005,6 +2069,11 @@ struct TGetWarehouseQueriesResponseItem {
     5: optional string est_costs_slots;
     6: optional string allocate_slots;
     7: optional string queued_wait_seconds;
+    8: optional string query;
+    9: optional string query_start_time;
+    10: optional string query_end_time;
+    11: optional string query_duration;
+    12: optional string extra_message;
 }
 struct TGetWarehouseQueriesResponse {
     1: optional list<TGetWarehouseQueriesResponseItem> queries;
@@ -2030,6 +2099,23 @@ struct TFinishCheckpointRequest {
 
 struct TFinishCheckpointResponse {
     1: optional Status.TStatus status;
+}
+
+struct TListRecycleBinCatalogsParams {
+    1: optional Types.TUserIdentity user_ident
+}
+
+struct TListRecycleBinCatalogsInfo {
+    1: optional string type
+    2: optional string name
+    3: optional i64 dbid
+    4: optional i64 tableid
+    5: optional i64 partitionid
+    6: optional i64 droptime
+}
+
+struct TListRecycleBinCatalogsResult {
+    1: optional list<TListRecycleBinCatalogsInfo> recyclebin_catalogs
 }
 
 // Batch fetching partition meta info by a list of tablet ids
@@ -2104,6 +2190,98 @@ struct TGetApplicableRolesResponse {
     2: optional i64 next_table_id_offset;
 }
 
+struct TUpdateFailPointRequest {
+    1: optional string name;
+    2: optional bool is_enable;
+    3: optional i32 times;
+    4: optional double probability;
+}
+
+struct TUpdateFailPointResponse {
+    1: optional Status.TStatus status;
+}
+
+struct TTabletReshardJobsItem {
+    1: optional i64 job_id;
+    2: optional string db_name;
+    3: optional string table_name;
+    4: optional i64 db_id;
+    5: optional i64 table_id;
+    6: optional string job_type;
+    7: optional string job_state;
+    8: optional i64 transaction_id;
+    9: optional i64 parallel_partitions;
+    10: optional i64 parallel_tablets;
+    11: optional i64 created_time;
+    12: optional i64 finished_time;
+    13: optional string error_message;
+}
+
+struct TTabletReshardJobsRequest {
+}
+
+struct TTabletReshardJobsResponse {
+    1: optional Status.TStatus status;
+    2: optional list<TTabletReshardJobsItem> items;
+}
+
+struct TFeThreadInfo {
+    1: optional string fe_address;
+    2: optional i64 thread_id;
+    3: optional string thread_name;
+    4: optional string thread_state;
+    5: optional bool is_daemon;
+    6: optional i32 priority;
+    7: optional i64 cpu_time_ms;
+    8: optional i64 user_time_ms;
+}
+
+struct TGetFeThreadsRequest {
+    1: optional TAuthInfo auth_info;
+}
+
+struct TGetFeThreadsResponse {
+    1: optional Status.TStatus status;
+    2: optional list<TFeThreadInfo> threads;
+}
+
+struct TRefreshConnectionsRequest {
+    1: optional bool force;
+}
+
+struct TRefreshConnectionsResponse {
+    1: optional Status.TStatus status;
+}
+
+enum TTableSchemaRequestSource {
+    SCAN = 0,
+    LOAD = 1
+}
+
+struct TGetTableSchemaRequest {
+    1: optional Descriptors.TTableSchemaKey schema_key;
+    2: optional TTableSchemaRequestSource source;
+    3: optional i64 tablet_id;
+    // Valid if request_source is SCAN
+    4: optional Types.TUniqueId query_id;
+    // Valid if request_source is LOAD
+    5: optional i64 txn_id;
+}
+
+struct TGetTableSchemaResponse {
+    1: optional Status.TStatus status;
+    2: optional AgentService.TTabletSchema schema;
+}
+
+struct TBatchGetTableSchemaRequest {
+    1: optional list<TGetTableSchemaRequest> requests;
+}
+
+struct TBatchGetTableSchemaResponse {
+    1: optional Status.TStatus status;
+    2: optional list<TGetTableSchemaResponse> responses;
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1:TGetDbsParams params)
     TGetTablesResult getTableNames(1:TGetTablesParams params)
@@ -2142,6 +2320,7 @@ service FrontendService {
 
     //NOTE: Do not add numbers to the parameters, otherwise it will cause compatibility problems
     TMasterOpResult forward(TMasterOpRequest params)
+    TNotifyForwardDeploymentFinishedRespone notifyForwardDeploymentFinished(TNotifyForwardDeploymentFinishedRequest request)
 
     TListTableStatusResult listTableStatus(1:TGetTablesParams params)
     TListMaterializedViewStatusResult listMaterializedViewStatus(1:TGetTablesParams params)
@@ -2189,6 +2368,8 @@ service FrontendService {
 
     TGetTabletScheduleResponse getTabletSchedule(1: TGetTabletScheduleRequest request)
 
+    TGetFeThreadsResponse getFeThreads(1: TGetFeThreadsRequest request)
+
     TGetRoleEdgesResponse getRoleEdges(1: TGetRoleEdgesRequest request)
     TGetGrantsToRolesOrUserResponse getGrantsTo(1: TGetGrantsToRolesOrUserRequest request)
 
@@ -2230,6 +2411,7 @@ service FrontendService {
     TStartCheckpointResponse startCheckpoint(1: TStartCheckpointRequest request)
 
     TFinishCheckpointResponse finishCheckpoint(1: TFinishCheckpointRequest request)
+    TListRecycleBinCatalogsResult listRecycleBinCatalogs(1: TListRecycleBinCatalogsParams params)
 
     TPartitionMetaResponse getPartitionMeta(TPartitionMetaRequest request)
 
@@ -2243,5 +2425,12 @@ service FrontendService {
     TGetWarehouseMetricsRespone getWarehouseMetrics(1: TGetWarehouseMetricsRequest request)
 
     TGetWarehouseQueriesResponse getWarehouseQueries(1: TGetWarehouseQueriesRequest request)
-}
 
+    TUpdateFailPointResponse updateFailPointStatus(1: TUpdateFailPointRequest request)
+
+    TTabletReshardJobsResponse getTabletReshardJobsInfo(1: TTabletReshardJobsRequest request)
+
+    TRefreshConnectionsResponse refreshConnections(1: TRefreshConnectionsRequest request)
+
+    TBatchGetTableSchemaResponse getTableSchema(1: TBatchGetTableSchemaRequest request)
+}

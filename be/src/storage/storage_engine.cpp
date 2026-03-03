@@ -46,7 +46,15 @@
 #include <set>
 
 #include "agent/master_info.h"
+#include "base/concurrency/stopwatch.hpp"
+#include "base/container/lru_cache.h"
+#include "base/debug/trace.h"
+#include "base/testutil/sync_point.h"
+#include "base/time/time.h"
+#include "base/utility/scoped_cleanup.h"
 #include "common/status.h"
+#include "common/thread/thread.h"
+#include "common/util/bthreads/executor.h"
 #include "cumulative_compaction.h"
 #include "fs/fd_cache.h"
 #include "fs/fs_util.h"
@@ -55,12 +63,13 @@
 #include "runtime/client_cache.h"
 #include "runtime/current_thread.h"
 #include "runtime/exec_env.h"
+#include "runtime/starrocks_metrics.h"
 #include "storage/base_compaction.h"
 #include "storage/compaction_manager.h"
 #include "storage/data_dir.h"
 #include "storage/dictionary_cache_manager.h"
-#include "storage/lake/load_spill_block_manager.h"
 #include "storage/lake/local_pk_index_manager.h"
+#include "storage/load_spill_block_manager.h"
 #include "storage/memtable_flush_executor.h"
 #include "storage/publish_version_manager.h"
 #include "storage/replication_txn_manager.h"
@@ -74,16 +83,8 @@
 #include "storage/tablet_meta_manager.h"
 #include "storage/task/engine_task.h"
 #include "storage/update_manager.h"
-#include "testutil/sync_point.h"
-#include "util/bthreads/executor.h"
-#include "util/lru_cache.h"
-#include "util/scoped_cleanup.h"
-#include "util/starrocks_metrics.h"
-#include "util/stopwatch.hpp"
-#include "util/thread.h"
+#include "util/global_metrics_registry.h"
 #include "util/thrift_rpc_helper.h"
-#include "util/time.h"
-#include "util/trace.h"
 
 namespace starrocks {
 
@@ -168,12 +169,7 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
     threads.reserve(data_dirs.size());
     for (auto data_dir : data_dirs) {
-        threads.emplace_back([data_dir] {
-            auto res = data_dir->load();
-            if (!res.ok()) {
-                LOG(WARNING) << "Fail to load data dir=" << data_dir->path() << ", res=" << res.to_string();
-            }
-        });
+        threads.emplace_back([data_dir] { (void)data_dir->load(); });
         Thread::set_thread_name(threads.back(), "load_data_dir");
 
         threads.emplace_back([data_dir] {
@@ -229,7 +225,7 @@ Status StorageEngine::_open(const EngineOptions& options) {
     std::unique_ptr<ThreadPool> thread_pool;
     RETURN_IF_ERROR(ThreadPoolBuilder("delta_writer")
                             .set_min_threads(1)
-                            .set_max_threads(std::max<int>(1, config::number_tablet_writer_threads))
+                            .set_max_threads(caculate_delta_writer_thread_num(config::number_tablet_writer_threads))
                             .set_max_queue_size(40960 /*a random chosen number that should big enough*/)
                             .set_idle_timeout(MonoDelta::FromMilliseconds(/*5 minutes=*/5 * 60 * 1000))
                             .build(&thread_pool));
@@ -240,7 +236,7 @@ Status StorageEngine::_open(const EngineOptions& options) {
             async_delta_writer,
             static_cast<bthreads::ThreadPoolExecutor*>(_async_delta_writer_executor.get())->get_thread_pool());
 
-    _load_spill_block_merge_executor = std::make_unique<lake::LoadSpillBlockMergeExecutor>();
+    _load_spill_block_merge_executor = std::make_unique<LoadSpillBlockMergeExecutor>();
     RETURN_IF_ERROR(_load_spill_block_merge_executor->init());
     REGISTER_THREAD_POOL_METRICS(load_spill_block_merge, _load_spill_block_merge_executor->get_thread_pool());
 
@@ -420,6 +416,9 @@ void StorageEngine::_start_disk_stat_monitor() {
 
 // TODO(lingbin): Should be in EnvPosix?
 Status StorageEngine::_check_file_descriptor_number() {
+#ifdef __APPLE__
+    LOG(INFO) << "File descriptor check skipped on macOS";
+#else
     struct rlimit l;
     int ret = getrlimit(RLIMIT_NOFILE, &l);
     if (ret != 0) {
@@ -432,6 +431,7 @@ Status StorageEngine::_check_file_descriptor_number() {
                    << config::min_file_descriptor_number;
         return Status::InternalError("file descriptors limit is too small");
     }
+#endif
     return Status::OK();
 }
 
@@ -656,7 +656,6 @@ void StorageEngine::stop() {
 #endif
 
     JOIN_THREAD(_fd_cache_clean_thread)
-    JOIN_THREAD(_adjust_cache_thread)
 
     if (config::path_gc_check) {
         JOIN_THREADS(_path_scan_threads)
@@ -679,6 +678,12 @@ void StorageEngine::stop() {
     if (_compaction_manager) {
         _compaction_manager->stop();
     }
+
+#ifdef USE_STAROS
+    if (_local_pk_index_manager) {
+        _local_pk_index_manager->stop();
+    }
+#endif
 }
 
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) {
@@ -693,7 +698,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "Clearing transaction task txn_id: " << transaction_id;
 
     for (const TPartitionId& partition_id : partition_ids) {
-        std::map<TabletInfo, RowsetSharedPtr> tablet_infos;
+        std::map<TabletInfo, std::pair<RowsetSharedPtr, bool>> tablet_infos;
         StorageEngine::instance()->txn_manager()->get_txn_related_tablets(transaction_id, partition_id, &tablet_infos);
 
         // each tablet
@@ -740,7 +745,11 @@ void StorageEngine::compaction_check() {
 // Compaction checker will check whether to schedule base compaction for tablets
 size_t StorageEngine::_compaction_check_one_round() {
     size_t batch_size = _compaction_manager->max_task_num();
+#ifdef BE_TEST
+    int batch_sleep_time_ms = 1; // 1ms
+#else
     int batch_sleep_time_ms = 1000;
+#endif
     std::vector<TabletSharedPtr> tablets;
     tablets.reserve(batch_size);
     size_t tablets_num_checked = 0;

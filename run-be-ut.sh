@@ -37,10 +37,12 @@ Usage: $0 <options>
      --dry-run                      dry-run unit tests
      --clean                        clean old unit tests before run
      --with-gcov                    enable to build with gcov
+     --with-dynamic                 enable to build with dynamic libs
      --with-aws                     enable to test aws
      --with-bench                   enable to build with benchmark
      --excluding-test-suit          don't run cases of specific suit
      --module                       module to run uts
+     --build-target TARGET          only build the specified target (e.g. base_test)
      --enable-shared-data           enable to build with shared-data feature support
      --without-starcache            build without starcache library
      --use-staros                   DEPRECATED. an alias of --enable-shared-data option
@@ -84,15 +86,18 @@ OPTS=$(getopt \
   -l 'dry-run' \
   -l 'clean' \
   -l 'with-gcov' \
+  -l 'with-dynamic' \
   -l 'module:' \
   -l 'with-aws' \
   -l 'with-bench' \
   -l 'excluding-test-suit:' \
   -l 'use-staros' \
   -l 'enable-shared-data' \
+  -l 'build-target:' \
   -l 'without-starcache' \
-  -l 'with-brpc-keepalive' \
+  -l 'without-java-ext' \
   -l 'without-debug-symbol-split' \
+  -l 'without-java-ext' \
   -o 'j:' \
   -l 'help' \
   -l 'run' \
@@ -118,6 +123,10 @@ WITH_STARCACHE=ON
 WITH_BRPC_KEEPALIVE=OFF
 WITH_DEBUG_SYMBOL_SPLIT=ON
 BUILD_JAVA_EXT=ON
+BUILD_TARGET=
+if [[ -z ${WITH_DYNAMIC} ]]; then
+    WITH_DYNAMIC=OFF
+fi
 while true; do
     case "$1" in
         --clean) CLEAN=1 ; shift ;;
@@ -129,10 +138,11 @@ while true; do
         --help) HELP=1 ; shift ;;
         --with-aws) WITH_AWS=ON; shift ;;
         --with-gcov) WITH_GCOV=ON; shift ;;
+        --with-dynamic) WITH_DYNAMIC=ON; shift ;;
         --without-starcache) WITH_STARCACHE=OFF; shift ;;
-        --with-brpc-keepalive) WITH_BRPC_KEEPALIVE=ON; shift ;;
         --excluding-test-suit) EXCLUDING_TEST_SUIT=$2; shift 2;;
         --enable-shared-data|--use-staros) USE_STAROS=ON; shift ;;
+        --build-target) BUILD_TARGET=$2; shift 2;;
         --without-debug-symbol-split) WITH_DEBUG_SYMBOL_SPLIT=OFF; shift ;;
         --without-java-ext) BUILD_JAVA_EXT=OFF; shift ;;
         -j) PARALLEL=$2; shift 2 ;;
@@ -140,6 +150,11 @@ while true; do
         *) echo "Internal error" ; exit 1 ;;
     esac
 done
+
+if [[ "${BUILD_TYPE}" == "ASAN" && "${WITH_GCOV}" == "ON" ]]; then
+    echo "Error: ASAN and gcov cannot be enabled at the same time. Please disable one of them."
+    exit 1
+fi
 
 if [ ${HELP} -eq 1 ]; then
     usage
@@ -163,7 +178,11 @@ if [[ -z ${USE_AVX512} ]]; then
 fi
 echo "Build Backend UT"
 
-CMAKE_BUILD_DIR=${STARROCKS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}
+if [ -z $CMAKE_BUILD_PREFIX ]; then
+    CMAKE_BUILD_PREFIX=${STARROCKS_HOME}/be
+fi
+
+CMAKE_BUILD_DIR=${CMAKE_BUILD_PREFIX}/ut_build_${CMAKE_BUILD_TYPE}
 if [ ${CLEAN} -eq 1 ]; then
     rm ${CMAKE_BUILD_DIR} -rf
     rm ${STARROCKS_HOME}/be/output/ -rf
@@ -197,11 +216,17 @@ else
     echo "Skip Building Java Extensions"
 fi
 
+if [[ -z ${CCACHE} ]] && [[ -x "$(command -v ccache)" ]]; then
+    CCACHE=ccache
+    export CCACHE_SLOPPINESS="pch_defines,time_macros"
+fi
+
+
 cd ${CMAKE_BUILD_DIR}
 ${CMAKE_CMD}  -G "${CMAKE_GENERATOR}" \
             -DSTARROCKS_THIRDPARTY=${STARROCKS_THIRDPARTY}\
             -DSTARROCKS_HOME=${STARROCKS_HOME} \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=$CCACHE \
             -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
             -DUSE_AVX2=$USE_AVX2 -DUSE_AVX512=$USE_AVX512 -DUSE_SSE4_2=$USE_SSE4_2 -DUSE_BMI_2=$USE_BMI_2\
             -DUSE_STAROS=${USE_STAROS} \
@@ -211,23 +236,41 @@ ${CMAKE_CMD}  -G "${CMAKE_GENERATOR}" \
             -DWITH_BRPC_KEEPALIVE=${WITH_BRPC_KEEPALIVE} \
             -DSTARROCKS_JIT_ENABLE=ON \
             -DWITH_RELATIVE_SRC_PATH=OFF \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ../
+            -DENABLE_MULTI_DYNAMIC_LIBS=${WITH_DYNAMIC} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            ${STARROCKS_HOME}/be
 
-${BUILD_SYSTEM} -j${PARALLEL}
+if [[ -n "$BUILD_TARGET" ]]; then
+    ${BUILD_SYSTEM} -j${PARALLEL} ${BUILD_TARGET}
+else
+    ${BUILD_SYSTEM} -j${PARALLEL}
+fi
 
 cd ${STARROCKS_HOME}
-export STARROCKS_TEST_BINARY_DIR=${CMAKE_BUILD_DIR}/test
-TEST_BIN=starrocks_test
-if [ "x$WITH_DEBUG_SYMBOL_SPLIT" = "xON" ] && test -f ${STARROCKS_TEST_BINARY_DIR}/$TEST_BIN ; then
-    pushd ${STARROCKS_TEST_BINARY_DIR} >/dev/null 2>&1
-    TEST_BIN_SYMBOL=starrocks_test.debuginfo
-    echo -n "[INFO] Split $TEST_BIN debug symbol to $TEST_BIN_SYMBOL ..."
-    objcopy --only-keep-debug $TEST_BIN $TEST_BIN_SYMBOL
-    strip --strip-debug $TEST_BIN
-    objcopy --add-gnu-debuglink=$TEST_BIN_SYMBOL $TEST_BIN
-    # continue the echo output from the previous `echo -n`
-    echo " split done."
-    popd >/dev/null 2>&1
+export STARROCKS_TEST_BINARY_BASE_DIR=${CMAKE_BUILD_DIR}
+export STARROCKS_TEST_BINARY_DIR=${STARROCKS_TEST_BINARY_BASE_DIR}/test
+
+split_debug_symbol() {
+    local bin="$1"
+    local symbol="${bin}.debuginfo"
+    echo -n "[INFO] Split $(basename "$bin") debug symbol to $(basename "$symbol") ..."
+    objcopy --only-keep-debug "$bin" "$symbol"
+    strip --strip-debug "$bin"
+    objcopy --add-gnu-debuglink="$symbol" "$bin"
+}
+
+if [ "x$WITH_DEBUG_SYMBOL_SPLIT" = "xON" ] ; then
+    if [ "x$WITH_DEBUG_SO_SYMBOL_SPLIT" = "xON" ] ; then
+        find "${STARROCKS_TEST_BINARY_BASE_DIR}" -type f -name "*.so*" ! -name "*.debuginfo" | while read -r so; do
+            split_debug_symbol "$so"
+        done
+    fi
+    if [ -f "${STARROCKS_TEST_BINARY_BASE_DIR}/test/starrocks_test" ]; then
+        split_debug_symbol ${STARROCKS_TEST_BINARY_BASE_DIR}/test/starrocks_test
+    fi
+    if [ -f "${STARROCKS_TEST_BINARY_BASE_DIR}/test/starrocks_dw_test" ]; then
+        split_debug_symbol ${STARROCKS_TEST_BINARY_BASE_DIR}/test/starrocks_dw_test
+    fi
 fi
 
 echo "*********************************"
@@ -238,13 +281,18 @@ export TERM=xterm
 export UDF_RUNTIME_DIR=${STARROCKS_HOME}/lib/udf-runtime
 export LOG_DIR=${STARROCKS_HOME}/log
 export LSAN_OPTIONS=suppressions=${STARROCKS_HOME}/conf/asan_suppressions.conf
-for i in `sed 's/ //g' $STARROCKS_HOME/conf/be_test.conf | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`; do
+for i in `sed 's/ //g' $STARROCKS_HOME/conf/be_test.conf | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`; do
     eval "export $i";
 done
 
 mkdir -p $LOG_DIR
 mkdir -p ${UDF_RUNTIME_DIR}
 rm -f ${UDF_RUNTIME_DIR}/*
+
+export LD_LIBRARY_PATH=${STARROCKS_THIRDPARTY}/installed/jemalloc/lib-shared/:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=${STARROCKS_THIRDPARTY}/installed/lib64/:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=${STARROCKS_THIRDPARTY}/installed/llvm/lib/:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$(find ${CMAKE_BUILD_DIR} -type f -name "*.so" -exec dirname {} \; | sort -u | tr '\n' ':' | sed 's/:$//'):$LD_LIBRARY_PATH
 
 # ====================== configure JAVA/JVM ====================
 # NOTE: JAVA_HOME must be configed if using hdfs scan, like hive external table
@@ -269,15 +317,14 @@ else
     fi
 fi
 
-export LD_LIBRARY_PATH=$STARROCKS_HOME/lib/hadoop/native:$LD_LIBRARY_PATH
 if [[ -n "$STARROCKS_GCC_HOME" ]] ; then
     # add gcc lib64 into LD_LIBRARY_PATH because of dynamic link libstdc++ and libgcc
-    export LD_LIBRARY_PATH=$STARROCKS_GCC_HOME/lib64:$LD_LIBRARY_PATH
+    export LD_LIBRARY_PATH=$(dirname $($STARROCKS_GCC_HOME/bin/g++ -print-file-name=libstdc++.so)):$LD_LIBRARY_PATH
 fi
 
-THIRDPARTY_HADOOP_HOME=${STARROCKS_THIRDPARTY}/installed/hadoop/share/hadoop
-if [[ -d ${THIRDPARTY_HADOOP_HOME} ]] ; then
-    export HADOOP_CLASSPATH=${THIRDPARTY_HADOOP_HOME}/common/*:${THIRDPARTY_HADOOP_HOME}/common/lib/*:${THIRDPARTY_HADOOP_HOME}/hdfs/*:${THIRDPARTY_HADOOP_HOME}/hdfs/lib/*
+RUN_UT_HADOOP_COMMON_HOME=${STARROCKS_HOME}/java-extensions/hadoop-lib/target/hadoop-lib
+if [[ -d ${RUN_UT_HADOOP_COMMON_HOME} ]] ; then
+    export HADOOP_CLASSPATH=${RUN_UT_HADOOP_COMMON_HOME}/*:${RUN_UT_HADOOP_COMMON_HOME}/lib/*:
     # get rid of StackOverflowError on the process reaper thread, which has a small stack size.
     # https://bugs.openjdk.org/browse/JDK-8153057
     export LIBHDFS_OPTS="$LIBHDFS_OPTS -Djdk.lang.processReaperUseDefaultStackSize=true"
@@ -316,24 +363,33 @@ cp -r ${STARROCKS_HOME}/be/test/util/test_data ${STARROCKS_TEST_BINARY_DIR}/util
 
 test_files=`find ${STARROCKS_TEST_BINARY_DIR} -type f -perm -111 -name "*test" \
     | grep -v starrocks_test \
+    | grep -v starrocks_dw_test \
     | grep -v bench_test \
+    | grep -v builtin_functions_fuzzy_test \
     | grep -e "$TEST_MODULE" `
 
 echo "[INFO] gtest_filter: $TEST_NAME"
-# run cases in starrocks_test in parallel if has gtest-parallel script.
-# reference: https://github.com/google/gtest-parallel
-if [[ $TEST_MODULE == '.*'  || $TEST_MODULE == 'starrocks_test' ]]; then
-  echo "Run test: ${STARROCKS_TEST_BINARY_DIR}/starrocks_test"
-  if [ ${DRY_RUN} -eq 0 ]; then
-    if [ -x "${GTEST_PARALLEL}" ]; then
-        ${GTEST_PARALLEL} ${STARROCKS_TEST_BINARY_DIR}/starrocks_test \
-            --gtest_filter=${TEST_NAME} \
-            --serialize_test_cases ${GTEST_PARALLEL_OPTIONS}
-    else
-        ${STARROCKS_TEST_BINARY_DIR}/starrocks_test $GTEST_OPTIONS --gtest_filter=${TEST_NAME}
+
+run_test_module() {
+    TARGET=$1
+    # run cases in gunit test in parallel if has gtest-parallel script.
+    # reference: https://github.com/google/gtest-parallel
+    if [[ $TEST_MODULE == '.*'  || $TEST_MODULE == $TARGET ]]; then
+        echo "Run test: ${STARROCKS_TEST_BINARY_DIR}/$TARGET"
+        if [ ${DRY_RUN} -eq 0 ]; then
+            if [ -x "${GTEST_PARALLEL}" ]; then
+                ${GTEST_PARALLEL} ${STARROCKS_TEST_BINARY_DIR}/$TARGET \
+                    --gtest_filter=${TEST_NAME} \
+                    --serialize_test_cases ${GTEST_PARALLEL_OPTIONS}
+            else
+                ${STARROCKS_TEST_BINARY_DIR}/$TARGET $GTEST_OPTIONS --gtest_filter=${TEST_NAME}
+            fi
+        fi
     fi
-  fi
-fi
+}
+
+run_test_module starrocks_test
+run_test_module starrocks_dw_test
 
 for test_bin in $test_files
 do
@@ -345,4 +401,3 @@ do
         fi
     fi
 done
-

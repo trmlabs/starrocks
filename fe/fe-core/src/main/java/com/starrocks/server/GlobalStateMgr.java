@@ -44,8 +44,7 @@ import com.starrocks.alter.AlterJobMgr;
 import com.starrocks.alter.MaterializedViewHandler;
 import com.starrocks.alter.SchemaChangeHandler;
 import com.starrocks.alter.SystemHandler;
-import com.starrocks.analysis.LiteralExpr;
-import com.starrocks.analysis.TableName;
+import com.starrocks.alter.reshard.TabletReshardJobMgr;
 import com.starrocks.authentication.AuthenticationMgr;
 import com.starrocks.authentication.JwkMgr;
 import com.starrocks.authorization.AccessControlProvider;
@@ -69,14 +68,13 @@ import com.starrocks.catalog.FunctionSet;
 import com.starrocks.catalog.GlobalFunctionMgr;
 import com.starrocks.catalog.MaterializedView;
 import com.starrocks.catalog.MetaReplayState;
-import com.starrocks.catalog.PrimitiveType;
 import com.starrocks.catalog.RefreshDictionaryCacheTaskDaemon;
 import com.starrocks.catalog.ResourceGroupMgr;
 import com.starrocks.catalog.ResourceMgr;
 import com.starrocks.catalog.Table;
+import com.starrocks.catalog.TableName;
 import com.starrocks.catalog.TabletInvertedIndex;
 import com.starrocks.catalog.TabletStatMgr;
-import com.starrocks.catalog.Type;
 import com.starrocks.catalog.constraint.GlobalConstraintManager;
 import com.starrocks.clone.ColocateTableBalancer;
 import com.starrocks.clone.DynamicPartitionScheduler;
@@ -92,10 +90,12 @@ import com.starrocks.common.ErrorCode;
 import com.starrocks.common.ErrorReport;
 import com.starrocks.common.FeConstants;
 import com.starrocks.common.InvalidConfException;
+import com.starrocks.common.LogCleaner;
 import com.starrocks.common.StarRocksException;
 import com.starrocks.common.ThreadPoolManager;
 import com.starrocks.common.io.Text;
 import com.starrocks.common.io.Writable;
+import com.starrocks.common.mv.MaterializedViewDependencyGraph;
 import com.starrocks.common.util.Daemon;
 import com.starrocks.common.util.FrontendDaemon;
 import com.starrocks.common.util.LogUtil;
@@ -119,6 +119,7 @@ import com.starrocks.consistency.LockChecker;
 import com.starrocks.consistency.MetaRecoveryDaemon;
 import com.starrocks.encryption.KeyMgr;
 import com.starrocks.encryption.KeyRotationDaemon;
+import com.starrocks.extension.ExtensionManager;
 import com.starrocks.ha.FrontendNodeType;
 import com.starrocks.ha.HAProtocol;
 import com.starrocks.ha.LeaderInfo;
@@ -135,13 +136,14 @@ import com.starrocks.journal.JournalInconsistentException;
 import com.starrocks.journal.JournalTask;
 import com.starrocks.journal.JournalWriter;
 import com.starrocks.journal.bdbje.Timestamp;
-import com.starrocks.lake.ShardManager;
 import com.starrocks.lake.StarMgrMetaSyncer;
 import com.starrocks.lake.StarOSAgent;
+import com.starrocks.lake.TabletWriteLogHistorySyncer;
 import com.starrocks.lake.compaction.CompactionControlScheduler;
 import com.starrocks.lake.compaction.CompactionMgr;
 import com.starrocks.lake.snapshot.ClusterSnapshotMgr;
 import com.starrocks.lake.vacuum.AutovacuumDaemon;
+import com.starrocks.lake.vacuum.FullVacuumDaemon;
 import com.starrocks.leader.CheckpointController;
 import com.starrocks.leader.ReportHandler;
 import com.starrocks.leader.TabletCollector;
@@ -168,11 +170,12 @@ import com.starrocks.load.routineload.RoutineLoadTaskScheduler;
 import com.starrocks.load.streamload.StreamLoadMgr;
 import com.starrocks.memory.MemoryUsageTracker;
 import com.starrocks.memory.ProcProfileCollector;
+import com.starrocks.memory.estimate.IgnoreMemoryTrack;
 import com.starrocks.meta.SqlBlackList;
+import com.starrocks.meta.SqlDigestBlackList;
 import com.starrocks.metric.MetricRepo;
 import com.starrocks.persist.BackendIdsUpdateInfo;
 import com.starrocks.persist.EditLog;
-import com.starrocks.persist.ImageFormatVersion;
 import com.starrocks.persist.ImageHeader;
 import com.starrocks.persist.ImageLoader;
 import com.starrocks.persist.ImageWriter;
@@ -189,16 +192,17 @@ import com.starrocks.plugin.PluginMgr;
 import com.starrocks.qe.AuditEventProcessor;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.DDLStmtExecutor;
+import com.starrocks.qe.GlobalVariable;
 import com.starrocks.qe.JournalObservable;
 import com.starrocks.qe.QueryStatisticsInfo;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.qe.ShowExecutor;
+import com.starrocks.qe.SimpleScheduler;
 import com.starrocks.qe.VariableMgr;
 import com.starrocks.qe.scheduler.slot.BaseSlotManager;
 import com.starrocks.qe.scheduler.slot.GlobalSlotProvider;
 import com.starrocks.qe.scheduler.slot.LocalSlotProvider;
 import com.starrocks.qe.scheduler.slot.ResourceUsageMonitor;
-import com.starrocks.qe.scheduler.slot.SlotManager;
 import com.starrocks.qe.scheduler.slot.SlotProvider;
 import com.starrocks.replication.ReplicationMgr;
 import com.starrocks.rpc.ThriftConnectionPool;
@@ -214,16 +218,21 @@ import com.starrocks.sql.analyzer.AuthorizerStmtVisitor;
 import com.starrocks.sql.ast.RefreshTableStmt;
 import com.starrocks.sql.ast.SetType;
 import com.starrocks.sql.ast.SystemVariable;
+import com.starrocks.sql.ast.TableRef;
+import com.starrocks.sql.ast.expression.LiteralExprFactory;
+import com.starrocks.sql.optimizer.CachingMvPlanContextBuilder;
 import com.starrocks.sql.optimizer.statistics.CachedStatisticStorage;
 import com.starrocks.sql.optimizer.statistics.StatisticStorage;
 import com.starrocks.sql.parser.AstBuilder;
 import com.starrocks.sql.parser.SqlParser;
+import com.starrocks.sql.spm.SPMAutoCapturer;
 import com.starrocks.sql.spm.SQLPlanStorage;
 import com.starrocks.staros.StarMgrServer;
 import com.starrocks.statistic.AnalyzeMgr;
 import com.starrocks.statistic.StatisticAutoCollector;
 import com.starrocks.statistic.StatisticsMetaManager;
 import com.starrocks.statistic.columns.PredicateColumnsMgr;
+import com.starrocks.summary.QueryHistoryMgr;
 import com.starrocks.system.Backend;
 import com.starrocks.system.ComputeNode;
 import com.starrocks.system.Frontend;
@@ -243,7 +252,10 @@ import com.starrocks.thrift.TStatusCode;
 import com.starrocks.transaction.GlobalTransactionMgr;
 import com.starrocks.transaction.GtidGenerator;
 import com.starrocks.transaction.PublishVersionDaemon;
+import com.starrocks.type.BooleanType;
+import com.starrocks.type.PrimitiveType;
 import com.starrocks.warehouse.WarehouseIdleChecker;
+import com.starrocks.warehouse.cngroup.ComputeResource;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -252,15 +264,16 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -272,6 +285,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+@IgnoreMemoryTrack
 public class GlobalStateMgr {
     private static final Logger LOG = LogManager.getLogger(GlobalStateMgr.class);
     // 0 ~ 9999 used for qe
@@ -281,12 +295,6 @@ public class GlobalStateMgr {
     // will break the loop and refresh in-memory data after at most 10w logs or at most 1 seconds
     private static final long REPLAYER_MAX_MS_PER_LOOP = 1000L;
     private static final long REPLAYER_MAX_LOGS_PER_LOOP = 100000L;
-
-    /**
-     * Meta and Image context
-     */
-    private String imageDir;
-    private volatile long epoch = 0;
 
     // Lock to perform atomic modification on map like 'idToDb' and 'fullNameToDb'.
     // These maps are all thread safe, we only use lock to perform atomic operations.
@@ -312,14 +320,14 @@ public class GlobalStateMgr {
 
     private final Load load;
     private final LoadMgr loadMgr;
-    private final RoutineLoadMgr routineLoadMgr;
+    private RoutineLoadMgr routineLoadMgr;
     private final StreamLoadMgr streamLoadMgr;
     private final BatchWriteMgr batchWriteMgr;
     private final ExportMgr exportMgr;
     private final MaterializedViewMgr materializedViewMgr;
 
     private final ConsistencyChecker consistencyChecker;
-    private final BackupHandler backupHandler;
+    private BackupHandler backupHandler;
     private final PublishVersionDaemon publishVersionDaemon;
     private final DeleteMgr deleteMgr;
     private final DatabaseQuotaRefresher updateDbUsedDataQuotaDaemon;
@@ -407,6 +415,7 @@ public class GlobalStateMgr {
 
     private final LoadTimeoutChecker loadTimeoutChecker;
     private final LoadsHistorySyncer loadsHistorySyncer;
+    private final TabletWriteLogHistorySyncer tabletWriteLogHistorySyncer;
     private final LoadEtlChecker loadEtlChecker;
     private final LoadLoadingChecker loadLoadingChecker;
     private final LockChecker lockChecker;
@@ -458,9 +467,6 @@ public class GlobalStateMgr {
     private LocalMetastore localMetastore;
     private final GlobalFunctionMgr globalFunctionMgr;
 
-    @Deprecated
-    private final ShardManager shardManager;
-
     private final StateChangeExecution execution;
 
     private TaskRunStateSynchronizer taskRunStateSynchronizer;
@@ -482,6 +488,7 @@ public class GlobalStateMgr {
     private final StorageVolumeMgr storageVolumeMgr;
 
     private AutovacuumDaemon autovacuumDaemon;
+    private FullVacuumDaemon fullVacuumDaemon;
 
     private final PipeManager pipeManager;
     private final PipeListener pipeListener;
@@ -495,8 +502,7 @@ public class GlobalStateMgr {
 
     private LockManager lockManager;
 
-    private final ResourceUsageMonitor resourceUsageMonitor = new ResourceUsageMonitor();
-    private final BaseSlotManager slotManager;
+    private final BaseSlotManager slotManager = ExtensionManager.getComponent(BaseSlotManager.class);
     private final GlobalSlotProvider globalSlotProvider = new GlobalSlotProvider();
     private final SlotProvider localSlotProvider = new LocalSlotProvider();
     private final GlobalLoadJobListenerBus operationListenerBus = new GlobalLoadJobListenerBus();
@@ -507,6 +513,8 @@ public class GlobalStateMgr {
     private MemoryUsageTracker memoryUsageTracker;
 
     private ProcProfileCollector procProfileCollector;
+
+    private LogCleaner logCleaner;
 
     private final MetaRecoveryDaemon metaRecoveryDaemon = new MetaRecoveryDaemon();
 
@@ -529,11 +537,16 @@ public class GlobalStateMgr {
     private final ClusterSnapshotMgr clusterSnapshotMgr;
 
     private final SqlBlackList sqlBlackList;
+    private final SqlDigestBlackList sqlDigestBlackList;
     private final ReportHandler reportHandler;
     private final TabletCollector tabletCollector;
     private final SQLPlanStorage sqlPlanStorage;
+    private final QueryHistoryMgr queryHistoryMgr;
+    private final SPMAutoCapturer spmAutoCapturer;
 
     private JwkMgr jwkMgr;
+
+    private final TabletReshardJobMgr tabletReshardJobMgr;
 
     public NodeMgr getNodeMgr() {
         return nodeMgr;
@@ -543,10 +556,11 @@ public class GlobalStateMgr {
         return journalObservable;
     }
 
-    public TNodesInfo createNodesInfo(long warehouseId, SystemInfoService systemInfoService) {
+    public TNodesInfo createNodesInfo(ComputeResource computeResource, SystemInfoService systemInfoService) {
         TNodesInfo nodesInfo = new TNodesInfo();
         if (RunMode.isSharedDataMode()) {
-            List<Long> computeNodeIds = warehouseMgr.getAllComputeNodeIds(warehouseId);
+            final WarehouseManager warehouseManager = GlobalStateMgr.getCurrentState().getWarehouseMgr();
+            final List<Long> computeNodeIds = warehouseManager.getAllComputeNodeIds(computeResource);
             for (Long cnId : computeNodeIds) {
                 ComputeNode cn = systemInfoService.getBackendOrComputeNode(cnId);
                 nodesInfo.addToNodes(new TNodeInfo(cnId, 0, cn.getIP(), cn.getBrpcPort()));
@@ -645,6 +659,8 @@ public class GlobalStateMgr {
     private GlobalStateMgr(boolean isCkptGlobalState, NodeMgr nodeMgr) {
         if (!isCkptGlobalState) {
             RunMode.detectRunMode();
+            // set the global read-only variable again, avoid static variable initialization order chaos
+            GlobalVariable.runMode = Config.run_mode;
         }
 
         if (RunMode.isSharedDataMode()) {
@@ -663,7 +679,7 @@ public class GlobalStateMgr {
                 new MaterializedViewHandler(),
                 new SystemHandler());
         this.lakeAlterPublishExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
-                Config.lake_publish_version_max_threads, "alter-publish", false);
+                Config.publish_version_max_threads, "alter-publish", false);
 
         this.load = new Load();
         this.streamLoadMgr = new StreamLoadMgr();
@@ -683,6 +699,8 @@ public class GlobalStateMgr {
         this.safeModeChecker = new SafeModeChecker();
         this.statisticStorage = new CachedStatisticStorage();
         this.sqlPlanStorage = SQLPlanStorage.create(true);
+        this.queryHistoryMgr = new QueryHistoryMgr();
+        this.spmAutoCapturer = new SPMAutoCapturer();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.synchronizedTimeMs = 0;
@@ -731,6 +749,7 @@ public class GlobalStateMgr {
         this.loadMgr = new LoadMgr(loadJobScheduler);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadMgr);
         this.loadsHistorySyncer = new LoadsHistorySyncer();
+        this.tabletWriteLogHistorySyncer = new TabletWriteLogHistorySyncer();
         this.loadEtlChecker = new LoadEtlChecker(loadMgr);
         this.loadLoadingChecker = new LoadLoadingChecker(loadMgr);
         this.lockChecker = new LockChecker();
@@ -743,14 +762,12 @@ public class GlobalStateMgr {
         this.dynamicPartitionScheduler = new DynamicPartitionScheduler("DynamicPartitionScheduler",
                 Config.dynamic_partition_check_interval_seconds * 1000L);
 
-        setMetaDir();
-
         this.pluginMgr = new PluginMgr();
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.analyzeMgr = new AnalyzeMgr();
         this.localMetastore = new LocalMetastore(this, recycleBin, colocateTableIndex);
         this.temporaryTableMgr = new TemporaryTableMgr();
-        this.warehouseMgr = new WarehouseManager();
+        this.warehouseMgr = ExtensionManager.getComponent(WarehouseManager.class);
         this.historicalNodeMgr = new HistoricalNodeMgr();
         this.connectorMgr = new ConnectorMgr();
         this.connectorTblMetaInfoMgr = new ConnectorTblMetaInfoMgr();
@@ -760,7 +777,6 @@ public class GlobalStateMgr {
 
         this.taskManager = new TaskManager();
         this.insertOverwriteJobMgr = new InsertOverwriteJobMgr();
-        this.shardManager = new ShardManager();
         this.compactionMgr = new CompactionMgr();
         this.compactionControlScheduler = new CompactionControlScheduler();
         this.configRefreshDaemon = new ConfigRefreshDaemon();
@@ -776,10 +792,9 @@ public class GlobalStateMgr {
         if (RunMode.isSharedDataMode()) {
             this.storageVolumeMgr = new SharedDataStorageVolumeMgr();
             this.autovacuumDaemon = new AutovacuumDaemon();
-            this.slotManager = new SlotManager(resourceUsageMonitor);
+            this.fullVacuumDaemon = new FullVacuumDaemon();
         } else {
             this.storageVolumeMgr = new SharedNothingStorageVolumeMgr();
-            this.slotManager = new SlotManager(resourceUsageMonitor);
         }
 
         this.lockManager = new LockManager();
@@ -831,6 +846,7 @@ public class GlobalStateMgr {
 
         this.memoryUsageTracker = new MemoryUsageTracker();
         this.procProfileCollector = new ProcProfileCollector();
+        this.logCleaner = new LogCleaner();
 
         this.sqlParser = new SqlParser(AstBuilder.getInstance());
         this.analyzer = new Analyzer(Analyzer.AnalyzerVisitor.getInstance());
@@ -844,6 +860,7 @@ public class GlobalStateMgr {
         this.ddlStmtExecutor = new DDLStmtExecutor(DDLStmtExecutor.StmtExecutorVisitor.getInstance());
         this.showExecutor = new ShowExecutor(ShowExecutor.ShowExecutorVisitor.getInstance());
         this.sqlBlackList = new SqlBlackList();
+        this.sqlDigestBlackList = new SqlDigestBlackList();
         this.temporaryTableCleaner = new TemporaryTableCleaner();
         this.queryDeployExecutor =
                 ThreadPoolManager.newDaemonFixedThreadPool(Config.query_deploy_threadpool_size, Integer.MAX_VALUE,
@@ -855,6 +872,8 @@ public class GlobalStateMgr {
         this.tabletCollector = new TabletCollector();
 
         this.jwkMgr = new JwkMgr();
+
+        this.tabletReshardJobMgr = new TabletReshardJobMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -917,6 +936,10 @@ public class GlobalStateMgr {
 
     public AnalyzeMgr getAnalyzeMgr() {
         return analyzeMgr;
+    }
+
+    public QueryHistoryMgr getQueryHistoryMgr() {
+        return queryHistoryMgr;
     }
 
     public AuthenticationMgr getAuthenticationMgr() {
@@ -1114,6 +1137,10 @@ public class GlobalStateMgr {
         return clusterSnapshotMgr;
     }
 
+    public TabletReshardJobMgr getTabletReshardJobMgr() {
+        return tabletReshardJobMgr;
+    }
+
     // Use tryLock to avoid potential deadlock
     public boolean tryLock(boolean mustLock) {
         while (true) {
@@ -1153,36 +1180,21 @@ public class GlobalStateMgr {
         return Config.meta_dir + IMAGE_DIR;
     }
 
-    public String getImageDir() {
-        return imageDir;
-    }
-
-    private void setMetaDir() {
-        this.imageDir = Config.meta_dir + IMAGE_DIR;
-        nodeMgr.setImageDir(imageDir);
-    }
-
-    public void initialize(String[] args) throws Exception {
-        // set meta dir first.
-        // we already set these variables in constructor. but GlobalStateMgr is a singleton class.
-        // so they may be set before Config is initialized.
-        // set them here again to make sure these variables use values in fe.conf.
-        setMetaDir();
-
+    public void initialize(String helpers) throws Exception {
         // must judge whether it is first time start here before initializing GlobalStateMgr.
         // Possibly remove clusterId and role to ensure that the system is not left in a half-initialized state.
         boolean isFirstTimeStart = nodeMgr.isVersionAndRoleFilesNotExist();
         try {
             // 0. get local node and helper node info
-            nodeMgr.initialize(args);
+            nodeMgr.initialize(helpers);
 
             // 1. create dirs and files
             if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
-                File imageDir = new File(this.imageDir);
+                File imageDir = new File(getImageDirPath());
                 if (!imageDir.exists()) {
                     imageDir.mkdirs();
                 }
-                File imageV2Dir = new File(this.imageDir + "/v2");
+                File imageV2Dir = new File(getImageDirPath() + "/v2");
                 if (!imageV2Dir.exists()) {
                     imageV2Dir.mkdirs();
                 }
@@ -1200,7 +1212,7 @@ public class GlobalStateMgr {
 
             // 3. Load image first and replay edits
             initJournal();
-            loadImage(this.imageDir); // load image file
+            loadImage(); // load image file
 
             // 4. create load and export job label cleaner thread
             createLabelCleaner();
@@ -1237,6 +1249,7 @@ public class GlobalStateMgr {
     // wait until FE is ready.
     public void waitForReady() throws InterruptedException {
         long lastLoggingTimeMs = System.currentTimeMillis();
+        long lastInfoLogTimeMs = System.currentTimeMillis();
         while (true) {
             if (isReady()) {
                 LOG.info("globalStateMgr is ready. FE type: {}", feType);
@@ -1244,8 +1257,13 @@ public class GlobalStateMgr {
                 break;
             }
 
-            Thread.sleep(2000);
-            LOG.info("wait globalStateMgr to be ready. FE type: {}. is ready: {}", feType, isReady.get());
+            Thread.sleep(20);
+
+            long currentTimeMs = System.currentTimeMillis();
+            if (currentTimeMs - lastInfoLogTimeMs > 2000L) {
+                lastInfoLogTimeMs = currentTimeMs;
+                LOG.info("wait globalStateMgr to be ready. FE type: {}. is ready: {}", feType, isReady.get());
+            }
 
             if (System.currentTimeMillis() - lastLoggingTimeMs > 60000L) {
                 lastLoggingTimeMs = System.currentTimeMillis();
@@ -1282,6 +1300,11 @@ public class GlobalStateMgr {
             replayer = null;
         }
 
+        if (!isDefaultWarehouseCreated) {
+            // A brand-new cluster was up for the first time, the leader node initializes its default warehouse here.
+            initDefaultWarehouse();
+        }
+
         // set this after replay thread stopped. to avoid replay thread modify them.
         isReady.set(false);
 
@@ -1313,6 +1336,10 @@ public class GlobalStateMgr {
                 nodeMgr.resetFrontends();
             }
 
+            if (nodeMgr.isFirstTimeStartUp()) {
+                initCaseInsensitive();
+            }
+
             // MUST set leader ip before starting checkpoint thread.
             // because checkpoint thread need this info to select non-leader FE to push image
             nodeMgr.setLeaderInfo();
@@ -1322,10 +1349,6 @@ public class GlobalStateMgr {
             // start other daemon threads that should run on all FEs
             startAllNodeTypeDaemonThreads();
             insertOverwriteJobMgr.cancelRunningJobs();
-
-            if (!isDefaultWarehouseCreated) {
-                initDefaultWarehouse();
-            }
 
             MetricRepo.init();
 
@@ -1346,9 +1369,10 @@ public class GlobalStateMgr {
                 // changes in concurrency
                 variableMgr.setSystemVariable(variableMgr.getDefaultSessionVariable(), new SystemVariable(SetType.GLOBAL,
                                 SessionVariable.ENABLE_ADAPTIVE_SINK_DOP,
-                                LiteralExpr.create("true", Type.BOOLEAN)),
+                                LiteralExprFactory.create("true", BooleanType.BOOLEAN)),
                         false);
             }
+            checkCaseInsensitive();
         } catch (StarRocksException e) {
             LOG.warn("Failed to set ENABLE_ADAPTIVE_SINK_DOP", e);
         } catch (Throwable t) {
@@ -1360,6 +1384,18 @@ public class GlobalStateMgr {
         createBuiltinStorageVolume();
         resourceGroupMgr.createBuiltinResourceGroupsIfNotExist();
         keyMgr.initDefaultMasterKey();
+
+        // trigger actions after transferring to leader
+        triggerOnTransferToLeader();
+    }
+
+    private void triggerOnTransferToLeader() {
+        try {
+            // trigger to load mv's plan cache async
+            CachingMvPlanContextBuilder.getInstance().triggerPendingMVPlanCacheLoads();
+        } catch (Throwable t) {
+            LOG.warn("Failed to trigger loading mv's plan cache", t);
+        }
     }
 
     public void setFrontendNodeType(FrontendNodeType newType) {
@@ -1394,16 +1430,19 @@ public class GlobalStateMgr {
         loadJobScheduler.start();
         loadTimeoutChecker.start();
         loadsHistorySyncer.start();
+        tabletWriteLogHistorySyncer.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
         // Export checker
         ExportChecker.init(Config.export_checker_interval_second * 1000L);
         ExportChecker.startAll();
-        // Tablet checker and scheduler
-        tabletChecker.start();
-        tabletScheduler.start();
-        // Colocate tables balancer
-        ColocateTableBalancer.getInstance().start();
+        if (!RunMode.isSharedDataMode()) {
+            // Tablet checker and scheduler
+            tabletChecker.start();
+            tabletScheduler.start();
+            // Colocate tables balancer
+            ColocateTableBalancer.getInstance().start();
+        }
         // Publish Version Daemon
         publishVersionDaemon.start();
         // Start txn timeout checker
@@ -1435,6 +1474,7 @@ public class GlobalStateMgr {
         pipeListener.start();
         pipeScheduler.start();
         mvActiveChecker.start();
+        spmAutoCapturer.start();
 
         // start daemon thread to report the progress of RunningTaskRun to the follower by editlog
         taskRunStateSynchronizer = new TaskRunStateSynchronizer();
@@ -1444,9 +1484,13 @@ public class GlobalStateMgr {
             // Need to rebuild active lake compaction transactions before lake scheduler starting to run
             // Lake compactionMgr is started on all FE nodes and scheduler only starts to run when the FE is leader
             compactionMgr.buildActiveCompactionTransactionMap();
+            // restore storage volumes to virtual tablet group mappings while FE is leader
+            // (include after transferring to leader role)
+            ((SharedDataStorageVolumeMgr) storageVolumeMgr).restoreStorageVolumeToVTabletGroupMappings();
 
             starMgrMetaSyncer.start();
             autovacuumDaemon.start();
+            fullVacuumDaemon.start();
         }
 
         if (Config.enable_safe_mode) {
@@ -1467,6 +1511,10 @@ public class GlobalStateMgr {
         }
         reportHandler.start();
         tabletCollector.start();
+
+        if (RunMode.isSharedDataMode()) {
+            tabletReshardJobMgr.start();
+        }
     }
 
     // start threads that should run on all FE
@@ -1510,6 +1558,8 @@ public class GlobalStateMgr {
 
         procProfileCollector.start();
 
+        logCleaner.start();
+
         warehouseIdleChecker.start();
 
         // The memory tracker should be placed at the end
@@ -1518,6 +1568,7 @@ public class GlobalStateMgr {
         connectorTableTriggerAnalyzeMgr.start();
 
         PredicateColumnsMgr.getInstance().startDaemon();
+        SimpleScheduler.startAutoUpdate();
     }
 
     private void transferToNonLeader(FrontendNodeType newType) {
@@ -1533,18 +1584,18 @@ public class GlobalStateMgr {
             return;
         }
 
-        // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
+        if (!isDefaultWarehouseCreated) {
+            // A brand-new cluster was up for the first time, the follower/observer node initializes its default warehouse here.
+            initDefaultWarehouse();
+        }
 
+        // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
         if (replayer == null) {
             createReplayer();
             replayer.start();
         }
 
         startAllNodeTypeDaemonThreads();
-
-        if (!isDefaultWarehouseCreated) {
-            initDefaultWarehouse();
-        }
 
         MetricRepo.init();
 
@@ -1553,8 +1604,8 @@ public class GlobalStateMgr {
 
     // The manager that loads meta from image must be a member of GlobalStateMgr and cannot be SINGLETON,
     // since Checkpoint uses a separate memory.
-    public void loadImage(String imageDir) throws IOException {
-        ImageLoader imageLoader = new ImageLoader(imageDir);
+    public void loadImage() throws IOException {
+        ImageLoader imageLoader = new ImageLoader(getImageDirPath());
         File curFile = imageLoader.getImageFile();
         if (!curFile.exists()) {
             // image.0 may not exist
@@ -1601,7 +1652,9 @@ public class GlobalStateMgr {
                 .put(SRMetaBlockID.WAREHOUSE_MGR, warehouseMgr::load)
                 .put(SRMetaBlockID.CLUSTER_SNAPSHOT_MGR, clusterSnapshotMgr::load)
                 .put(SRMetaBlockID.BLACKLIST_MGR, sqlBlackList::load)
+                .put(SRMetaBlockID.DIGEST_BLACKLIST_MGR, sqlDigestBlackList::load)
                 .put(SRMetaBlockID.HISTORICAL_NODE_MGR, historicalNodeMgr::load)
+                .put(SRMetaBlockID.TABLET_RESHARD_JOB_MGR, tabletReshardJobMgr::load)
                 .build();
 
         Set<SRMetaBlockID> metaMgrMustExists = new HashSet<>(loadImages.keySet());
@@ -1687,6 +1740,11 @@ public class GlobalStateMgr {
         for (Database db : localMetastore.getIdToDb().values()) {
             for (Table table : db.getTables()) {
                 try {
+                    // Skip MaterializedView, which are processed in processMvRelatedMeta()
+                    if (table.isMaterializedView()) {
+                        continue;
+                    }
+
                     table.onReload();
 
                     if (table.isTemporaryTable()) {
@@ -1700,16 +1758,39 @@ public class GlobalStateMgr {
         }
     }
 
-    private void processMvRelatedMeta() {
+    @VisibleForTesting
+    public void processMvRelatedMeta() {
         long startMillis = System.currentTimeMillis();
+        List<MaterializedView> allMVs = new ArrayList<>();
         for (Database db : localMetastore.getIdToDb().values()) {
             for (MaterializedView mv : db.getMaterializedViews()) {
-                mv.onReload();
+                allMVs.add(mv);
             }
         }
 
+        // Process in topological order
+        List<MaterializedView> topoOrder = Config.enable_mv_post_image_reload_cache ?
+                MaterializedViewDependencyGraph.buildTopologicalOrder(allMVs) : allMVs;
+        long topoBuildDuration = System.currentTimeMillis() - startMillis;
+
+        // only load image async when FE restart and it's not checkpoint thread to avoid changing original behavior.
+        boolean isReloadAsync = Config.enable_mv_post_image_reload_cache && !isCheckpointThread();
+        int size = topoOrder.size();
+        for (int i = 0; i < size; i++) {
+            MaterializedView mv = topoOrder.get(i);
+            String dbName = Optional.ofNullable(localMetastore.getDb(mv.getDbId()))
+                    .map(Database::getFullName)
+                    .orElse(String.valueOf(mv.getDbId()));
+            LOG.info("start to reload mv {}/{}: {}.{} after load image, isReloadAsync:{}",
+                    i + 1, size, dbName, mv.getName(), isReloadAsync);
+            // set `postLoadImage` flag to true to indicate that this is called after image loading
+            mv.onReload(isReloadAsync);
+        }
+
         long duration = System.currentTimeMillis() - startMillis;
-        LOG.info("finish processing all tables' related materialized views in {}ms", duration);
+        LOG.info("finish processing all tables' related materialized views in {}ms, " +
+                "isReLoadAsync:{}, total mv count: {}, topo mv order:{}, topo build cost(ms):{}", duration, isReloadAsync,
+                allMVs.size(), topoOrder.size(), topoBuildDuration);
     }
 
     public void loadHeader(DataInputStream dis) throws IOException {
@@ -1739,27 +1820,12 @@ public class GlobalStateMgr {
 
     // Only called by checkpoint thread
     public void saveImage() throws IOException {
-        try {
-            saveImage(ImageFormatVersion.v1);
-        } catch (Throwable t) {
-            // image v1 may fail because of byte[] size overflow, ignore
-            LOG.warn("save image v1 failed, ignore", t);
-        }
-        saveImage(ImageFormatVersion.v2);
-    }
-
-    public void saveImage(ImageFormatVersion formatVersion) throws IOException {
-        String destDir;
-        if (formatVersion == ImageFormatVersion.v1) {
-            destDir = this.imageDir;
-        } else {
-            destDir = this.imageDir + "/v2";
-        }
+        String destDir = getImageDirPath() + "/v2";
         // Write image.ckpt
         Storage storage = new Storage(destDir);
         File curFile = storage.getImageFile(replayedJournalId.get());
         File ckpt = new File(destDir, Storage.IMAGE_NEW);
-        saveImage(new ImageWriter(destDir, formatVersion, replayedJournalId.get()), ckpt);
+        saveImage(new ImageWriter(destDir, replayedJournalId.get()), ckpt);
 
         // Move image.ckpt to image.dataVersion
         LOG.info("Move " + ckpt.getAbsolutePath() + " to " + curFile.getAbsolutePath());
@@ -1784,7 +1850,7 @@ public class GlobalStateMgr {
         LOG.info("start save image to {}. is ckpt: {}", curFile.getAbsolutePath(), GlobalStateMgr.isCheckpointThread());
 
         long saveImageStartTime = System.currentTimeMillis();
-        try (OutputStream outputStream = Files.newOutputStream(curFile.toPath())) {
+        try (FileOutputStream outputStream = new FileOutputStream(curFile)) {
             imageWriter.setOutputStream(outputStream);
             try {
                 saveHeader(imageWriter.getDataOutputStream());
@@ -1823,10 +1889,15 @@ public class GlobalStateMgr {
                 sqlBlackList.save(imageWriter);
                 clusterSnapshotMgr.save(imageWriter);
                 historicalNodeMgr.save(imageWriter);
+                tabletReshardJobMgr.save(imageWriter);
+                sqlDigestBlackList.save(imageWriter);
             } catch (SRMetaBlockException e) {
                 LOG.error("Save meta block failed ", e);
                 throw new IOException("Save meta block failed ", e);
             }
+
+            imageWriter.getDataOutputStream().flush();
+            outputStream.getChannel().force(true);
 
             imageWriter.saveChecksum();
 
@@ -2211,6 +2282,10 @@ public class GlobalStateMgr {
         return this.backupHandler;
     }
 
+    public PublishVersionDaemon getPublishVersionDaemon() {
+        return this.publishVersionDaemon;
+    }
+
     public DeleteMgr getDeleteMgr() {
         return deleteMgr;
     }
@@ -2253,6 +2328,10 @@ public class GlobalStateMgr {
 
     public SqlBlackList getSqlBlackList() {
         return this.sqlBlackList;
+    }
+
+    public SqlDigestBlackList getSqlDigestBlackList() {
+        return this.sqlDigestBlackList;
     }
 
     public MaterializedViewMgr getMaterializedViewMgr() {
@@ -2455,6 +2534,10 @@ public class GlobalStateMgr {
         return functionSet.getFunction(desc, mode);
     }
 
+    public boolean isAggregateFunction(String functionName) {
+        return functionSet.isAggregateFunction(functionName);
+    }
+
     public List<Function> getBuiltinFunctions() {
         return functionSet.getBuiltinFunctions();
     }
@@ -2464,7 +2547,12 @@ public class GlobalStateMgr {
     }
 
     public void refreshExternalTable(ConnectContext context, RefreshTableStmt stmt) throws DdlException {
-        TableName tableName = stmt.getTableName();
+        TableRef tableRef = stmt.getTableRef();
+        if (tableRef == null) {
+            throw new DdlException("Table ref is null");
+        }
+        TableName tableName = new TableName(tableRef.getCatalogName(), tableRef.getDbName(),
+                tableRef.getTableName(), tableRef.getPos());
         List<String> partitionNames = stmt.getPartitions();
         refreshExternalTable(context, tableName, partitionNames);
         refreshOthersFeTable(tableName, partitionNames, true);
@@ -2472,6 +2560,9 @@ public class GlobalStateMgr {
 
     public void refreshOthersFeTable(TableName tableName, List<String> partitions, boolean isSync) throws DdlException {
         List<Frontend> allFrontends = GlobalStateMgr.getCurrentState().getNodeMgr().getFrontends(null);
+        if (allFrontends.size() == 0) {
+            return;
+        }
         Map<String, Future<TStatus>> resultMap = Maps.newHashMapWithExpectedSize(allFrontends.size() - 1);
         for (Frontend fe : allFrontends) {
             if (fe.getHost().equals(GlobalStateMgr.getCurrentState().getNodeMgr().getSelfNode().first)) {
@@ -2610,7 +2701,7 @@ public class GlobalStateMgr {
             dumpFilePath = dumpFile.getAbsolutePath();
             try {
                 LOG.info("begin to dump {}", dumpFilePath);
-                saveImage(new ImageWriter(Config.meta_dir, ImageFormatVersion.v2, journalId), dumpFile);
+                saveImage(new ImageWriter(Config.meta_dir, journalId), dumpFile);
             } catch (IOException e) {
                 LOG.error("failed to dump image to {}", dumpFilePath, e);
             }
@@ -2677,7 +2768,7 @@ public class GlobalStateMgr {
             LOG.warn("task manager clean expire tasks failed", t);
         }
         try {
-            taskManager.removeExpiredTaskRuns();
+            taskManager.removeExpiredTaskRuns(false);
         } catch (Throwable t) {
             LOG.warn("task manager clean expire task runs history failed", t);
         }
@@ -2690,7 +2781,7 @@ public class GlobalStateMgr {
             LOG.warn("task manager clean expire tasks failed", t);
         }
         try {
-            taskManager.removeExpiredTaskRuns();
+            taskManager.removeExpiredTaskRuns(true);
         } catch (Throwable t) {
             LOG.warn("task manager clean expire task runs history failed", t);
         }
@@ -2716,6 +2807,48 @@ public class GlobalStateMgr {
         }
     }
 
+    /**
+     * Initialize the global case-insensitive setting during cluster first startup.
+     *
+     * This method is called ONLY during the initial cluster initialization to set
+     * the global variable {@code GlobalVariable.enable_table_name_case_insensitive} from
+     * {@link Config#enable_table_name_case_insensitive}.
+     *
+     * Once set, this value becomes immutable for the entire cluster lifecycle.
+     * Any failure during initialization will cause the system to exit.
+     */
+    private void initCaseInsensitive() {
+        try {
+            GlobalStateMgr.getCurrentState().getVariableMgr().setCaseInsensitive(Config.enable_table_name_case_insensitive);
+        } catch (Exception e) {
+            LOG.error("Initialization of case-insensitive failed.", e);
+            System.exit(-1);
+        }
+        LOG.info("Finish initializing case-insensitive, value is {}", GlobalVariable.enableTableNameCaseInsensitive);
+    }
+
+    /**
+     * Validate that the configuration value matches the initially recorded value.
+     *
+     * This method ensures that {@link Config#enable_table_name_case_insensitive} has not been
+     * modified since the cluster's initial setup. It compares the current config
+     * value against the immutable {@code GlobalVariable.enableCaseInsensitive}
+     * that was set during first initialization.
+     *
+     * If values don't match, the leader node will fail to start to prevent
+     * potential data inconsistencies from case sensitivity changes.
+     */
+    private void checkCaseInsensitive() {
+        if (Config.enable_table_name_case_insensitive != GlobalVariable.enableTableNameCaseInsensitive) {
+            LOG.error("The configuration of \'enable_table_name_case_insensitive\' does not support modification, "
+                            + "the expected value is {}, but the actual value is {}",
+                    GlobalVariable.enableTableNameCaseInsensitive,
+                    Config.enable_table_name_case_insensitive);
+            System.exit(-1);
+        }
+        LOG.info("enable_table_name_case_insensitive is {}", GlobalVariable.enableTableNameCaseInsensitive);
+    }
+
     public BaseSlotManager getSlotManager() {
         return slotManager;
     }
@@ -2733,7 +2866,7 @@ public class GlobalStateMgr {
     }
 
     public ResourceUsageMonitor getResourceUsageMonitor() {
-        return resourceUsageMonitor;
+        return slotManager.getResourceUsageMonitor();
     }
 
     public DictionaryMgr getDictionaryMgr() {
@@ -2775,5 +2908,13 @@ public class GlobalStateMgr {
 
     public void setJwkMgr(JwkMgr jwkMgr) {
         this.jwkMgr = jwkMgr;
+    }
+
+    public void setRoutineLoadMgr(RoutineLoadMgr routineLoadMgr) {
+        this.routineLoadMgr = routineLoadMgr;
+    }
+
+    public void setBackupHandler(BackupHandler backupHandler) {
+        this.backupHandler = backupHandler;
     }
 }

@@ -14,12 +14,17 @@
 
 #include "formats/parquet/column_reader_factory.h"
 
+#include "base/failpoint/fail_point.h"
 #include "formats/parquet/complex_column_reader.h"
 #include "formats/parquet/scalar_column_reader.h"
 #include "formats/parquet/schema.h"
+#include "formats/parquet/utils.h"
 #include "formats/utils.h"
+#include "types/type_descriptor.h"
 
 namespace starrocks::parquet {
+
+DEFINE_FAIL_POINT(parquet_reader_returns_global_dict_not_match_status);
 
 StatusOr<ColumnReaderPtr> ColumnReaderFactory::create(const ColumnReaderOptions& opts, const ParquetField* field,
                                                       const TypeDescriptor& col_type) {
@@ -56,6 +61,10 @@ StatusOr<ColumnReaderPtr> ColumnReaderFactory::create(const ColumnReaderOptions&
             return nullptr;
         }
     } else if (field->type == ColumnType::STRUCT) {
+        if (col_type.type == LogicalType::TYPE_VARIANT) {
+            return create_variant_column_reader(opts, field);
+        }
+
         std::vector<int32_t> subfield_pos(col_type.children.size());
         get_subfield_pos_with_pruned_type(*field, col_type, opts.case_sensitive, subfield_pos);
 
@@ -125,6 +134,10 @@ StatusOr<ColumnReaderPtr> ColumnReaderFactory::create(const ColumnReaderOptions&
             return nullptr;
         }
     } else if (field->type == ColumnType::STRUCT) {
+        if (col_type.type == LogicalType::TYPE_VARIANT) {
+            return create_variant_column_reader(opts, field);
+        }
+
         std::vector<int32_t> subfield_pos(col_type.children.size());
         std::vector<const TIcebergSchemaField*> lake_schema_subfield(col_type.children.size());
         get_subfield_pos_with_pruned_type(*field, col_type, opts.case_sensitive, lake_schema_field, subfield_pos,
@@ -156,8 +169,59 @@ StatusOr<ColumnReaderPtr> ColumnReaderFactory::create(const ColumnReaderOptions&
     }
 }
 
+StatusOr<ColumnReaderPtr> ColumnReaderFactory::create_variant_column_reader(const ColumnReaderOptions& opts,
+                                                                            const ParquetField* variant_field) {
+    DCHECK(opts.row_group_meta != nullptr);
+    DCHECK(variant_field->type == ColumnType::STRUCT);
+    DCHECK(variant_field->children.size() >= 2);
+
+    int metadata_index = -1;
+    int value_index = -1;
+    int typed_value_index = -1;
+    for (size_t i = 0; i < variant_field->children.size(); ++i) {
+        const auto& child = variant_field->children[i];
+        if (child.name == "metadata") {
+            metadata_index = i;
+        } else if (child.name == "value") {
+            value_index = i;
+        } else if (child.name == "typed_value") {
+            typed_value_index = i;
+        }
+    }
+    if (metadata_index == -1 || value_index == -1) {
+        return Status::InvalidArgument("Variant type must have 'metadata' and 'value' fields");
+    }
+
+    const tparquet::ColumnChunk* column_chunks = opts.row_group_meta->columns.data();
+    const ParquetField* metadata_field = &variant_field->children[metadata_index];
+    const ParquetField* value_field = &variant_field->children[value_index];
+    auto _metadata_reader = std::make_unique<ScalarColumnReader>(
+            metadata_field, &(column_chunks[metadata_field->physical_column_index]), &TYPE_VARBINARY_DESC, opts);
+    auto _value_reader = std::make_unique<ScalarColumnReader>(
+            value_field, &(column_chunks[value_field->physical_column_index]), &TYPE_VARBINARY_DESC, opts);
+
+    ColumnReaderPtr typed_value_reader = nullptr;
+    TypeDescriptor typed_value_type(TYPE_UNKNOWN);
+    if (typed_value_index != -1) {
+        const ParquetField* typed_value_field = &variant_field->children[typed_value_index];
+        typed_value_type = ParquetUtils::to_type_desc(*typed_value_field);
+        if (!typed_value_type.is_unknown_type()) {
+            ASSIGN_OR_RETURN(typed_value_reader,
+                             ColumnReaderFactory::create(opts, typed_value_field, typed_value_type));
+        }
+    }
+
+    return std::make_unique<VariantColumnReader>(variant_field, std::move(_metadata_reader), std::move(_value_reader),
+                                                 std::move(typed_value_reader), std::move(typed_value_type));
+}
+
 StatusOr<ColumnReaderPtr> ColumnReaderFactory::create(ColumnReaderPtr ori_reader, const GlobalDictMap* dict,
                                                       SlotId slot_id, int64_t num_rows) {
+    FAIL_POINT_TRIGGER_EXECUTE(parquet_reader_returns_global_dict_not_match_status, {
+        return Status::GlobalDictNotMatch(
+                fmt::format("SlotId: {}, Not dict encoded and not low rows on global dict column. ", slot_id));
+    });
+
     if (ori_reader->get_column_parquet_field()->type == ColumnType::ARRAY) {
         ASSIGN_OR_RETURN(ColumnReaderPtr child_reader,
                          ColumnReaderFactory::create(

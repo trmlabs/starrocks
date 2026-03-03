@@ -17,8 +17,6 @@ package com.starrocks.planner;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.starrocks.analysis.Analyzer;
-import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.MaterializedIndex;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.PhysicalPartition;
@@ -93,21 +91,16 @@ public class BinlogScanNode extends ScanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws StarRocksException {
-        super.init(analyzer);
+    public void computeStats() {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
-    }
-
-    @Override
-    public void finalizeStats(Analyzer analyzer) throws StarRocksException {
+    public void finalizeStats() throws StarRocksException {
         if (isFinalized) {
             return;
         }
         computeScanRanges();
-        computeStats(analyzer);
+        computeStats();
         isFinalized = true;
     }
 
@@ -133,7 +126,7 @@ public class BinlogScanNode extends ScanNode {
         long dbId = -1;
         String dbName = null;
         for (PhysicalPartition partition : CollectionUtils.emptyIfNull(olapTable.getAllPhysicalPartitions())) {
-            MaterializedIndex table = partition.getBaseIndex();
+            MaterializedIndex table = partition.getLatestBaseIndex();
             long partitionId = partition.getId();
             long tableId = olapTable.getId();
 
@@ -160,7 +153,7 @@ public class BinlogScanNode extends ScanNode {
                 locations.setScan_range(scanRange);
 
                 // Choose replicas
-                int schemaHash = olapTable.getSchemaHashByIndexId(olapTable.getBaseIndexId());
+                int schemaHash = olapTable.getSchemaHashByIndexMetaId(olapTable.getBaseIndexMetaId());
                 long visibleVersion = partition.getVisibleVersion();
 
                 List<Replica> allQueryableReplicas = Lists.newArrayList();

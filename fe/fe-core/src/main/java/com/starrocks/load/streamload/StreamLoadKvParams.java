@@ -14,6 +14,7 @@
 
 package com.starrocks.load.streamload;
 
+import com.starrocks.common.util.Util;
 import com.starrocks.thrift.TFileFormatType;
 import com.starrocks.thrift.TFileType;
 import com.starrocks.thrift.TPartialUpdateMode;
@@ -25,7 +26,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-import static com.starrocks.http.rest.RestBaseAction.WAREHOUSE_KEY;
 import static com.starrocks.load.streamload.StreamLoadHttpHeader.HTTP_BATCH_WRITE_ASYNC;
 import static com.starrocks.load.streamload.StreamLoadHttpHeader.HTTP_BATCH_WRITE_INTERVAL_MS;
 import static com.starrocks.load.streamload.StreamLoadHttpHeader.HTTP_BATCH_WRITE_PARALLEL;
@@ -58,6 +58,7 @@ import static com.starrocks.load.streamload.StreamLoadHttpHeader.HTTP_TIMEOUT;
 import static com.starrocks.load.streamload.StreamLoadHttpHeader.HTTP_TIMEZONE;
 import static com.starrocks.load.streamload.StreamLoadHttpHeader.HTTP_TRANSMISSION_COMPRESSION_TYPE;
 import static com.starrocks.load.streamload.StreamLoadHttpHeader.HTTP_TRIM_SPACE;
+import static com.starrocks.load.streamload.StreamLoadHttpHeader.HTTP_WAREHOUSE;
 import static com.starrocks.load.streamload.StreamLoadHttpHeader.HTTP_WHERE;
 
 /**
@@ -240,7 +241,7 @@ public class StreamLoadKvParams implements StreamLoadParams {
 
     @Override
     public Optional<String> getWarehouse() {
-        return Optional.ofNullable(params.get(WAREHOUSE_KEY));
+        return Optional.ofNullable(params.get(HTTP_WAREHOUSE));
     }
 
     @Override
@@ -317,7 +318,7 @@ public class StreamLoadKvParams implements StreamLoadParams {
         if (value == null) {
             return Optional.empty();
         }
-        return Optional.of(Boolean.parseBoolean(value));
+        return Optional.of(Util.stringToBool(value));
     }
 
     private Optional<Integer> getIntParam(String paramName) {
@@ -359,9 +360,7 @@ public class StreamLoadKvParams implements StreamLoadParams {
 
     @Override
     public String toString() {
-        return "StreamLoadKvParams{" +
-                "params=" + params +
-                '}';
+        return "params=" + params;
     }
 
     public static StreamLoadKvParams fromHttpHeaders(HttpHeaders httpHeaders) {

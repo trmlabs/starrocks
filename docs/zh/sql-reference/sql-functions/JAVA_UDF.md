@@ -18,7 +18,7 @@ sidebar_position: 0.9
 使用 StarRocks 的 Java UDF 功能前，您需要:
 
 - [安装 Apache Maven](https://maven.apache.org/download.cgi) 以创建并编写相关 Java 项目。
-- 在服务器上安装 JDK 1.8。
+- 在服务器上安装 JDK 17。
 - 开启 UDF 功能。在 FE 配置文件 **fe/conf/fe.conf** 中设置配置项 `enable_udf` 为 `true`，并重启 FE 节点使配置项生效。详细操作以及配置项列表参考[配置参数](../../administration/management/FE_configuration.md)。
 
 ## 开发并使用 UDF
@@ -56,8 +56,8 @@ sidebar_position: 0.9
     <version>1.0-SNAPSHOT</version>
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
     </properties>
 
     <dependencies>
@@ -543,7 +543,9 @@ DROP [GLOBAL] FUNCTION <function_name>(arg_type [, ...]);
 
 ## 类型映射关系
 
-当前只支持了非嵌套的 Array 和 Map 的输入类型
+> **注意**
+>
+> 当前 Scalar UDF 只支持非嵌套的 ARRAY 和 MAP 的参数/返回类型。
 
 | SQL TYPE       | Java TYPE         |
 | -------------- | ----------------- |
@@ -560,12 +562,10 @@ DROP [GLOBAL] FUNCTION <function_name>(arg_type [, ...]);
 
 ## 参数配置
 
-JVM 参数配置：在 **be/conf/be.conf** 中配置如下参数，可以控制 JVM 的内存使用。如果使用 JDK 8，请配置 `JAVA_OPTS`。如果 JDK 版本高于 JDK 8，则配置 `JAVA_OPTS_FOR_JDK_9_AND_LATER`
+JVM 参数配置：在 **be/conf/be.conf** 中配置如下参数，可以控制 JVM 的内存使用。
 
 ```Bash
 JAVA_OPTS="-Xmx12G"
-
-JAVA_OPTS_FOR_JDK_9_AND_LATER="-Xmx12G"
 ```
 
 ## FAQ

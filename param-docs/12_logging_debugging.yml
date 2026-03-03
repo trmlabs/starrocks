@@ -1,0 +1,586 @@
+# =============================================================================
+# StarRocks Logging and Debugging Parameters
+# Source: fe/.../qe/SessionVariable.java, be/src/common/config.h
+# =============================================================================
+
+session_variables:
+
+  # ---------------------------------------------------------------------------
+  # Query profiling parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "enable_profile"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to generate a query execution profile. When enabled,
+      detailed execution metrics are collected and available via
+      SHOW PROFILE. Alias: is_report_success.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 172
+          context: "public static final String ENABLE_PROFILE = \"enable_profile\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1249
+          context: "@VariableMgr.VarAttr(name = ENABLE_PROFILE, alias = IS_REPORT_SUCCESS) private boolean enableProfile = false"
+      thrift_propagation: null
+
+  - name: "enable_metadata_profile"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to include metadata operation timing in the query profile.
+      Shows time spent on catalog, partition, and file listing operations.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 160
+          context: "public static final String ENABLE_METADATA_PROFILE = \"enable_metadata_profile\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1256
+          context: "@VariableMgr.VarAttr(name = ENABLE_METADATA_PROFILE) private boolean enableMetadataProfile = false"
+      thrift_propagation: null
+
+  - name: "enable_load_profile"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to generate profiles for data loading operations
+      (INSERT, BROKER LOAD, etc.).
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 174
+          context: "public static final String ENABLE_LOAD_PROFILE = \"enable_load_profile\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1260
+          context: "@VariableMgr.VarAttr(name = ENABLE_LOAD_PROFILE) private boolean enableLoadProfile = false"
+      thrift_propagation: null
+
+  - name: "profile_timeout"
+    type: int
+    default: 10
+    scope: "session"
+    mutable: true
+    description: >
+      Timeout in seconds for profile report collection from BE nodes.
+      Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 340
+          context: "public static final String PROFILE_TIMEOUT = \"profile_timeout\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1524
+          context: "@VariableMgr.VarAttr(name = PROFILE_TIMEOUT, flag = VariableMgr.INVISIBLE) private int profileTimeout = 10"
+      thrift_propagation: null
+
+  - name: "runtime_profile_report_interval"
+    type: int
+    default: 10
+    scope: "session"
+    mutable: true
+    description: >
+      Interval in seconds between runtime profile reports from BE
+      to FE during query execution.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 341
+          context: "public static final String RUNTIME_PROFILE_REPORT_INTERVAL = \"runtime_profile_report_interval\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1527
+          context: "@VariableMgr.VarAttr(name = RUNTIME_PROFILE_REPORT_INTERVAL) private int runtimeProfileReportInterval = 10"
+      thrift_propagation: null
+
+  - name: "pipeline_profile_level"
+    type: int
+    default: 1
+    scope: "session"
+    mutable: true
+    description: >
+      Detail level for pipeline engine profiles. 0 = minimal,
+      1 = standard, 2 = verbose with per-operator metrics.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 342
+          context: "public static final String PIPELINE_PROFILE_LEVEL = \"pipeline_profile_level\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1530
+          context: "@VariableMgr.VarAttr(name = PIPELINE_PROFILE_LEVEL) private int pipelineProfileLevel = 1"
+      thrift_propagation: null
+
+  - name: "enable_async_profile"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to collect and report profiles asynchronously to avoid
+      impacting query latency. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 343
+          context: "public static final String ENABLE_ASYNC_PROFILE = \"enable_async_profile\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1533
+          context: "@VariableMgr.VarAttr(name = ENABLE_ASYNC_PROFILE, flag = VariableMgr.INVISIBLE) private boolean enableAsyncProfile = true"
+      thrift_propagation: null
+
+  - name: "big_query_profile_threshold"
+    type: String
+    default: "30s"
+    scope: "session"
+    mutable: true
+    description: >
+      Duration threshold for automatically enabling profile collection
+      on long-running queries. Queries exceeding this threshold will
+      have their profiles captured.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 828
+          context: "public static final String BIG_QUERY_PROFILE_THRESHOLD = \"big_query_profile_threshold\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1536
+          context: "@VariableMgr.VarAttr(name = BIG_QUERY_PROFILE_THRESHOLD) private String bigQueryProfileThreshold = \"30s\""
+      thrift_propagation: null
+
+  - name: "profile_format_version"
+    type: int
+    default: 1
+    scope: "session"
+    mutable: true
+    description: >
+      Version of the profile output format. Different versions may
+      include different metrics and layout.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 345
+          context: "public static final String PROFILE_FORMAT_VERSION = \"profile_format_version\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1540
+          context: "@VariableMgr.VarAttr(name = PROFILE_FORMAT_VERSION) private int profileFormatVersion = 1"
+      thrift_propagation: null
+
+  - name: "enable_show_predicate_tree_in_profile"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to include the predicate tree structure in query profiles
+      for debugging predicate pushdown. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 907
+          context: "public static final String ENABLE_SHOW_PREDICATE_TREE_IN_PROFILE = \"enable_show_predicate_tree_in_profile\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2878
+          context: "@VarAttr(name = ENABLE_SHOW_PREDICATE_TREE_IN_PROFILE, flag = VariableMgr.INVISIBLE) private boolean enableShowPredicateTreeInProfile = false"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Debug trace parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "enable_query_debug_trace"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to enable debug tracing for queries. Writes detailed
+      execution trace to the query_debug_trace_dir. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 621
+          context: "public static final String ENABLE_QUERY_DEBUG_TRACE = \"enable_query_debug_trace\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1931
+          context: "@VariableMgr.VarAttr(name = ENABLE_QUERY_DEBUG_TRACE, flag = VariableMgr.INVISIBLE) private boolean enableQueryDebugTrace = false"
+      thrift_propagation: null
+
+  - name: "trace_log_mode"
+    type: String
+    default: "command"
+    scope: "session"
+    mutable: true
+    description: >
+      Mode for trace logging output. Controls where trace logs are
+      written. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 608
+          context: "public static final String TRACE_LOG_MODE = \"trace_log_mode\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1935
+          context: "@VarAttr(name = TRACE_LOG_MODE, flag = VariableMgr.INVISIBLE) private String traceLogMode = \"command\""
+      thrift_propagation: null
+
+  - name: "trace_log_level"
+    type: int
+    default: 0
+    scope: "session"
+    mutable: true
+    description: >
+      Verbosity level for trace logging. Higher values produce more
+      detailed output. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 609
+          context: "public static final String TRACE_LOG_LEVEL = \"trace_log_level\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1939
+          context: "@VarAttr(name = TRACE_LOG_LEVEL, flag = VariableMgr.INVISIBLE) private int traceLogLevel = 0"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # Big query logging parameters
+  # ---------------------------------------------------------------------------
+
+  - name: "enable_big_query_log"
+    type: boolean
+    default: true
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to log big queries that exceed CPU, scan bytes, or scan
+      rows thresholds. Helps identify resource-intensive queries.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 824
+          context: "public static final String ENABLE_BIG_QUERY_LOG = \"enable_big_query_log\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2785
+          context: "@VarAttr(name = ENABLE_BIG_QUERY_LOG) private boolean enableBigQueryLog = true"
+      thrift_propagation: null
+
+  - name: "big_query_log_cpu_second_threshold"
+    type: long
+    default: 480
+    scope: "session"
+    mutable: true
+    description: >
+      CPU time threshold in seconds for big query logging. Queries
+      consuming more CPU time than this are logged as big queries.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 825
+          context: "public static final String BIG_QUERY_LOG_CPU_SECOND_THRESHOLD = \"big_query_log_cpu_second_threshold\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2791
+          context: "@VarAttr(name = BIG_QUERY_LOG_CPU_SECOND_THRESHOLD) private long bigQueryLogCPUSecondThreshold = 480"
+      thrift_propagation: null
+
+  - name: "big_query_log_scan_bytes_threshold"
+    type: long
+    default: 10737418240
+    scope: "session"
+    mutable: true
+    description: >
+      Scan bytes threshold for big query logging. Queries scanning more
+      than this amount (default 10 GB) are logged as big queries.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 826
+          context: "public static final String BIG_QUERY_LOG_SCAN_BYTES_THRESHOLD = \"big_query_log_scan_bytes_threshold\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2795
+          context: "@VarAttr(name = BIG_QUERY_LOG_SCAN_BYTES_THRESHOLD) private long bigQueryLogScanBytesThreshold = 1024L * 1024 * 1024 * 10"
+      thrift_propagation: null
+
+  - name: "big_query_log_scan_rows_threshold"
+    type: long
+    default: 1000000000
+    scope: "session"
+    mutable: true
+    description: >
+      Scan rows threshold for big query logging. Queries scanning more
+      than 1 billion rows are logged as big queries.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 827
+          context: "public static final String BIG_QUERY_LOG_SCAN_ROWS_THRESHOLD = \"big_query_log_scan_rows_threshold\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2800
+          context: "@VarAttr(name = BIG_QUERY_LOG_SCAN_ROWS_THRESHOLD) private long bigQueryLogScanRowsThreshold = 1000000000L"
+      thrift_propagation: null
+
+  # ---------------------------------------------------------------------------
+  # SQL dialect and debug options
+  # ---------------------------------------------------------------------------
+
+  - name: "sql_dialect"
+    type: String
+    default: "StarRocks"
+    scope: "session"
+    mutable: true
+    description: >
+      SQL dialect to use for parsing and execution. Controls
+      compatibility behavior for SQL syntax from other databases.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 830
+          context: "public static final String SQL_DIALECT = \"sql_dialect\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2803
+          context: "@VarAttr(name = SQL_DIALECT) private String sqlDialect = \"StarRocks\""
+      thrift_propagation: null
+
+  - name: "query_debug_options"
+    type: String
+    default: ""
+    scope: "session"
+    mutable: true
+    description: >
+      Comma-separated debug options for query execution. Used for
+      internal debugging and testing. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 395
+          context: "public static final String QUERY_DEBUG_OPTIONS = \"query_debug_options\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 1747
+          context: "@VariableMgr.VarAttr(name = QUERY_DEBUG_OPTIONS, flag = VariableMgr.INVISIBLE) private String queryDebugOptions = \"\""
+      thrift_propagation: null
+
+  - name: "enable_optimizer_rule_debug"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to output debug information about optimizer rule
+      applications during query planning.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 894
+          context: "public static final String ENABLE_OPTIMIZER_RULE_DEBUG = \"enable_optimizer_rule_debug\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 2866
+          context: "@VarAttr(name = ENABLE_OPTIMIZER_RULE_DEBUG) private boolean enableOptimizerRuleDebug = false"
+      thrift_propagation: null
+
+  - name: "enable_strict_type"
+    type: boolean
+    default: false
+    scope: "session"
+    mutable: true
+    description: >
+      Whether to enable strict type checking mode that rejects implicit
+      type conversions that could lose precision. Invisible session variable.
+    code_references:
+      definition:
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 896
+          context: "public static final String ENABLE_STRICT_TYPE = \"enable_strict_type\""
+        - file: "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+          line: 3476
+          context: "@VarAttr(name = ENABLE_STRICT_TYPE, flag = VariableMgr.INVISIBLE) private boolean enableStrictType = false"
+      thrift_propagation: null
+
+# =============================================================================
+# BE Configs - Logging and Debugging
+# =============================================================================
+
+be_configs:
+
+  - name: "sys_log_dir"
+    type: String
+    default: "${STARROCKS_HOME}/log"
+    scope: "BE"
+    mutable: false
+    description: >
+      Directory for BE system log files (be.INFO, be.WARNING, be.ERROR).
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 214
+          context: "CONF_String(sys_log_dir, \"${STARROCKS_HOME}/log\")"
+      thrift_propagation: null
+
+  - name: "sys_log_level"
+    type: String
+    default: "INFO"
+    scope: "BE"
+    mutable: true
+    description: >
+      Minimum log level for BE system logs. Options: INFO, WARNING,
+      ERROR, FATAL.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 220
+          context: "CONF_mString(sys_log_level, \"INFO\")"
+      thrift_propagation: null
+
+  - name: "sys_log_roll_mode"
+    type: String
+    default: "SIZE-MB-1024"
+    scope: "BE"
+    mutable: false
+    description: >
+      Log rotation mode. SIZE-MB-N rotates when file reaches N MB.
+      Default rotates at 1 GB.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 222
+          context: "CONF_String(sys_log_roll_mode, \"SIZE-MB-1024\")"
+      thrift_propagation: null
+
+  - name: "sys_log_roll_num"
+    type: Int32
+    default: 10
+    scope: "BE"
+    mutable: false
+    description: >
+      Maximum number of rotated log files to keep per log level.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 224
+          context: "CONF_Int32(sys_log_roll_num, \"10\")"
+      thrift_propagation: null
+
+  - name: "profile_report_interval"
+    type: Int32
+    default: 30
+    scope: "BE"
+    mutable: true
+    description: >
+      Interval in seconds between profile report submissions from
+      BE to FE during query execution.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 304
+          context: "CONF_mInt32(profile_report_interval, \"30\")"
+      thrift_propagation: null
+
+  - name: "compaction_trace_threshold"
+    type: Int32
+    default: 60
+    scope: "BE"
+    mutable: true
+    description: >
+      Time threshold in seconds above which compaction operations
+      are traced in the log for performance investigation.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 418
+          context: "CONF_mInt32(compaction_trace_threshold, \"60\")"
+      thrift_propagation: null
+
+  - name: "load_error_log_reserve_hours"
+    type: Int64
+    default: 48
+    scope: "BE"
+    mutable: true
+    description: >
+      Number of hours to retain load error log files before automatic
+      cleanup. Default is 48 hours.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 518
+          context: "CONF_mInt64(load_error_log_reserve_hours, \"48\")"
+      thrift_propagation: null
+
+  - name: "query_debug_trace_dir"
+    type: String
+    default: "${STARROCKS_HOME}/query_debug_trace"
+    scope: "BE"
+    mutable: false
+    description: >
+      Directory for storing query debug trace output files generated
+      when enable_query_debug_trace is enabled.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1206
+          context: "CONF_String(query_debug_trace_dir, \"${STARROCKS_HOME}/query_debug_trace\")"
+      thrift_propagation: null
+
+  - name: "pipeline_print_profile"
+    type: boolean
+    default: false
+    scope: "BE"
+    mutable: true
+    description: >
+      Whether to print pipeline execution profiles to the BE log.
+      Useful for debugging pipeline execution issues.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1006
+          context: "CONF_mBool(pipeline_print_profile, \"false\")"
+      thrift_propagation: null
+
+  - name: "pipeline_timeout_diagnostic"
+    type: boolean
+    default: false
+    scope: "BE"
+    mutable: true
+    description: >
+      Whether to enable diagnostic logging when pipeline execution
+      times out. Helps identify the cause of stuck pipelines.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1007
+          context: "CONF_mBool(pipeline_timeout_diagnostic, \"false\")"
+      thrift_propagation: null
+
+  - name: "aws_sdk_logging_trace_enabled"
+    type: boolean
+    default: false
+    scope: "BE"
+    mutable: true
+    description: >
+      Whether to enable AWS SDK trace-level logging. Produces very
+      verbose output for debugging S3/object storage issues.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 1158
+          context: "CONF_mBool(aws_sdk_logging_trace_enabled, \"false\")"
+      thrift_propagation: null
+
+  - name: "status_report_interval"
+    type: Int32
+    default: 5
+    scope: "BE"
+    mutable: true
+    description: >
+      Interval in seconds between status reports from fragment
+      instances to the coordinator during query execution.
+    code_references:
+      definition:
+        - file: "be/src/common/config.h"
+          line: 265
+          context: "CONF_mInt32(status_report_interval, \"5\")"
+      thrift_propagation: null

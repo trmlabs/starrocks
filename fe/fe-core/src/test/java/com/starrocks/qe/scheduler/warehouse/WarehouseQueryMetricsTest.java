@@ -19,7 +19,7 @@ package com.starrocks.qe.scheduler.warehouse;
 
 import com.starrocks.qe.scheduler.slot.LogicalSlot;
 import com.starrocks.thrift.TGetWarehouseQueriesResponseItem;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
@@ -35,12 +35,14 @@ public class WarehouseQueryMetricsTest {
         assertThat(thrift.getEst_costs_slots()).isEqualTo("0");
         assertThat(thrift.getAllocate_slots()).isEqualTo("0");
         assertThat(thrift.getQueued_wait_seconds()).isEqualTo("0.0");
+        assertThat(thrift.getQuery()).isEqualTo("");
     }
 
     @Test
     public void testCreateWarehouseQueryMetrics() {
         WarehouseQueryMetrics metrics = new WarehouseQueryMetrics(1, "test",
-                null, LogicalSlot.State.ALLOCATED, 1, 1, 1);
+                null, LogicalSlot.State.ALLOCATED, 1, 1, 1,
+                "select 1", null);
         TGetWarehouseQueriesResponseItem thrift = metrics.toThrift();
         assertThat(thrift.getWarehouse_id()).isEqualTo("1");
         assertThat(thrift.getWarehouse_name()).isEqualTo("test");
@@ -49,5 +51,6 @@ public class WarehouseQueryMetricsTest {
         assertThat(thrift.getEst_costs_slots()).isEqualTo("1");
         assertThat(thrift.getAllocate_slots()).isEqualTo("1");
         assertThat(thrift.getQueued_wait_seconds()).isEqualTo("1.0");
+        assertThat(thrift.getQuery()).isEqualTo("select 1");
     }
 }

@@ -17,6 +17,18 @@ The StarRocks Cross-cluster Data Migration Tool is provided by StarRocks Communi
 
 The following preparations must be performed on the target cluster for data migration.
 
+### Open ports
+
+If you have enabled the firewall, you must open these ports:
+
+| **Component** | **Port**     | **Default** |
+| ----------- | -------------- | ----------- |
+| FE          | query_port     | 9030 |
+| FE          | http_port      | 8030 |
+| FE          | rpc_port       | 9020 |
+| BE          | be_http_port   | 8040 |
+| BE          | be_port        | 9060 |
+
 ### Enable Legacy Compatibility for Replication
 
 StarRocks may behave differently between the old and new versions, causing problems during cross-cluster data migration. Therefore, you must enable Legacy Compatibility for the target cluster before data migration and disable it after data migration is completed.
@@ -122,6 +134,9 @@ target_cluster_user=root
 target_cluster_password=
 target_cluster_password_secret_key=
 
+jdbc_connect_timeout_ms=30000
+jdbc_socket_timeout_ms=60000
+
 # Comma-separated list of database names or table names like <db_name> or <db_name.table_name>
 # example: db1,db2.tbl2,db3
 # Effective order: 1. include 2. exclude
@@ -132,20 +147,40 @@ exclude_data_list=
 target_cluster_storage_volume=
 target_cluster_replication_num=-1
 target_cluster_max_disk_used_percent=80
+# To maintain consistency with the source cluster, use null.
+target_cluster_enable_persistent_index=
 
-max_replication_data_size_per_job_in_gb=-1
+max_replication_data_size_per_job_in_gb=1024
 
 meta_job_interval_seconds=180
 meta_job_threads=4
 ddl_job_interval_seconds=10
 ddl_job_batch_size=10
+
+# table config
 ddl_job_allow_drop_target_only=false
 ddl_job_allow_drop_schema_change_table=true
 ddl_job_allow_drop_inconsistent_partition=true
+ddl_job_allow_drop_inconsistent_time_partition = true
 ddl_job_allow_drop_partition_target_only=true
+# index config
+enable_bitmap_index_sync=false
+ddl_job_allow_drop_inconsistent_bitmap_index=true
+ddl_job_allow_drop_bitmap_index_target_only=true
+# MV config
+enable_materialized_view_sync=false
+ddl_job_allow_drop_inconsistent_materialized_view=true
+ddl_job_allow_drop_materialized_view_target_only=false
+# View config
+enable_view_sync=false
+ddl_job_allow_drop_inconsistent_view=true
+ddl_job_allow_drop_view_target_only=false
+
 replication_job_interval_seconds=10
 replication_job_batch_size=10
 report_interval_seconds=300
+
+enable_table_property_sync=false
 ```
 
 The description of the parameters is as follows:
@@ -164,6 +199,8 @@ The description of the parameters is as follows:
 | target_cluster_user                       | The username used to log in to the target cluster. This user must be granted the OPERATE privilege on the SYSTEM level. |
 | target_cluster_password                   | The user password used to log in to the target cluster.      |
 | target_cluster_password_secret_key        | The secret key used to encrypt the password of the login user for the target cluster. The default value is an empty string, which means that the login password is not encrypted. If you want to encrypt `target_cluster_password`, you can get the encrypted `target_cluster_password` string by using SQL statement `SELECT TO_BASE64(AES_ENCRYPT('<target_cluster_password>','<target_cluster_password_ secret_key>'))`. |
+| jdbc_connect_timeout_ms                   | JDBC connection timeout in milliseconds for FE queries. Default: `30000`. |
+| jdbc_socket_timeout_ms                    | JDBC socket timeout in milliseconds for FE queries. Default: `60000`. |
 | include_data_list                         | The databases and tables that need to be migrated, with multiple objects separated by commas (`,`). For example: `db1, db2.tbl2, db3`. This item takes effect prior to `exclude_data_list`. If you want to migrate all databases and tables in the cluster, you do not need to configure this item. |
 | exclude_data_list                         | The databases and tables that do not need to be migrated, with multiple objects separated by commas (`,`). For example: `db1, db2.tbl2, db3`. `include_data_list` takes effect prior to this item. If you want to migrate all databases and tables in the cluster, you do not need to configure this item. |
 | target_cluster_storage_volume             | The storage volume used to store tables in the target cluster when the target cluster is a shared-data cluster. If you want to use the default storage volume, you do not need to specify this item. |
@@ -179,8 +216,20 @@ The description of the parameters is as follows:
 | ddl_job_allow_drop_partition_target_only  | Whether to allow the migration tool to delete partitions that are deleted in the source cluster to keep the partitions consistent between the source and target clusters. The default is `true`, meaning they will be deleted. You can use the default value for this item. |
 | replication_job_interval_seconds          | The interval, in seconds, at which the migration tool triggers data synchronization tasks. You can use the default value for this item. |
 | replication_job_batch_size                | The batch size at which the migration tool triggers data synchronization tasks. You can use the default value for this item. |
-| max_replication_data_size_per_job_in_gb   | The data size threshold at which the migration tool triggers data synchronization tasks. Unit: GB. Multiple data synchronization tasks will be triggered if the size of the partition to be migrated exceed this value. The default value is `-1`, meaning no limit is imposed, and all partitions in a table will be migrated in a single synchronization task. You can set this parameter to restrict the data size of each task if the table to be migrated has a large data volume. |
+| max_replication_data_size_per_job_in_gb   | The data size threshold at which the migration tool triggers data synchronization tasks. Unit: GB. Multiple data synchronization tasks will be triggered if the size of the partition to be migrated exceed this value. The default value is `1024`. You can use the default value for this item. |
 | report_interval_seconds                   | The time interval at which the migration tool prints the progress information. Unit: Seconds. Default value: `300`. You can use the default value for this item. |
+| target_cluster_enable_persistent_index    | Whether to enable persistent index the in the target cluster. If this item is not specified, the target cluster is consistent with the source cluster. |
+| ddl_job_allow_drop_inconsistent_time_partition | Whether to allow the migration tool to delete partitions with inconsistent time between the source and target clusters. The default is `true`, meaning they will be deleted. You can use the default value for this item. The migration tool will automatically synchronize the deleted partitions during the migration. |
+| enable_bitmap_index_sync                  | Whether to enable synchronization for Bitmap indexes.         |
+| ddl_job_allow_drop_inconsistent_bitmap_index | Whether to allow the migration tool to delete inconsistent Bitmap indexes between the source and target clusters. The default is `true`, meaning they will be deleted. You can use the default value for this item. The migration tool will automatically synchronize the deleted indexes during the migration. |
+| ddl_job_allow_drop_bitmap_index_target_only | Whether to allow the migration tool to delete Bitmap indexes that are deleted in the source cluster to keep the indexes consistent between the source and target clusters. The default is `true`, meaning they will be deleted. You can use the default value for this item. |
+| enable_materialized_view_sync             | Whether to enable synchronization for materialized views.     |
+| ddl_job_allow_drop_inconsistent_materialized_view | Whether to allow the migration tool to delete inconsistent materialized views between the source and target clusters. The default is `true`, meaning they will be deleted. You can use the default value for this item. The migration tool will automatically synchronize the deleted materialized views during the migration. |
+| ddl_job_allow_drop_materialized_view_target_only | Whether to allow the migration tool to delete materialized views that are deleted in the source cluster to keep the materialized views consistent between the source and target clusters. The default is `true`, meaning they will be deleted. You can use the default value for this item. |
+| enable_view_sync                          | Whether to enable synchronization for views.                  |
+| ddl_job_allow_drop_inconsistent_view      | Whether to allow the migration tool to delete inconsistent views between the source and target clusters. The default is `true`, meaning they will be deleted. You can use the default value for this item. The migration tool will automatically synchronize the deleted views during the migration. |
+| ddl_job_allow_drop_view_target_only       | Whether to allow the migration tool to delete views that are deleted in the source cluster to keep the views consistent between the source and target clusters. The default is `true`, meaning they will be deleted. You can use the default value for this item. |
+| enable_table_property_sync                | Whether to enable synchronization for table properties.       |
 
 ### Obtain Cluster Token
 
@@ -223,19 +272,24 @@ vi conf/hosts.properties
 The default content of the file is as follows, describing how network address mapping is configured:
 
 ```Properties
-# <SOURCE/TARGET>_<domain>=<IP>
+# <SOURCE/TARGET>_<host>=<mappedHost>[;<srcPort>:<dstPort>[,<srcPort>:<dstPort>...]]
 ```
+
+:::note
+The `<host>` must match the address shown in the `IP` column returned by `SHOW FRONTENDS`, `SHOW BACKENDS`, or `SHOW COMPUTE NODES`.
+:::
 
 The following example performs these operations:
 
 1. Map the source cluster's private network addresses `192.1.1.1` and `192.1.1.2` to `10.1.1.1` and `10.1.1.2`.
-2. Map the target cluster's private network address `fe-0.starrocks.svc.cluster.local` to `10.1.2.1`.
+2. Map the source cluster's FE ports `8030` and `9030` to `38030` and `39030` on `10.1.1.1`.
+3. Map the target cluster's private network address `fe-0.starrocks.svc.cluster.local` to `10.1.2.1` and remap port `9030`.
 
 ```Properties
-# <SOURCE/TARGET>_<domain>=<IP>
-SOURCE_192.1.1.1=10.1.1.1
+# <SOURCE/TARGET>_<host>=<mappedHost>[;<srcPort>:<dstPort>[,<srcPort>:<dstPort>...]]
+SOURCE_192.1.1.1=10.1.1.1;8030:38030,9030:39030
 SOURCE_192.1.1.2=10.1.1.2
-TARGET_fe-0.starrocks.svc.cluster.local=10.1.2.1
+TARGET_fe-0.starrocks.svc.cluster.local=10.1.2.1;9030:19030
 ```
 
 ## Step 3: Start the Migration Tool
@@ -339,17 +393,3 @@ The list of objects that support synchronization currently is as follows (those 
 - Internal tables and their data
 - Materialized view schemas and their building statements (The data in the materialized view will not be synchronized. And if the base tables of the materialized view is not synchronized to the target cluster, the background refresh task of the materialized view reports an error.)
 - Logical views
-
-## Q&A
-
-### Q1: Which ports need to be opened between clusters?
-
-If you have enabled the firewall, you must open these ports:
-
-| **Component** | **Port**     | **Default** |
-| ----------- | -------------- | ----------- |
-| FE          | query_port     | 9030 |
-| FE          | http_port      | 8030 |
-| FE          | rpc_port       | 9020 |
-| BE          | be_http_port   | 8040 |
-| BE          | be_port        | 9060 |

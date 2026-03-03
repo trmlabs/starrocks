@@ -16,6 +16,7 @@ package com.starrocks.task;
 import com.google.common.base.Preconditions;
 import com.starrocks.catalog.LocalTablet;
 import com.starrocks.catalog.MaterializedIndex;
+import com.starrocks.catalog.MaterializedIndex.IndexExtState;
 import com.starrocks.catalog.MaterializedIndexMeta;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Partition;
@@ -27,23 +28,25 @@ import com.starrocks.common.Config;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.Status;
 import com.starrocks.common.TimeoutException;
+import com.starrocks.common.util.ThreadUtil;
 import com.starrocks.common.util.concurrent.MarkedCountDownLatch;
 import com.starrocks.journal.LeaderTransferException;
-import com.starrocks.lake.LakeTablet;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.rpc.ThriftConnectionPool;
 import com.starrocks.rpc.ThriftRPCRequestExecutor;
 import com.starrocks.server.GlobalStateMgr;
-import com.starrocks.system.Backend;
+import com.starrocks.server.WarehouseManager;
 import com.starrocks.system.ComputeNode;
+import com.starrocks.thrift.TAgentResult;
 import com.starrocks.thrift.TAgentTaskRequest;
 import com.starrocks.thrift.TNetworkAddress;
+import com.starrocks.thrift.TStatus;
 import com.starrocks.thrift.TStatusCode;
 import com.starrocks.thrift.TStorageMedium;
 import com.starrocks.thrift.TTabletSchema;
 import com.starrocks.thrift.TTabletType;
 import com.starrocks.thrift.TTaskType;
-import org.apache.hadoop.util.ThreadUtil;
+import com.starrocks.warehouse.cngroup.ComputeResource;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -84,7 +87,8 @@ public class TabletTaskExecutor {
 
     public static void buildPartitionsSequentially(long dbId, OlapTable table, List<PhysicalPartition> partitions,
                                                    int numReplicas,
-                                                   int numBackends, long warehouseId,
+                                                   int numBackends,
+                                                   ComputeResource computeResource,
                                                    CreateTabletOption option) throws DdlException {
         // Try to bundle at least 200 CreateReplicaTask's in a single AgentBatchTask.
         // The number 200 is just an experiment value that seems to work without obvious problems, feel free to
@@ -95,9 +99,9 @@ public class TabletTaskExecutor {
         for (int i = 0; i < partitions.size(); i += partitionGroupSize) {
             int endIndex = Math.min(partitions.size(), i + partitionGroupSize);
             List<CreateReplicaTask> tasks = buildCreateReplicaTasks(dbId, table, partitions.subList(i, endIndex),
-                    warehouseId, option);
+                    computeResource, option);
             int partitionCount = endIndex - i;
-            int indexCountPerPartition = partitions.get(i).getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size();
+            int indexCountPerPartition = partitions.get(i).getLatestMaterializedIndices(IndexExtState.VISIBLE).size();
             int timeout = Config.tablet_create_timeout_second * countMaxTasksPerBackend(tasks);
             // Compatible with older versions, `Config.max_create_table_timeout_second` is the timeout time for a single index.
             // Here we assume that all partitions have the same number of indexes.
@@ -121,12 +125,13 @@ public class TabletTaskExecutor {
 
     public static void buildPartitionsConcurrently(long dbId, OlapTable table, List<PhysicalPartition> partitions,
                                                    int numReplicas,
-                                                   int numBackends, long warehouseId,
+                                                   int numBackends,
+                                                   ComputeResource computeResource,
                                                    CreateTabletOption option) throws DdlException {
         long start = System.currentTimeMillis();
         int timeout = Math.max(1, numReplicas / numBackends) * Config.tablet_create_timeout_second;
         int numIndexes = partitions.stream().mapToInt(
-                partition -> partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size()).sum();
+                partition -> partition.getLatestMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size()).sum();
         int maxTimeout = numIndexes * Config.max_create_table_timeout_second;
         long maxWaitTimeSeconds = Math.min(timeout, maxTimeout);
         if (option.isEnableTabletCreationOptimization()) {
@@ -142,7 +147,7 @@ public class TabletTaskExecutor {
                 if (!countDownLatch.getStatus().ok()) {
                     break;
                 }
-                List<CreateReplicaTask> tasks = buildCreateReplicaTasks(dbId, table, partition, warehouseId,
+                List<CreateReplicaTask> tasks = buildCreateReplicaTasks(dbId, table, partition, computeResource,
                         option);
                 for (CreateReplicaTask task : tasks) {
                     List<Long> signatures =
@@ -194,23 +199,29 @@ public class TabletTaskExecutor {
     }
 
     private static List<CreateReplicaTask> buildCreateReplicaTasks(long dbId, OlapTable table, List<PhysicalPartition> partitions,
-                                                                   long warehouseId, CreateTabletOption option)
+                                                                   ComputeResource computeResource, CreateTabletOption option)
             throws DdlException {
         List<CreateReplicaTask> tasks = new ArrayList<>();
         for (PhysicalPartition partition : partitions) {
             tasks.addAll(
-                    buildCreateReplicaTasks(dbId, table, partition, warehouseId, option));
+                    buildCreateReplicaTasks(dbId, table, partition, computeResource, option));
         }
         return tasks;
     }
 
     private static List<CreateReplicaTask> buildCreateReplicaTasks(long dbId, OlapTable table,
                                                                    PhysicalPartition physicalPartition,
-                                                                   long warehouseId, CreateTabletOption option)
+                                                                   ComputeResource computeResource,
+                                                                   CreateTabletOption option)
             throws DdlException {
         ArrayList<CreateReplicaTask> tasks = new ArrayList<>((int) physicalPartition.storageReplicaCount());
-        for (MaterializedIndex index : physicalPartition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
-            tasks.addAll(buildCreateReplicaTasks(dbId, table, physicalPartition, index, warehouseId, option));
+        // TabletCreationOptimization must ensure that the schemas of all tablets under a partition are consistent. 
+        // If multiple indexes exist in the partition, disable TabletCreationOptimization.
+        if (physicalPartition.getLatestMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size() > 1) {
+            option.setEnableTabletCreationOptimization(false);
+        }
+        for (MaterializedIndex index : physicalPartition.getLatestMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+            tasks.addAll(buildCreateReplicaTasks(dbId, table, physicalPartition, index, computeResource, option));
         }
         return tasks;
     }
@@ -219,14 +230,14 @@ public class TabletTaskExecutor {
                                                                    OlapTable table,
                                                                    PhysicalPartition physicalPartition,
                                                                    MaterializedIndex index,
-                                                                   long warehouseId,
+                                                                   ComputeResource computeResource,
                                                                    CreateTabletOption option) {
         LOG.info("build create replica tasks for index {} db {} table {} partition {}",
                 index, dbId, table.getId(), physicalPartition);
         boolean isCloudNativeTable = table.isCloudNativeTableOrMaterializedView();
         boolean createSchemaFile = true;
         List<CreateReplicaTask> tasks = new ArrayList<>((int) index.getReplicaCount());
-        MaterializedIndexMeta indexMeta = table.getIndexMetaByIndexId(index.getId());
+        MaterializedIndexMeta indexMeta = table.getIndexMetaByMetaId(index.getMetaId());
         TTabletType tabletType = isCloudNativeTable ? TTabletType.TABLET_TYPE_LAKE : TTabletType.TABLET_TYPE_DISK;
         TStorageMedium storageMedium =
                 table.getPartitionInfo().getDataProperty(physicalPartition.getParentId()).getStorageMedium();
@@ -243,14 +254,14 @@ public class TabletTaskExecutor {
                 .setBloomFilterColumnNames(table.getBfColumnIds())
                 .setBloomFilterFpp(table.getBfFpp())
                 .addColumns(indexMeta.getSchema())
+                .setPrimaryKeyEncodingType(table.getPrimaryKeyEncodingType())
                 .build().toTabletSchema();
 
+        final WarehouseManager warehouseManager = GlobalStateMgr.getCurrentState().getWarehouseMgr();
         for (Tablet tablet : index.getTablets()) {
             List<Long> nodeIdsOfReplicas = new ArrayList<>();
             if (isCloudNativeTable) {
-                long nodeId = GlobalStateMgr.getCurrentState().getWarehouseMgr()
-                        .getComputeNodeAssignedToTablet(warehouseId, (LakeTablet) tablet).getId();
-
+                long nodeId = warehouseManager.getComputeNodeAssignedToTablet(computeResource, tablet.getId()).getId();
                 nodeIdsOfReplicas.add(nodeId);
             } else {
                 for (Replica replica : ((LocalTablet) tablet).getImmutableReplicas()) {
@@ -281,6 +292,8 @@ public class TabletTaskExecutor {
                         .setCreateSchemaFile(createSchemaFile)
                         .setEnableTabletCreationOptimization(option.isEnableTabletCreationOptimization())
                         .setGtid(option.getGtid())
+                        .setCompactionStrategy(table.getCompactionStrategy())
+                        .setRange(table.isRangeDistribution() ? tablet.getRange() : null)
                         .build();
                 tasks.add(task);
                 createSchemaFile = false;
@@ -343,10 +356,14 @@ public class TabletTaskExecutor {
                 List<TAgentTaskRequest> agentTaskRequests =
                         agentBatchTask.stream().map(AgentBatchTask::toAgentTaskRequest).collect(Collectors.toList());
 
-                ThriftRPCRequestExecutor.call(
+                final TAgentResult result = ThriftRPCRequestExecutor.call(
                         ThriftConnectionPool.backendPool,
                         new TNetworkAddress(computeNode.getHost(), computeNode.getBePort()),
                         client -> client.submit_tasks(agentTaskRequests));
+                final TStatus status = result.getStatus();
+                if (status.status_code != TStatusCode.OK) {
+                    throw new RuntimeException(status.getError_msgs().toString());
+                }
                 return true;
             } catch (TException e) {
                 throw new RuntimeException(e);
@@ -392,7 +409,11 @@ public class TabletTaskExecutor {
                 for (Map.Entry<Long, Long> mark : firstThree) {
                     sb.append(mark.getValue()); // TabletId
                     sb.append('(');
-                    Backend backend = GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo().getBackend(mark.getKey());
+                    ComputeNode backend = GlobalStateMgr.
+                            getCurrentState().
+                            getNodeMgr().
+                            getClusterInfo().
+                            getBackendOrComputeNode(mark.getKey());
                     sb.append(backend != null ? backend.getHost() : "N/A");
                     sb.append(") ");
                 }
@@ -436,10 +457,9 @@ public class TabletTaskExecutor {
         for (Partition partition : olapTable.getAllPartitions()) {
             for (PhysicalPartition physicalPartition : partition.getSubPartitions()) {
                 List<MaterializedIndex> allIndices = physicalPartition
-                        .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                        .getAllMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
                 for (MaterializedIndex materializedIndex : allIndices) {
-                    long indexId = materializedIndex.getId();
-                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                    int schemaHash = olapTable.getSchemaHashByIndexMetaId(materializedIndex.getMetaId());
                     for (Tablet tablet : materializedIndex.getTablets()) {
                         long tabletId = tablet.getId();
                         List<Replica> replicas = ((LocalTablet) tablet).getImmutableReplicas();
@@ -452,7 +472,7 @@ public class TabletTaskExecutor {
                                 batchTaskMap.put(backendId, batchTask);
                             }
                             batchTask.addTask(dropTask);
-                            LOG.info("delete tablet[{}] from backend[{}] because table {}-{} is dropped",
+                            LOG.debug("delete tablet[{}] from backend[{}] because table {}-{} is dropped",
                                     tabletId, backendId, olapTable.getId(), olapTable.getName());
                         } // end for replicas
                     } // end for tablets

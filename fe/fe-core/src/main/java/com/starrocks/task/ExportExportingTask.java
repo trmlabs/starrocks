@@ -44,6 +44,7 @@ import com.starrocks.common.util.DebugUtil;
 import com.starrocks.common.util.ProfileManager;
 import com.starrocks.common.util.RuntimeProfile;
 import com.starrocks.common.util.TimeUtils;
+import com.starrocks.common.util.UUIDUtil;
 import com.starrocks.common.util.concurrent.MarkedCountDownLatch;
 import com.starrocks.fs.HdfsUtil;
 import com.starrocks.load.ExportChecker;
@@ -206,6 +207,8 @@ public class ExportExportingTask extends PriorityLeaderTask {
         summaryProfile.addInfoString(ProfileManager.USER, "xxx");
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, String.valueOf(job.getDbId()));
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, job.getSql());
+        summaryProfile.addInfoString(ProfileManager.WAREHOUSE_CNGROUP, GlobalStateMgr.getCurrentState().getWarehouseMgr()
+                        .getWarehouseComputeResourceName(job.getComputeResource()));
         profile.addChild(summaryProfile);
     }
 
@@ -237,13 +240,13 @@ public class ExportExportingTask extends PriorityLeaderTask {
                 try {
                     // check export file exist
                     if (!job.getBrokerDesc().hasBroker()) {
-                        if (HdfsUtil.checkPathExist(exportedFile, job.getBrokerDesc())) {
+                        if (HdfsUtil.checkPathExist(exportedFile, job.getBrokerDesc().getProperties())) {
                             failMsg = exportedFile + " already exist";
                             LOG.warn("move {} to {} fail. job id: {}, retry: {}, msg: {}",
                                     exportedTempFile, exportedFile, job.getId(), i, failMsg);
                             break;
                         }
-                        if (!HdfsUtil.checkPathExist(exportedTempFile, job.getBrokerDesc())) {
+                        if (!HdfsUtil.checkPathExist(exportedTempFile, job.getBrokerDesc().getProperties())) {
                             failMsg = exportedFile + " temp file not exist";
                             LOG.warn("move {} to {} fail. job id: {}, retry: {}, msg: {}",
                                     exportedTempFile, exportedFile, job.getId(), i, failMsg);
@@ -267,7 +270,7 @@ public class ExportExportingTask extends PriorityLeaderTask {
                     // move
                     int timeoutMs = Math.min(Math.max(1, getLeftTimeSecond()), 3600) * 1000;
                     if (!job.getBrokerDesc().hasBroker()) {
-                        HdfsUtil.rename(exportedTempFile, exportedFile, job.getBrokerDesc(), timeoutMs);
+                        HdfsUtil.rename(exportedTempFile, exportedFile, job.getBrokerDesc().getProperties(), timeoutMs);
                     } else {
                         BrokerUtil.rename(exportedTempFile, exportedFile, job.getBrokerDesc(), timeoutMs);
                     }
@@ -341,7 +344,7 @@ public class ExportExportingTask extends PriorityLeaderTask {
 
                 if (i < RETRY_NUM - 1) {
                     TUniqueId oldQueryId = coord.getQueryId();
-                    UUID uuid = UUID.randomUUID();
+                    UUID uuid = UUIDUtil.genUUID();
                     // generate one new queryId here, to avoid being rejected by BE,
                     // because the request is considered as a repeat request.
                     // we make the high part of query id unchanged to facilitate tracing problem by log.

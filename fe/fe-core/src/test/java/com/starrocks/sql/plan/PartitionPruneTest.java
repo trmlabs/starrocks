@@ -27,16 +27,16 @@ import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
 import com.starrocks.sql.optimizer.statistics.StatisticsCalculator;
 import com.starrocks.thrift.TExplainLevel;
 import com.starrocks.utframe.UtFrameUtils;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.util.Set;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class PartitionPruneTest extends PlanTestBase {
-    @BeforeClass
+    @BeforeAll
     public static void beforeClass() throws Exception {
         PlanTestBase.beforeClass();
         FeConstants.runningUnitTest = true;
@@ -54,6 +54,24 @@ public class PartitionPruneTest extends PlanTestBase {
                 + "PARTITION p202004 VALUES [('2020-01-01'), ('2020-04-01')),\n"
                 + "PARTITION p202007 VALUES [('2020-04-01'), ('2020-07-01')),\n"
                 + "PARTITION p202012 VALUES [('2020-07-01'), ('2020-12-01')))\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\"\n"
+                + ");");
+
+        starRocksAssert.withTable("CREATE TABLE `ptest_case` (\n"
+                + "  `k1` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `d2` date    NULL COMMENT \"\",\n"
+                + "  `v1` int(11) NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `d2`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`d2`)\n"
+                + "(PARTITION P202001 VALUES [('0000-01-01'), ('2020-01-01')),\n"
+                + "PARTITION P202004 VALUES [('2020-01-01'), ('2020-04-01')),\n"
+                + "PARTITION P202007 VALUES [('2020-04-01'), ('2020-07-01')),\n"
+                + "PARTITION P202012 VALUES [('2020-07-01'), ('2020-12-01')))\n"
                 + "DISTRIBUTED BY HASH(`k1`) BUCKETS 10\n"
                 + "PROPERTIES (\n"
                 + "\"replication_num\" = \"1\",\n"
@@ -109,6 +127,7 @@ public class PartitionPruneTest extends PlanTestBase {
                 " PARTITION BY (c2, c3) " +
                 " PROPERTIES('replication_num'='1')");
         starRocksAssert.ddl("ALTER TABLE t_gen_col_1 ADD PARTITION p1_01 VALUES IN (('1', '1'))");
+        starRocksAssert.getCtx().getSessionVariable().setEnableRewriteSimpleAggToMetaScan(false);
     }
 
     @Test
@@ -238,6 +257,13 @@ public class PartitionPruneTest extends PlanTestBase {
         assertCContains(plan, "partitions=0/4");
     }
 
+    @Test
+    public void testPartitionClauseCaseInsensitive() throws Exception {
+        String sql = "select * from ptest_case partition(p202007)";
+        String plan = getFragmentPlan(sql);
+        assertContains(plan, "partitions=1/4");
+    }
+
     private static Pair<ScalarOperator, LogicalScanOperator> buildConjunctAndScan(String sql) throws Exception {
         Pair<String, ExecPlan> pair = UtFrameUtils.getPlanAndFragment(connectContext, sql);
         ExecPlan execPlan = pair.second;
@@ -253,7 +279,7 @@ public class PartitionPruneTest extends PlanTestBase {
         StatisticsCalculator calculator = new StatisticsCalculator();
         OptimizerContext context = OptimizerFactory.mockContext(new ColumnRefFactory());
         ScalarOperator newPredicate = calculator.removePartitionPredicate(pair.first, pair.second, context);
-        Assert.assertEquals(expected, newPredicate.toString());
+        Assertions.assertEquals(expected, newPredicate.toString());
     }
 
     private void testAssertContains(String sql, String expected) throws Exception {
@@ -408,7 +434,7 @@ public class PartitionPruneTest extends PlanTestBase {
             OlapTable t1 = (OlapTable) starRocksAssert.getTable("test", "t1_list");
             PartitionInfo partitionInfo = t1.getPartitionInfo();
             Set<Long> nullValuePartitions = partitionInfo.getNullValuePartitions();
-            Assert.assertEquals(1, nullValuePartitions.size());
+            Assertions.assertEquals(1, nullValuePartitions.size());
         }
 
         // composite partition
@@ -425,10 +451,10 @@ public class PartitionPruneTest extends PlanTestBase {
             PartitionInfo partitionInfo = t3.getPartitionInfo();
 
             Set<Long> nullValuePartitions = partitionInfo.getNullValuePartitions();
-            Assert.assertEquals(0, nullValuePartitions.size());
+            Assertions.assertEquals(0, nullValuePartitions.size());
 
             starRocksAssert.ddl("alter table t3_composite add partition pnull values in ((NULL, NULL))");
-            Assert.assertEquals(1, partitionInfo.getNullValuePartitions().size());
+            Assertions.assertEquals(1, partitionInfo.getNullValuePartitions().size());
         }
 
         // range
@@ -444,7 +470,7 @@ public class PartitionPruneTest extends PlanTestBase {
             OlapTable t2 = (OlapTable) starRocksAssert.getTable("test", "t2_range");
             PartitionInfo partitionInfo = t2.getPartitionInfo();
             Set<Long> nullValuePartitions = partitionInfo.getNullValuePartitions();
-            Assert.assertEquals(1, nullValuePartitions.size());
+            Assertions.assertEquals(1, nullValuePartitions.size());
         }
 
         starRocksAssert.dropTable("t1_list");
@@ -574,15 +600,44 @@ public class PartitionPruneTest extends PlanTestBase {
         starRocksAssert.ddl("alter table t3_pri add partition p20240104 values less than('2024-01-04') ");
         starRocksAssert.ddl("alter table t3_pri add partition p20240105 values less than('2024-01-05') ");
 
-        starRocksAssert.query("select min(c1) from t3_pri").explainContains("TOP-N", "order by: <slot 1> 1: c1");
-        starRocksAssert.query("select max(c1) from t3_pri").explainContains("TOP-N", "order by: <slot 1> 1: c1 DESC");
+        starRocksAssert.query("select min(c1) from t3_pri")
+                .explainContains("TOP-N", "order by: <slot 1> 1: c1", "AGGREGATE");
+        starRocksAssert.query("select max(c1) from t3_pri")
+                .explainContains("TOP-N", "order by: <slot 1> 1: c1 DESC", "AGGREGATE");
         starRocksAssert.query("select min(c1)+1 from t3_pri")
-                .explainContains("TOP-N", "order by: <slot 1> 1: c1");
+                .explainContains("TOP-N", "order by: <slot 1> 1: c1", "AGGREGATE");
         starRocksAssert.query("select max(c1)+1 from t3_pri")
-                .explainContains("TOP-N", "order by: <slot 1> 1: c1 DESC");
+                .explainContains("TOP-N", "order by: <slot 1> 1: c1 DESC", "AGGREGATE");
 
         // NOT SUPPORTED
         starRocksAssert.query("select max(c1-1)+1 from t3_pri").explainContains("OlapScanNode");
         starRocksAssert.query("select max(c1), min(c1) from t3_pri").explainContains("OlapScanNode");
+    }
+
+    @Test
+    public void testMinMaxRangePartitionPruneWithEmptyPartition() throws Exception {
+        UtFrameUtils.mockDML();
+        starRocksAssert.withTable("CREATE TABLE `t4_range_minmax` (\n" +
+                "    `dt` date NULL COMMENT \"\",\n" +
+                "    `id` int(11) NULL COMMENT \"\",\n" +
+                "    `name` varchar(65533) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`dt`, `id`, `name`)\n" +
+                "PARTITION BY RANGE(`dt`)\n" +
+                "(\n" +
+                "    PARTITION p20250428 VALUES [(\"2025-04-28\"), (\"2025-04-29\")),\n" +
+                "    PARTITION p20250429 VALUES [(\"2025-04-29\"), (\"2025-04-30\"))\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`id`, `name`)\n" +
+                "PROPERTIES (\n" +
+                "    \"replication_num\" = \"1\"\n" +
+                ");");
+        starRocksAssert.getCtx().executeSql("insert into t4_range_minmax values('2025-04-29', 1, 'bar')");
+        FeConstants.runningUnitTest = false;
+        starRocksAssert.getTable("test", "t4_range_minmax")
+                .getPartition("p20250428").getDefaultPhysicalPartition().updateVisibleVersion(1);
+        starRocksAssert.query("select min(dt), max(dt) from t4_range_minmax").explainContains("partitions=1/2");
+        FeConstants.runningUnitTest = true;
+
     }
 }

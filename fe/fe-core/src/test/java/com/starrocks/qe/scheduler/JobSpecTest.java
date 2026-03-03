@@ -15,7 +15,6 @@
 package com.starrocks.qe.scheduler;
 
 import com.google.common.collect.ImmutableMap;
-import com.starrocks.analysis.DescriptorTable;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.ResourceGroup;
 import com.starrocks.catalog.ResourceGroupClassifier;
@@ -23,6 +22,7 @@ import com.starrocks.catalog.ResourceGroupMgr;
 import com.starrocks.common.Config;
 import com.starrocks.common.util.DebugUtil;
 import com.starrocks.load.loadv2.BulkLoadJob;
+import com.starrocks.planner.DescriptorTable;
 import com.starrocks.planner.PlanFragment;
 import com.starrocks.planner.ScanNode;
 import com.starrocks.planner.StreamLoadPlanner;
@@ -49,17 +49,18 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import static com.starrocks.server.WarehouseManager.DEFAULT_WAREHOUSE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class JobSpecTest extends SchedulerTestBase {
@@ -78,7 +79,7 @@ public class JobSpecTest extends SchedulerTestBase {
     /**
      * Mock {@link ResourceGroupMgr#chooseResourceGroup(ConnectContext, ResourceGroupClassifier.QueryType, Set)}.
      */
-    @BeforeClass
+    @BeforeAll
     public static void beforeClass() throws Exception {
         SchedulerTestBase.beforeClass();
 
@@ -95,12 +96,12 @@ public class JobSpecTest extends SchedulerTestBase {
         };
     }
 
-    @Before
+    @BeforeEach
     public void before() {
         prevEnablePipelineLoad = Config.enable_pipeline_load;
     }
 
-    @After
+    @AfterEach
     public void after() {
         Config.enable_pipeline_load = prevEnablePipelineLoad;
     }
@@ -120,7 +121,7 @@ public class JobSpecTest extends SchedulerTestBase {
         List<ScanNode> scanNodes = execPlan.getScanNodes();
 
         DefaultCoordinator coordinator = COORDINATOR_FACTORY.createQueryScheduler(
-                connectContext, fragments, scanNodes, descTable.toThrift());
+                connectContext, fragments, scanNodes, descTable.toThrift(), execPlan);
         JobSpec jobSpec = coordinator.getJobSpec();
 
         QeProcessorImpl.INSTANCE.registerQuery(queryId, new QeProcessorImpl.QueryInfo(connectContext, sql, coordinator));
@@ -130,18 +131,18 @@ public class JobSpecTest extends SchedulerTestBase {
                 .isEqualTo(QUERY_RESOURCE_GROUP.getName());
 
         // Check created jobSpec.
-        Assert.assertEquals(queryId, jobSpec.getQueryId());
-        Assert.assertEquals(lastQueryId.toString(), jobSpec.getQueryGlobals().getLast_query_id());
-        Assert.assertEquals(TQueryType.SELECT, jobSpec.getQueryOptions().getQuery_type());
-        Assert.assertTrue(jobSpec.isEnablePipeline());
-        Assert.assertFalse(jobSpec.isEnableStreamPipeline());
-        Assert.assertFalse(jobSpec.isBlockQuery());
-        Assert.assertEquals(QUERY_RESOURCE_GROUP, jobSpec.getResourceGroup());
+        Assertions.assertEquals(queryId, jobSpec.getQueryId());
+        Assertions.assertEquals(lastQueryId.toString(), jobSpec.getQueryGlobals().getLast_query_id());
+        Assertions.assertEquals(TQueryType.SELECT, jobSpec.getQueryOptions().getQuery_type());
+        Assertions.assertTrue(jobSpec.isEnablePipeline());
+        Assertions.assertFalse(jobSpec.isEnableStreamPipeline());
+        Assertions.assertFalse(jobSpec.isBlockQuery());
+        Assertions.assertEquals(QUERY_RESOURCE_GROUP, jobSpec.getResourceGroup());
 
         coordinator = COORDINATOR_FACTORY.createInsertScheduler(
-                connectContext, fragments, scanNodes, descTable.toThrift());
+                connectContext, fragments, scanNodes, descTable.toThrift(), execPlan);
         jobSpec = coordinator.getJobSpec();
-        Assert.assertEquals(LOAD_RESOURCE_GROUP, jobSpec.getResourceGroup());
+        Assertions.assertEquals(LOAD_RESOURCE_GROUP, jobSpec.getResourceGroup());
     }
 
     /**
@@ -149,7 +150,7 @@ public class JobSpecTest extends SchedulerTestBase {
      */
     @Test
     public void testQueryResourceGroup() throws Exception {
-        BackendResourceStat.getInstance().setNumHardwareCoresOfBe(BACKEND1_ID, 16);
+        BackendResourceStat.getInstance().setNumCoresOfBe(DEFAULT_WAREHOUSE_ID, BACKEND1_ID, 16);
         GlobalStateMgr.getCurrentState().getResourceGroupMgr().createBuiltinResourceGroupsIfNotExist();
 
         new MockUp<ResourceGroupMgr>() {
@@ -175,7 +176,7 @@ public class JobSpecTest extends SchedulerTestBase {
         // Check created jobSpec.
         {
             DefaultCoordinator coordinator = COORDINATOR_FACTORY.createQueryScheduler(
-                    connectContext, fragments, scanNodes, descTable.toThrift());
+                    connectContext, fragments, scanNodes, descTable.toThrift(), execPlan);
             JobSpec jobSpec = coordinator.getJobSpec();
 
             TWorkGroup group = jobSpec.getResourceGroup();
@@ -188,7 +189,7 @@ public class JobSpecTest extends SchedulerTestBase {
             connectContext.getSessionVariable().setResourceGroup(ResourceGroup.DEFAULT_MV_RESOURCE_GROUP_NAME);
 
             DefaultCoordinator coordinator = COORDINATOR_FACTORY.createQueryScheduler(
-                    connectContext, fragments, scanNodes, descTable.toThrift());
+                    connectContext, fragments, scanNodes, descTable.toThrift(), execPlan);
             JobSpec jobSpec = coordinator.getJobSpec();
 
             // Check created jobSpec.
@@ -213,16 +214,16 @@ public class JobSpecTest extends SchedulerTestBase {
         List<ScanNode> scanNodes = execPlan.getScanNodes();
 
         JobSpec jobSpec = JobSpec.Factory.fromMVMaintenanceJobSpec(
-                connectContext, fragments, scanNodes, descTable.toThrift());
+                connectContext, fragments, scanNodes, descTable.toThrift(), execPlan);
 
         // Check created jobSpec.
-        Assert.assertEquals(queryId, jobSpec.getQueryId());
-        Assert.assertEquals(lastQueryId.toString(), jobSpec.getQueryGlobals().getLast_query_id());
-        Assert.assertEquals(TQueryType.SELECT, jobSpec.getQueryOptions().getQuery_type());
-        Assert.assertTrue(jobSpec.isEnablePipeline());
-        Assert.assertTrue(jobSpec.isEnableStreamPipeline());
-        Assert.assertFalse(jobSpec.isBlockQuery());
-        Assert.assertEquals(QUERY_RESOURCE_GROUP, jobSpec.getResourceGroup());
+        Assertions.assertEquals(queryId, jobSpec.getQueryId());
+        Assertions.assertEquals(lastQueryId.toString(), jobSpec.getQueryGlobals().getLast_query_id());
+        Assertions.assertEquals(TQueryType.SELECT, jobSpec.getQueryOptions().getQuery_type());
+        Assertions.assertTrue(jobSpec.isEnablePipeline());
+        Assertions.assertTrue(jobSpec.isEnableStreamPipeline());
+        Assertions.assertFalse(jobSpec.isBlockQuery());
+        Assertions.assertEquals(QUERY_RESOURCE_GROUP, jobSpec.getResourceGroup());
     }
 
     @Test
@@ -250,23 +251,23 @@ public class JobSpecTest extends SchedulerTestBase {
         JobSpec jobSpec = coordinator.getJobSpec();
 
         // Check created jobSpec.
-        Assert.assertEquals(loadJobId, jobSpec.getLoadJobId());
-        Assert.assertEquals(queryId, jobSpec.getQueryId());
-        Assert.assertEquals(lastQueryId.toString(), jobSpec.getQueryGlobals().getLast_query_id());
-        Assert.assertEquals(TQueryType.LOAD, jobSpec.getQueryOptions().getQuery_type());
-        Assert.assertEquals(timeout, jobSpec.getQueryOptions().getQuery_timeout());
-        Assert.assertEquals(loadMemLimit, jobSpec.getQueryOptions().getLoad_mem_limit());
-        Assert.assertEquals(execMemLimit, jobSpec.getQueryOptions().getMem_limit());
-        Assert.assertEquals(execMemLimit, jobSpec.getQueryOptions().getQuery_mem_limit());
-        Assert.assertTrue(jobSpec.isEnablePipeline());
-        Assert.assertFalse(jobSpec.isEnableStreamPipeline());
-        Assert.assertTrue(jobSpec.isBlockQuery());
-        Assert.assertEquals(LOAD_RESOURCE_GROUP, jobSpec.getResourceGroup());
+        Assertions.assertEquals(loadJobId, jobSpec.getLoadJobId());
+        Assertions.assertEquals(queryId, jobSpec.getQueryId());
+        Assertions.assertEquals(lastQueryId.toString(), jobSpec.getQueryGlobals().getLast_query_id());
+        Assertions.assertEquals(TQueryType.LOAD, jobSpec.getQueryOptions().getQuery_type());
+        Assertions.assertEquals(timeout, jobSpec.getQueryOptions().getQuery_timeout());
+        Assertions.assertEquals(loadMemLimit, jobSpec.getQueryOptions().getLoad_mem_limit());
+        Assertions.assertEquals(execMemLimit, jobSpec.getQueryOptions().getMem_limit());
+        Assertions.assertEquals(execMemLimit, jobSpec.getQueryOptions().getQuery_mem_limit());
+        Assertions.assertTrue(jobSpec.isEnablePipeline());
+        Assertions.assertFalse(jobSpec.isEnableStreamPipeline());
+        Assertions.assertTrue(jobSpec.isBlockQuery());
+        Assertions.assertEquals(LOAD_RESOURCE_GROUP, jobSpec.getResourceGroup());
 
         // Check created jobSpec for sessionVariables.
-        Assert.assertEquals(TCompressionType.NO_COMPRESSION,
+        Assertions.assertEquals(TCompressionType.NO_COMPRESSION,
                 jobSpec.getQueryOptions().getLoad_transmission_compression_type());
-        Assert.assertFalse(jobSpec.getQueryOptions().isSetLog_rejected_record_num());
+        Assertions.assertFalse(jobSpec.getQueryOptions().isSetLog_rejected_record_num());
 
         sessionVariables = ImmutableMap.of(
                 SessionVariable.LOAD_TRANSMISSION_COMPRESSION_TYPE, "LZ4",
@@ -278,8 +279,8 @@ public class JobSpecTest extends SchedulerTestBase {
                 null, null, null, 0);
         coordinator = COORDINATOR_FACTORY.createBrokerLoadScheduler(loadPlanner);
         jobSpec = coordinator.getJobSpec();
-        Assert.assertEquals(TCompressionType.LZ4, jobSpec.getQueryOptions().getLoad_transmission_compression_type());
-        Assert.assertEquals(10L, jobSpec.getQueryOptions().getLog_rejected_record_num());
+        Assertions.assertEquals(TCompressionType.LZ4, jobSpec.getQueryOptions().getLoad_transmission_compression_type());
+        Assertions.assertEquals(10L, jobSpec.getQueryOptions().getLog_rejected_record_num());
 
         // Check negative execMemLimit.
         execMemLimit = -1;
@@ -289,9 +290,9 @@ public class JobSpecTest extends SchedulerTestBase {
                 null, null, null, 0);
         coordinator = COORDINATOR_FACTORY.createBrokerLoadScheduler(loadPlanner);
         jobSpec = coordinator.getJobSpec();
-        Assert.assertEquals(loadMemLimit, jobSpec.getQueryOptions().getLoad_mem_limit());
-        Assert.assertTrue(jobSpec.getQueryOptions().isSetMem_limit());
-        Assert.assertTrue(jobSpec.getQueryOptions().isSetQuery_mem_limit());
+        Assertions.assertEquals(loadMemLimit, jobSpec.getQueryOptions().getLoad_mem_limit());
+        Assertions.assertTrue(jobSpec.getQueryOptions().isSetMem_limit());
+        Assertions.assertTrue(jobSpec.getQueryOptions().isSetQuery_mem_limit());
     }
 
     @Test
@@ -319,24 +320,24 @@ public class JobSpecTest extends SchedulerTestBase {
         JobSpec jobSpec = coordinator.getJobSpec();
 
         // Check created jobSpec.
-        Assert.assertEquals(loadJobId, jobSpec.getLoadJobId());
-        Assert.assertEquals(queryId, jobSpec.getQueryId());
-        Assert.assertEquals(lastQueryId.toString(), jobSpec.getQueryGlobals().getLast_query_id());
-        Assert.assertEquals(TQueryType.LOAD, jobSpec.getQueryOptions().getQuery_type());
-        Assert.assertEquals(TLoadJobType.STREAM_LOAD, jobSpec.getQueryOptions().getLoad_job_type());
-        Assert.assertEquals(timeout, jobSpec.getQueryOptions().getQuery_timeout());
-        Assert.assertEquals(loadMemLimit, jobSpec.getQueryOptions().getLoad_mem_limit());
-        Assert.assertEquals(execMemLimit, jobSpec.getQueryOptions().getMem_limit());
-        Assert.assertEquals(execMemLimit, jobSpec.getQueryOptions().getQuery_mem_limit());
-        Assert.assertTrue(jobSpec.isEnablePipeline());
-        Assert.assertFalse(jobSpec.isEnableStreamPipeline());
-        Assert.assertTrue(jobSpec.isBlockQuery());
-        Assert.assertEquals(LOAD_RESOURCE_GROUP, jobSpec.getResourceGroup());
+        Assertions.assertEquals(loadJobId, jobSpec.getLoadJobId());
+        Assertions.assertEquals(queryId, jobSpec.getQueryId());
+        Assertions.assertEquals(lastQueryId.toString(), jobSpec.getQueryGlobals().getLast_query_id());
+        Assertions.assertEquals(TQueryType.LOAD, jobSpec.getQueryOptions().getQuery_type());
+        Assertions.assertEquals(TLoadJobType.STREAM_LOAD, jobSpec.getQueryOptions().getLoad_job_type());
+        Assertions.assertEquals(timeout, jobSpec.getQueryOptions().getQuery_timeout());
+        Assertions.assertEquals(loadMemLimit, jobSpec.getQueryOptions().getLoad_mem_limit());
+        Assertions.assertEquals(execMemLimit, jobSpec.getQueryOptions().getMem_limit());
+        Assertions.assertEquals(execMemLimit, jobSpec.getQueryOptions().getQuery_mem_limit());
+        Assertions.assertTrue(jobSpec.isEnablePipeline());
+        Assertions.assertFalse(jobSpec.isEnableStreamPipeline());
+        Assertions.assertTrue(jobSpec.isBlockQuery());
+        Assertions.assertEquals(LOAD_RESOURCE_GROUP, jobSpec.getResourceGroup());
 
         // Check created jobSpec for sessionVariables.
-        Assert.assertEquals(TCompressionType.NO_COMPRESSION,
+        Assertions.assertEquals(TCompressionType.NO_COMPRESSION,
                 jobSpec.getQueryOptions().getLoad_transmission_compression_type());
-        Assert.assertFalse(jobSpec.getQueryOptions().isSetLog_rejected_record_num());
+        Assertions.assertFalse(jobSpec.getQueryOptions().isSetLog_rejected_record_num());
 
         sessionVariables = ImmutableMap.of(
                 SessionVariable.LOAD_TRANSMISSION_COMPRESSION_TYPE, "LZ4",
@@ -348,8 +349,8 @@ public class JobSpecTest extends SchedulerTestBase {
                 null, null, null, 0);
         coordinator = COORDINATOR_FACTORY.createStreamLoadScheduler(loadPlanner);
         jobSpec = coordinator.getJobSpec();
-        Assert.assertEquals(TCompressionType.LZ4, jobSpec.getQueryOptions().getLoad_transmission_compression_type());
-        Assert.assertEquals(10L, jobSpec.getQueryOptions().getLog_rejected_record_num());
+        Assertions.assertEquals(TCompressionType.LZ4, jobSpec.getQueryOptions().getLoad_transmission_compression_type());
+        Assertions.assertEquals(10L, jobSpec.getQueryOptions().getLog_rejected_record_num());
 
         // Check negative execMemLimit.
         execMemLimit = -1;
@@ -359,9 +360,9 @@ public class JobSpecTest extends SchedulerTestBase {
                 null, null, null, 0);
         coordinator = COORDINATOR_FACTORY.createStreamLoadScheduler(loadPlanner);
         jobSpec = coordinator.getJobSpec();
-        Assert.assertEquals(loadMemLimit, jobSpec.getQueryOptions().getLoad_mem_limit());
-        Assert.assertTrue(jobSpec.getQueryOptions().isSetMem_limit());
-        Assert.assertTrue(jobSpec.getQueryOptions().isSetQuery_mem_limit());
+        Assertions.assertEquals(loadMemLimit, jobSpec.getQueryOptions().getLoad_mem_limit());
+        Assertions.assertTrue(jobSpec.getQueryOptions().isSetMem_limit());
+        Assertions.assertTrue(jobSpec.getQueryOptions().isSetQuery_mem_limit());
     }
 
     @Test
@@ -383,21 +384,21 @@ public class JobSpecTest extends SchedulerTestBase {
         DefaultCoordinator coordinator = COORDINATOR_FACTORY.createBrokerExportScheduler(
                 loadJobId, queryId, descTable, fragments, scanNodes, timezone, startTime,
                 sessionVariables,
-                execMemLimit, WarehouseManager.DEFAULT_WAREHOUSE_ID);
+                execMemLimit, WarehouseManager.DEFAULT_RESOURCE);
         JobSpec jobSpec = coordinator.getJobSpec();
 
         // Check created jobSpec.
-        Assert.assertEquals(loadJobId, jobSpec.getLoadJobId());
-        Assert.assertEquals(queryId, jobSpec.getQueryId());
-        Assert.assertEquals(execMemLimit, jobSpec.getQueryOptions().getMem_limit());
-        Assert.assertTrue(jobSpec.isEnablePipeline());
-        Assert.assertFalse(jobSpec.isEnableStreamPipeline());
-        Assert.assertTrue(jobSpec.isBlockQuery());
-        Assert.assertEquals(QUERY_RESOURCE_GROUP, jobSpec.getResourceGroup()); // Export job doesn't setTQueryType.
+        Assertions.assertEquals(loadJobId, jobSpec.getLoadJobId());
+        Assertions.assertEquals(queryId, jobSpec.getQueryId());
+        Assertions.assertEquals(execMemLimit, jobSpec.getQueryOptions().getMem_limit());
+        Assertions.assertTrue(jobSpec.isEnablePipeline());
+        Assertions.assertFalse(jobSpec.isEnableStreamPipeline());
+        Assertions.assertTrue(jobSpec.isBlockQuery());
+        Assertions.assertEquals(QUERY_RESOURCE_GROUP, jobSpec.getResourceGroup()); // Export job doesn't setTQueryType.
 
         // Check created jobSpec for sessionVariables.
-        Assert.assertFalse(jobSpec.getQueryOptions().isSetLoad_transmission_compression_type());
-        Assert.assertFalse(jobSpec.getQueryOptions().isSetLog_rejected_record_num());
+        Assertions.assertFalse(jobSpec.getQueryOptions().isSetLoad_transmission_compression_type());
+        Assertions.assertFalse(jobSpec.getQueryOptions().isSetLog_rejected_record_num());
 
         sessionVariables = ImmutableMap.of(
                 SessionVariable.LOAD_TRANSMISSION_COMPRESSION_TYPE, "LZ4",
@@ -406,11 +407,11 @@ public class JobSpecTest extends SchedulerTestBase {
         coordinator = COORDINATOR_FACTORY.createBrokerExportScheduler(
                 loadJobId, queryId, descTable, fragments, scanNodes, timezone, startTime,
                 sessionVariables,
-                execMemLimit, WarehouseManager.DEFAULT_WAREHOUSE_ID);
+                execMemLimit, WarehouseManager.DEFAULT_RESOURCE);
         jobSpec = coordinator.getJobSpec();
 
-        Assert.assertEquals(TCompressionType.LZ4, jobSpec.getQueryOptions().getLoad_transmission_compression_type());
-        Assert.assertEquals(10L, jobSpec.getQueryOptions().getLog_rejected_record_num());
+        Assertions.assertEquals(TCompressionType.LZ4, jobSpec.getQueryOptions().getLoad_transmission_compression_type());
+        Assertions.assertEquals(10L, jobSpec.getQueryOptions().getLog_rejected_record_num());
     }
 
     @Test
@@ -421,6 +422,8 @@ public class JobSpecTest extends SchedulerTestBase {
                 planner.getExecPlanFragmentParams();
                 result = new TExecPlanFragmentParams().setParams(
                         new TPlanFragmentExecParams().setFragment_instance_id(queryId));
+                planner.getConnectContext();
+                result = new ConnectContext();
             }
         };
 
@@ -428,10 +431,10 @@ public class JobSpecTest extends SchedulerTestBase {
         JobSpec jobSpec = coordinator.getJobSpec();
 
         // Check created jobSpec.
-        Assert.assertEquals(queryId, jobSpec.getQueryId());
-        Assert.assertFalse(jobSpec.isEnablePipeline());
-        Assert.assertFalse(jobSpec.isEnableStreamPipeline());
-        Assert.assertNull(jobSpec.getResourceGroup());
+        Assertions.assertEquals(queryId, jobSpec.getQueryId());
+        Assertions.assertFalse(jobSpec.isEnablePipeline());
+        Assertions.assertFalse(jobSpec.isEnableStreamPipeline());
+        Assertions.assertNull(jobSpec.getResourceGroup());
 
     }
 }

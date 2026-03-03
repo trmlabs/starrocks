@@ -18,15 +18,18 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.starrocks.analysis.TableName;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.IcebergTable;
+import com.starrocks.catalog.LightWeightDeltaLakeTable;
+import com.starrocks.catalog.LightWeightIcebergTable;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Table;
+import com.starrocks.catalog.TableName;
 import com.starrocks.common.AnalysisException;
 import com.starrocks.common.Pair;
+import com.starrocks.common.tvr.TvrTableSnapshot;
+import com.starrocks.common.tvr.TvrVersionRange;
 import com.starrocks.common.util.UnionFind;
-import com.starrocks.connector.TableVersionRange;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.optimizer.MaterializationContext;
@@ -89,7 +92,7 @@ public class OptExpressionDuplicator {
         this.columnMapping = Maps.newHashMap();
         this.rewriter = new ReplaceColumnRefRewriter(columnMapping);
         this.mvRefBaseTableColumns = materializationContext.getMv().getRefBaseTablePartitionColumns();
-        this.partialPartitionRewrite = !materializationContext.getMvUpdateInfo().getMvToRefreshPartitionNames().isEmpty();
+        this.partialPartitionRewrite = !materializationContext.getMvUpdateInfo().getMVToRefreshPCells().isEmpty();
         this.optimizerContext = materializationContext.getOptimizerContext();
     }
 
@@ -188,6 +191,10 @@ public class OptExpressionDuplicator {
             Operator.Builder opBuilder = OperatorBuilderFactory.build(optExpression.getOp());
             LogicalScanOperator scanOperator = (LogicalScanOperator) optExpression.getOp();
             opBuilder.withOperator(scanOperator);
+            // Use scan operator's table instead of columnRefFactory's table.
+            // If a lightweight external table sneaks in (from mv plan cache), restore full table here
+            // to avoid leaking LightWeight* into physical planning (e.g. Iceberg native table access execpetion).
+            Table scanTable = refreshLightWeightExternalTable(scanOperator.getTable());
             Map<ColumnRefOperator, Column> columnRefOperatorColumnMap = scanOperator.getColRefToColumnMetaMap();
             ImmutableMap.Builder<ColumnRefOperator, Column> columnRefColumnMapBuilder = new ImmutableMap.Builder<>();
             Map<Integer, Integer> relationIdMapping = Maps.newHashMap();
@@ -196,8 +203,9 @@ public class OptExpressionDuplicator {
                 ColumnRefOperator newColumnRef = columnRefFactory.create(key, key.getType(), key.isNullable());
                 columnRefColumnMapBuilder.put(newColumnRef, entry.getValue());
                 columnMapping.put(entry.getKey(), newColumnRef);
-                columnRefFactory.updateColumnRefToColumns(newColumnRef, columnRefFactory.getColumn(key),
-                        columnRefFactory.getColumnRefToTable().get(key));
+                // Use scan operator's table instead of columnRefFactory's table
+                Column column = entry.getValue();
+                columnRefFactory.updateColumnRefToColumns(newColumnRef, column, scanTable);
                 Integer newRelationId = relationIdMapping.computeIfAbsent(columnRefFactory.getRelationId(key.getId()),
                         k -> columnRefFactory.getNextRelationId());
                 columnRefFactory.updateColumnToRelationIds(newColumnRef.getId(), newRelationId);
@@ -210,8 +218,9 @@ public class OptExpressionDuplicator {
                 ColumnRefOperator key = entry.getValue();
                 ColumnRefOperator mapped = columnMapping.computeIfAbsent(key,
                         k -> columnRefFactory.create(k, k.getType(), k.isNullable()));
-                columnRefFactory.updateColumnRefToColumns(mapped, columnRefFactory.getColumn(key),
-                        columnRefFactory.getColumnRefToTable().get(key));
+                // Use scan operator's table and column instead of columnRefFactory's
+                Column column = entry.getKey();
+                columnRefFactory.updateColumnRefToColumns(mapped, column, scanTable);
                 Integer newRelationId = relationIdMapping.computeIfAbsent(columnRefFactory.getRelationId(key.getId()),
                         k -> columnRefFactory.getNextRelationId());
                 columnRefFactory.updateColumnToRelationIds(mapped.getId(), newRelationId);
@@ -248,19 +257,15 @@ public class OptExpressionDuplicator {
             } else {
                 if (isRefreshExternalTable && scanOperator.getOpType() == OperatorType.LOGICAL_ICEBERG_SCAN) {
                     // refresh iceberg table's metadata
-                    Table refBaseTable = scanOperator.getTable();
-                    IcebergTable cachedIcebergTable = (IcebergTable) refBaseTable;
-                    String catalogName = cachedIcebergTable.getCatalogName();
-                    String dbName = cachedIcebergTable.getCatalogDBName();
-                    TableName tableName = new TableName(catalogName, dbName, cachedIcebergTable.getName());
-                    Table currentTable =
-                            GlobalStateMgr.getCurrentState().getMetadataMgr().getTable(new ConnectContext(), tableName)
-                                    .orElse(null);
+                    Table refBaseTable = scanTable;
+                    //the table is already load in refreshLightWeightExternalTable
+                    IcebergTable currentTable = (IcebergTable) refBaseTable;
+
                     if (currentTable == null) {
                         return null;
                     }
-                    scanBuilder.setTable(currentTable);
-                    TableVersionRange versionRange = TableVersionRange.withEnd(
+
+                    TvrVersionRange versionRange = TvrTableSnapshot.of(
                             Optional.ofNullable(((IcebergTable) currentTable).getNativeTable().currentSnapshot())
                                     .map(Snapshot::snapshotId));
                     scanBuilder.setTableVersionRange(versionRange);
@@ -289,6 +294,7 @@ public class OptExpressionDuplicator {
             }
             ImmutableMap<ColumnRefOperator, Column> newColumnRefColumnMap = columnRefColumnMapBuilder.build();
             scanBuilder.setColRefToColumnMetaMap(newColumnRefColumnMap);
+            scanBuilder.setTable(scanTable);
 
             // process external table scan operator's predicates
             LogicalScanOperator newScanOperator = (LogicalScanOperator) opBuilder.build();
@@ -296,6 +302,25 @@ public class OptExpressionDuplicator {
                 processExternalTableScanOperator(newScanOperator);
             }
             return OptExpression.create(newScanOperator);
+        }
+
+        private Table refreshLightWeightExternalTable(Table table) {
+            if (!(table instanceof LightWeightIcebergTable || table instanceof LightWeightDeltaLakeTable)) {
+                return table;
+            }
+            ConnectContext connectContext = ConnectContext.get() == null ? new ConnectContext() : ConnectContext.get();
+            String catalogName = table.getCatalogName();
+            String dbName = table.getCatalogDBName();
+            TableName tableName = new TableName(catalogName, dbName, table.getName());
+            try {
+                // lookup the latest full table from global state manager
+                Table currentTable =
+                        GlobalStateMgr.getCurrentState().getMetadataMgr().getTable(connectContext, tableName)
+                                .orElse(null);
+                return currentTable;
+            } catch (Exception e) {
+                return null;
+            }
         }
 
         private void processExternalTableScanOperator(LogicalScanOperator newScanOperator) {
@@ -376,7 +401,12 @@ public class OptExpressionDuplicator {
                 ScalarOperator newOnPredicate = rewriter.rewrite(onpredicate);
                 LogicalJoinOperator.Builder joinBuilder = (LogicalJoinOperator.Builder) opBuilder;
                 joinBuilder.setOnPredicate(newOnPredicate);
+
+                if (joinOperator.getSkewColumn() != null) {
+                    joinBuilder.setSkewColumn(rewriter.rewrite(joinOperator.getSkewColumn()));
+                }
             }
+
             return OptExpression.create(opBuilder.build(), inputs);
         }
 

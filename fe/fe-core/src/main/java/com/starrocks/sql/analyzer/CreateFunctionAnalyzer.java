@@ -14,29 +14,36 @@
 
 package com.starrocks.sql.analyzer;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.starrocks.analysis.FunctionName;
-import com.starrocks.analysis.TypeDef;
+import com.google.common.collect.Maps;
 import com.starrocks.catalog.AggregateFunction;
-import com.starrocks.catalog.ArrayType;
 import com.starrocks.catalog.Function;
-import com.starrocks.catalog.MapType;
-import com.starrocks.catalog.PrimitiveType;
+import com.starrocks.catalog.FunctionName;
 import com.starrocks.catalog.ScalarFunction;
-import com.starrocks.catalog.ScalarType;
+import com.starrocks.catalog.SqlFunction;
 import com.starrocks.catalog.TableFunction;
-import com.starrocks.catalog.Type;
 import com.starrocks.common.Config;
 import com.starrocks.common.ErrorCode;
 import com.starrocks.common.ErrorReport;
 import com.starrocks.common.FeConstants;
+import com.starrocks.common.util.UDFInternalClassLoader;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.sql.ast.CreateFunctionStmt;
 import com.starrocks.sql.ast.FunctionArgsDef;
+import com.starrocks.sql.ast.FunctionRef;
 import com.starrocks.sql.ast.HdfsURI;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.TypeDef;
 import com.starrocks.thrift.TFunctionBinaryType;
+import com.starrocks.type.ArrayType;
+import com.starrocks.type.MapType;
+import com.starrocks.type.PrimitiveType;
+import com.starrocks.type.ScalarType;
+import com.starrocks.type.Type;
+import com.starrocks.type.TypeFactory;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang.StringUtils;
 
@@ -64,27 +71,67 @@ public class CreateFunctionAnalyzer {
                     "UDF is not enabled in FE, please configure enable_udf=true in fe/conf/fe.conf");
         }
         analyzeCommon(stmt, context);
-        String langType = stmt.getLangType();
 
-        if (CreateFunctionStmt.TYPE_STARROCKS_JAR.equalsIgnoreCase(langType)) {
-            String checksum = computeMd5(stmt);
-            analyzeJavaUDFClass(stmt, checksum);
-        } else if (CreateFunctionStmt.TYPE_STARROCKS_PYTHON.equalsIgnoreCase(langType)) {
-            analyzePython(stmt);
-        } else {
-            ErrorReport.reportSemanticException(ErrorCode.ERR_WRONG_OBJECT, "unknown lang type");
+        if (stmt.isBuildFunctionMode()) {
+            // build function
+            analyzeExpression(stmt, context);
+        } else if (stmt.isUdfFunctionMode()) {
+            String langType = stmt.getLangType();
+
+            if (CreateFunctionStmt.TYPE_STARROCKS_JAR.equalsIgnoreCase(langType)) {
+                String checksum = computeMd5(stmt);
+                analyzeJavaUDFClass(stmt, checksum, context);
+            } else if (CreateFunctionStmt.TYPE_STARROCKS_PYTHON.equalsIgnoreCase(langType)) {
+                analyzePython(stmt, context);
+            } else {
+                ErrorReport.reportSemanticException(ErrorCode.ERR_COMMON_ERROR, "unknown lang type");
+            }
         }
-        // build function
+    }
+
+    private void analyzeExpression(CreateFunctionStmt stmt, ConnectContext context) {
+        Expr expr = stmt.getExpr();
+        FunctionArgsDef def = stmt.getArgsDef();
+        Preconditions.checkState(def.getArgTypes().length == def.getArgNames().size());
+
+        Map<String, Type> argsMap = Maps.newHashMap();
+        for (int i = 0; i < def.getArgNames().size(); i++) {
+            String name = def.getArgNames().get(i);
+            if (argsMap.containsKey(name)) {
+                throw new SemanticException("Duplicate argument name %s in function args", name);
+            }
+            argsMap.put(name, def.getArgTypes()[i]);
+        }
+        ExpressionAnalyzer.analyzeExpressionResolveSlot(expr, context, slotRef -> {
+            if (!argsMap.containsKey(slotRef.getColName())) {
+                throw new SemanticException("Cannot find argument %s in function args", slotRef.getColName());
+            }
+            slotRef.setType(argsMap.get(slotRef.getColName()));
+        });
+
+        FunctionName functionName = FunctionRefAnalyzer.resolveFunctionName(
+                stmt.getFunctionRef(),
+                stmt.getFunctionRef().isGlobalFunction() ? FunctionRefAnalyzer.GLOBAL_UDF_DB
+                        : context.getDatabase());
+        FunctionArgsDef argsDef = stmt.getArgsDef();
+
+        String viewSql = AstToSQLBuilder.toSQLWithCredential(expr);
+        Function function = new SqlFunction(functionName, argsDef.getArgTypes(), expr.getType(),
+                argsDef.getArgNames().toArray(new String[0]), viewSql);
+        stmt.setFunction(function);
     }
 
     private void analyzeCommon(CreateFunctionStmt stmt, ConnectContext context) {
-        FunctionName functionName = stmt.getFunctionName();
-        functionName.analyze(context.getDatabase());
+        FunctionRef functionRef = stmt.getFunctionRef();
         FunctionArgsDef argsDef = stmt.getArgsDef();
+        String defaultDb = functionRef.isGlobalFunction() ? FunctionRefAnalyzer.GLOBAL_UDF_DB : context.getDatabase();
+        FunctionRefAnalyzer.analyzeFunctionRef(functionRef, defaultDb);
+        FunctionRefAnalyzer.analyzeArgsDef(argsDef);
+
         TypeDef returnType = stmt.getReturnType();
-        // check argument
-        argsDef.analyze();
-        returnType.analyze();
+        if (returnType != null) {
+            TypeDefAnalyzer.analyze(returnType);
+        }
     }
 
     public String computeMd5(CreateFunctionStmt stmt) {
@@ -132,7 +179,7 @@ public class CreateFunctionAnalyzer {
         return checksum;
     }
 
-    private void analyzeJavaUDFClass(CreateFunctionStmt stmt, String checksum) {
+    private void analyzeJavaUDFClass(CreateFunctionStmt stmt, String checksum, ConnectContext context) {
         Map<String, String> properties = stmt.getProperties();
         String className = properties.get(CreateFunctionStmt.SYMBOL_KEY);
         if (Strings.isNullOrEmpty(className)) {
@@ -157,13 +204,13 @@ public class CreateFunctionAnalyzer {
                 }
 
             } catch (IOException e) {
-                ErrorReport.reportSemanticException(ErrorCode.ERR_WRONG_OBJECT,
+                ErrorReport.reportSemanticException(ErrorCode.ERR_COMMON_ERROR,
                         "Failed to load object_file: " + objectFile, e);
             } catch (ClassNotFoundException e) {
-                ErrorReport.reportSemanticException(ErrorCode.ERR_WRONG_OBJECT,
+                ErrorReport.reportSemanticException(ErrorCode.ERR_COMMON_ERROR,
                         "Class '" + className + "' not found in object_file :" + objectFile, e);
             } catch (Exception e) {
-                ErrorReport.reportSemanticException(ErrorCode.ERR_WRONG_OBJECT,
+                ErrorReport.reportSemanticException(ErrorCode.ERR_COMMON_ERROR,
                         "other exception when load class. exception:", e);
             }
         } finally {
@@ -172,13 +219,13 @@ public class CreateFunctionAnalyzer {
 
         Function createdFunction = null;
         if (stmt.isScalar()) {
-            createdFunction = analyzeStarrocksJarUdf(stmt, checksum, handleClass);
+            createdFunction = analyzeStarrocksJarUdf(stmt, checksum, handleClass, context);
         } else if (stmt.isAggregate()) {
-            createdFunction = analyzeStarrocksJarUdaf(stmt, checksum, handleClass, stateClass);
+            createdFunction = analyzeStarrocksJarUdaf(stmt, checksum, handleClass, stateClass, context);
         } else {
-            createdFunction = analyzeStarrocksJarUdtf(stmt, checksum, handleClass);
+            createdFunction = analyzeStarrocksJarUdtf(stmt, checksum, handleClass, context);
         }
-        
+
         stmt.setFunction(createdFunction);
     }
 
@@ -197,10 +244,13 @@ public class CreateFunctionAnalyzer {
     }
 
     private Function analyzeStarrocksJarUdf(CreateFunctionStmt stmt, String checksum,
-                                               JavaUDFInternalClass handleClass) {
+                                            JavaUDFInternalClass handleClass, ConnectContext context) {
         checkStarrocksJarUdfClass(stmt, handleClass);
 
-        FunctionName functionName = stmt.getFunctionName();
+        FunctionName functionName = FunctionRefAnalyzer.resolveFunctionName(
+                stmt.getFunctionRef(),
+                stmt.getFunctionRef().isGlobalFunction() ? FunctionRefAnalyzer.GLOBAL_UDF_DB
+                        : context.getDatabase());
         FunctionArgsDef argsDef = stmt.getArgsDef();
         TypeDef returnType = stmt.getReturnType();
         String objectFile = stmt.getProperties().get(CreateFunctionStmt.FILE_KEY);
@@ -303,14 +353,18 @@ public class CreateFunctionAnalyzer {
     }
 
     private Function analyzeStarrocksJarUdaf(CreateFunctionStmt stmt, String checksum,
-                                                JavaUDFInternalClass mainClass,
-                                                JavaUDFInternalClass udafStateClass) {
-        FunctionName functionName = stmt.getFunctionName();
+                                             JavaUDFInternalClass mainClass,
+                                             JavaUDFInternalClass udafStateClass,
+                                             ConnectContext context) {
+        FunctionName functionName = FunctionRefAnalyzer.resolveFunctionName(
+                stmt.getFunctionRef(),
+                stmt.getFunctionRef().isGlobalFunction() ? FunctionRefAnalyzer.GLOBAL_UDF_DB
+                        : context.getDatabase());
         FunctionArgsDef argsDef = stmt.getArgsDef();
         TypeDef returnType = stmt.getReturnType();
         String objectFile = stmt.getProperties().get(CreateFunctionStmt.FILE_KEY);
-        TypeDef intermediateType = TypeDef.createVarchar(ScalarType.getOlapMaxVarcharLength());
-        ;
+        ScalarType intermediateType = TypeFactory.createVarcharType(com.starrocks.type.TypeFactory.getOlapMaxVarcharLength());
+
         Map<String, String> properties = stmt.getProperties();
         boolean isAnalyticFn = "true".equalsIgnoreCase(properties.get(CreateFunctionStmt.IS_ANALYTIC_NAME));
 
@@ -319,7 +373,7 @@ public class CreateFunctionAnalyzer {
         AggregateFunction.AggregateFunctionBuilder builder =
                 AggregateFunction.AggregateFunctionBuilder.createUdfBuilder(TFunctionBinaryType.SRJAR);
         builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType()).
-                hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType()).objectFile(objectFile)
+                hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType).objectFile(objectFile)
                 .isAnalyticFn(isAnalyticFn)
                 .symbolName(mainClass.getCanonicalName());
         Function function = builder.build();
@@ -328,8 +382,12 @@ public class CreateFunctionAnalyzer {
     }
 
     private Function analyzeStarrocksJarUdtf(CreateFunctionStmt stmt, String checksum,
-                                                JavaUDFInternalClass mainClass) {
-        FunctionName functionName = stmt.getFunctionName();
+                                             JavaUDFInternalClass mainClass,
+                                             ConnectContext context) {
+        FunctionName functionName = FunctionRefAnalyzer.resolveFunctionName(
+                stmt.getFunctionRef(),
+                stmt.getFunctionRef().isGlobalFunction() ? FunctionRefAnalyzer.GLOBAL_UDF_DB
+                        : context.getDatabase());
         FunctionArgsDef argsDef = stmt.getArgsDef();
         TypeDef returnType = stmt.getReturnType();
         String objectFile = stmt.getProperties().get(CreateFunctionStmt.FILE_KEY);
@@ -368,12 +426,6 @@ public class CreateFunctionAnalyzer {
                     .build();
     private static final Class<?> JAVA_ARRAY_CLASS_TYPE = List.class;
     private static final Class<?> JAVA_MAP_CLASS_TYPE = Map.class;
-
-    public static class UDFInternalClassLoader extends URLClassLoader {
-        public UDFInternalClassLoader(String udfPath) throws IOException {
-            super(new URL[] {new URL("jar:" + udfPath + "!/")});
-        }
-    }
 
     private static class UDFSecurityManager extends SecurityManager {
         private Class<?> clazz;
@@ -493,17 +545,23 @@ public class CreateFunctionAnalyzer {
         }
 
         private void checkUdfType(Method method, Type expType, Class<?> ptype, String pname) {
-            if (!(expType instanceof ScalarType)) {
+            Class<?> cls = null;
+            if (expType instanceof ScalarType) {
+                ScalarType scalarType = (ScalarType) expType;
+                cls = PRIMITIVE_TYPE_TO_JAVA_CLASS_TYPE.get(scalarType.getPrimitiveType());
+            } else if (expType instanceof MapType) {
+                cls = Map.class;
+            } else if (expType instanceof ArrayType) {
+                cls = List.class;
+            } else {
                 ErrorReport.reportSemanticException(ErrorCode.ERR_COMMON_ERROR,
-                        String.format("UDF class '%s' method '%s' does not support non-scalar type '%s'",
+                        String.format("UDF class '%s' method '%s' does not support type '%s'",
                                 clazz.getCanonicalName(), method.getName(), expType));
             }
-            ScalarType scalarType = (ScalarType) expType;
-            Class<?> cls = PRIMITIVE_TYPE_TO_JAVA_CLASS_TYPE.get(scalarType.getPrimitiveType());
             if (cls == null) {
                 ErrorReport.reportSemanticException(ErrorCode.ERR_COMMON_ERROR,
                         String.format("UDF class '%s' method '%s' does not support type '%s'",
-                                clazz.getCanonicalName(), method.getName(), scalarType));
+                                clazz.getCanonicalName(), method.getName(), expType));
             }
             if (!cls.equals(ptype)) {
                 ErrorReport.reportSemanticException(ErrorCode.ERR_COMMON_ERROR,
@@ -565,7 +623,7 @@ public class CreateFunctionAnalyzer {
         }
     }
 
-    private void analyzePython(CreateFunctionStmt stmt) {
+    private void analyzePython(CreateFunctionStmt stmt, ConnectContext context) {
         String content = stmt.getContent();
         Map<String, String> properties = stmt.getProperties();
         boolean isInline = content != null;
@@ -578,15 +636,21 @@ public class CreateFunctionAnalyzer {
         String inputType = properties.getOrDefault(CreateFunctionStmt.INPUT_TYPE, "scalar");
         String objectFile = stmt.getProperties().get(CreateFunctionStmt.FILE_KEY);
 
-        if (isInline && !StringUtils.equals(objectFile, "inline")) {
-            ErrorReport.reportSemanticException(ErrorCode.ERR_WRONG_OBJECT, "inline function file should be 'inline'");
+        if (isInline && !StringUtils.equalsIgnoreCase(objectFile, "inline")) {
+            ErrorReport.reportSemanticException(ErrorCode.ERR_COMMON_ERROR, "inline function file should be 'inline'");
+        }
+        if (isInline) {
+            objectFile = "inline";
         }
 
         if (!inputType.equalsIgnoreCase("arrow") && !inputType.equalsIgnoreCase("scalar")) {
-            ErrorReport.reportSemanticException(ErrorCode.ERR_WRONG_OBJECT, "unknown input type:", inputType);
+            ErrorReport.reportSemanticException(ErrorCode.ERR_COMMON_ERROR, "unknown input type:" + inputType);
         }
 
-        FunctionName functionName = stmt.getFunctionName();
+        FunctionName functionName = FunctionRefAnalyzer.resolveFunctionName(
+                stmt.getFunctionRef(),
+                stmt.getFunctionRef().isGlobalFunction() ? FunctionRefAnalyzer.GLOBAL_UDF_DB
+                        : context.getDatabase());
         FunctionArgsDef argsDef = stmt.getArgsDef();
         TypeDef returnType = stmt.getReturnType();
         String isolation = stmt.getProperties().get(CreateFunctionStmt.ISOLATION_KEY);

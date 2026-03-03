@@ -19,26 +19,24 @@
 #include "common/logging.h"
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
 #include "types/logical_type.h"
 
 namespace starrocks {
 
 SchemaScanner::ColumnDesc WarehouseMetricsScanner::_s_columns[] = {
         //   name,       type,          size,     is_null
-        {"WAREHOUSE_ID", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue), false},
-        {"WAREHOUSE_NAME", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue), false},
-        {"QUEUE_PENDING_LENGTH", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue), false},
-        {"QUEUE_RUNNING_LENGTH", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue), false},
-        {"MAX_PENDING_LENGTH", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue), false},
-        {"MAX_PENDING_TIME_SECOND", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue),
-         false},
-        {"EARLIEST_QUERY_WAIT_TIME", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue),
-         false},
-        {"MAX_REQUIRED_SLOTS", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue), false},
-        {"SUM_REQUIRED_SLOTS", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue), false},
-        {"REMAIN_SLOTS", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue), false},
-        {"MAX_SLOTS", TypeDescriptor::create_varchar_type(sizeof(StringValue)), sizeof(StringValue), false},
+        {"WAREHOUSE_ID", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"WAREHOUSE_NAME", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"QUEUE_PENDING_LENGTH", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"QUEUE_RUNNING_LENGTH", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"MAX_PENDING_LENGTH", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"MAX_PENDING_TIME_SECOND", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"EARLIEST_QUERY_WAIT_TIME", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"MAX_REQUIRED_SLOTS", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"SUM_REQUIRED_SLOTS", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"REMAIN_SLOTS", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"MAX_SLOTS", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
+        {"EXTRA_MESSAGE", TypeDescriptor::create_varchar_type(sizeof(Slice)), sizeof(Slice), false},
 };
 
 WarehouseMetricsScanner::WarehouseMetricsScanner()
@@ -98,9 +96,10 @@ Status WarehouseMetricsScanner::fill_chunk(ChunkPtr* chunk) {
                            Slice(item.max_required_slots),
                            Slice(item.sum_required_slots),
                            Slice(item.remain_slots),
-                           Slice(item.max_slots)};
+                           Slice(item.max_slots),
+                           Slice(item.extra_message)};
     for (const auto& [slot_id, index] : slot_id_map) {
-        Column* column = (*chunk)->get_column_by_slot_id(slot_id).get();
+        auto* column = (*chunk)->get_column_raw_ptr_by_slot_id(slot_id);
         column->append_datum(datum_array[slot_id - 1]);
     }
     return {};
