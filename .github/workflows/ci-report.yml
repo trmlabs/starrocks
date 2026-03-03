@@ -236,7 +236,7 @@ jobs:
 
   # sonarcloud-fe-checker:
   SONAR_FE_CHECKER:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: 
       - FE-REPORT
       - INFO
