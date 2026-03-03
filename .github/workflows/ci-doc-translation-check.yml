@@ -8,7 +8,7 @@ on:
 
 jobs:
   report:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     permissions:
       pull-requests: write # Explicitly request write access
       contents: read       # We only need to read the code

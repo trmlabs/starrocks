@@ -6,7 +6,7 @@ on:
 jobs:
   translate:
     if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/translate')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     permissions:
       contents: write
       pull-requests: write

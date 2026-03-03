@@ -10,7 +10,7 @@ jobs:
       github.event.issue.pull_request &&
       github.event.sender.login != 'github-actions[bot]' &&
       contains(github.event.comment.body, 'Translation Required?')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     permissions:
       issues: write
       pull-requests: write
