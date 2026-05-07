@@ -1,0 +1,19 @@
+fs_brokers/apache_hdfs_broker/src/pom.xml
+  s_ba2eb1f9ddada8::t_6007c43e742809 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "0b3788bc9b6cc8e079d86733ae1e723e2ae95fa7",
+  "prompts": {},
+  "sessions": {
+    "s_ba2eb1f9ddada8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69a1917a-a4d3-4f48-910f-4a6ea48daed2",
+        "model": "unknown"
+      },
+      "human_author": "Jonathan Irvin <jonathan.irvin@trmlabs.com>"
+    }
+  }
+}
