@@ -12,5 +12,8 @@
     "pdfkit": "^0.15.1",
     "puppeteer": "^23.7.0",
     "scroll-to-bottomjs": "^1.1.0"
+  },
+  "resolutions": {
+    "basic-ftp": "^5.2.0"
   }
 }
