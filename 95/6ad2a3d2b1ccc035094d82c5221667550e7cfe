@@ -1,0 +1,21 @@
+docs/docusaurus/PDF/yarn.lock
+  ai_agent 153-156
+docs/docusaurus/PDF/package.json
+  s_ba2eb1f9ddada8::t_3b26915b99ff3c 15-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "956ad2a3d2b1ccc035094d82c5221667550e7cfe",
+  "prompts": {},
+  "sessions": {
+    "s_ba2eb1f9ddada8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69a1917a-a4d3-4f48-910f-4a6ea48daed2",
+        "model": "unknown"
+      },
+      "human_author": "Jonathan Irvin <jonathan.irvin@trmlabs.com>"
+    }
+  }
+}
