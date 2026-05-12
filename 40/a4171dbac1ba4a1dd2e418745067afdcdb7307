@@ -1,0 +1,176 @@
+be/src/formats/parquet/group_reader.cpp
+  f4ee3318cec5a1e2 302-303
+test/sql/test_storage_volume/R/builtin_storage_volume_bindings
+  5b6153e506b450d1 1-40
+run-be-ut.sh
+  19bdbf3c886a14b6 165,184,216-222,231-232,238,264-270,273
+be/src/exec/hash_join_node.h
+  2ce1a068b9aa7e5e 21,34
+java-extensions/udf-extensions/src/main/java/com/starrocks/udf/CallStubGenerator.java
+  5f0889d07b35e12a 50-87,89,92-95,100-101,103,107-116,188-272,276,281-296,298,301-315,317,319-323,326-329,331,335-344,371,427-524,528,531,533-545,548,550
+test/sql/test_storage_volume/T/builtin_storage_volume_bindings
+  5b6153e506b450d1 1-39
+be/src/exec/select_node.cpp
+  2ce1a068b9aa7e5e 49
+be/src/exec/select_node.h
+  2ce1a068b9aa7e5e 38,46
+fe/fe-core/src/main/java/com/starrocks/planner/expression/ExprToThrift.java
+  b9bde74942b26824 77-78,554-560
+be/src/exec/join/join_hash_table.cpp
+  73b77462300d845f 783-788
+be/src/exec/analytic_node.cpp
+  2ce1a068b9aa7e5e 41
+fe/fe-core/src/main/java/com/starrocks/server/SharedDataStorageVolumeMgr.java
+  5b6153e506b450d1 411-412,415
+be/src/exprs/string_functions.cpp
+  08aa024b8cde7cd2 5268-5281
+fe/fe-core/src/main/java/com/starrocks/qe/DefaultCoordinator.java
+  34b5252cb16cb874 761
+java-extensions/pom.xml
+  f5733d260efc90eb 58
+be/src/exec/pipeline_node.cpp
+  2ce1a068b9aa7e5e 1-31
+be/src/exec/except_node.h
+  2ce1a068b9aa7e5e 29,41
+be/src/exec/dict_decode_node.h
+  2ce1a068b9aa7e5e 24,31
+test/sql/test_join/T/test_expr_key_partition_hash_join
+  73b77462300d845f 1-47
+be/src/exec/assert_num_rows_node.h
+  2ce1a068b9aa7e5e 28,37
+be/src/exec/raw_values_node.h
+  2ce1a068b9aa7e5e 19,27
+trivy.yaml
+  f5733d260efc90eb 34
+be/src/util/arrow/row_batch.cpp
+  44672d823a04611a 258,294
+be/src/exec/table_function_node.h
+  2ce1a068b9aa7e5e 20,24,27
+be/src/cache/datacache_utils.cpp
+  44672d823a04611a 110
+be/src/common/tracer.cpp
+  44672d823a04611a 50,147
+build.sh
+  19bdbf3c886a14b6 271
+be/src/udf/java/java_udf.cpp
+  5f0889d07b35e12a 917-920,934,949-950,955,958-960,993,1003-1018,1037,1049-1056,1072,1113,1115-1117,1119-1195
+fe/fe-core/src/main/java/com/starrocks/qe/StmtExecutor.java
+  d5702468c507ab97 1299
+be/src/exec/hash_join_node.cpp
+  2ce1a068b9aa7e5e 56
+be/src/connector/connector_chunk_sink.h
+  44672d823a04611a 65
+be/src/exprs/jsonpath.h
+  8fde967c287a783f 72,90,103
+test/sql/test_semi/T/test_struct_union_field_order
+  b9bde74942b26824 1-87
+be/test/exprs/cast_expr_test.cpp
+  b9bde74942b26824 2717-2830
+fe/fe-core/src/main/java/com/starrocks/sql/analyzer/CreateFunctionAnalyzer.java
+  5f0889d07b35e12a 340,342-351,369-370,422,424-431,492-494,514-526,532,537,552-557,562-569,672-698,703-706,710-713,717-735,738-776,778-779,781,783-786,788-790,792-801,805-891,894-910,912-918,920-934,936-938,940-941,943-1019,1022-1038
+fe/plugin/spark-dpp/src/main/java/com/starrocks/load/loadv2/dpp/ColumnParser.java
+  d5702468c507ab97 262,268
+be/src/exec/empty_set_node.h
+  2ce1a068b9aa7e5e 38,44
+be/src/exec/cross_join_node.h
+  2ce1a068b9aa7e5e 19-20,24,28
+be/src/exec/topn_node.h
+  2ce1a068b9aa7e5e 18,24,30,35
+gensrc/script/functions.py
+  08aa024b8cde7cd2 445-449
+be/src/exec/empty_set_node.cpp
+  2ce1a068b9aa7e5e 43
+test/sql/test_udf/R/test_jvm_vararg_udf
+  5f0889d07b35e12a 1-239
+fe/fe-core/src/test/java/com/starrocks/sql/plan/StructCastTest.java
+  b9bde74942b26824 1-56,60-65
+  6fd8c9b02e2ca364 59
+be/src/exec/table_function_node.cpp
+  2ce1a068b9aa7e5e 27
+be/src/exec/dict_decode_node.cpp
+  2ce1a068b9aa7e5e 37
+be/src/exec/CMakeLists.txt
+  2ce1a068b9aa7e5e 351
+fe/pom.xml
+  f5733d260efc90eb 86
+be/src/exec/aggregate/aggregate_base_node.h
+  2ce1a068b9aa7e5e 18,22-25
+java-extensions/udf-examples/src/main/java/com/starrocks/example/udf/UDFVarargsInt.java
+  5f0889d07b35e12a 1-40
+be/src/exprs/cast_nested.cpp
+  b9bde74942b26824 79-80,83,88
+be/src/exec/topn_node.cpp
+  2ce1a068b9aa7e5e 46
+test/sql/test_udf/T/test_jvm_vararg_udf
+  5f0889d07b35e12a 1-166
+java-extensions/udf-extensions/src/main/java/com/starrocks/udf/UDFHelper.java
+  5f0889d07b35e12a 1247,1249,1251-1270,1281,1283,1285-1302,1313,1315,1317-1339,1367,1371-1388
+fe/fe-core/src/main/java/com/starrocks/qe/SqlModeHelper.java
+  b9bde74942b26824 96-101,114-115,150
+java-extensions/udf-extensions/src/main/java/com/starrocks/udf/UDFClassLoader.java
+  5f0889d07b35e12a 56-68,76,78
+be/src/exec/lookup_node.cpp
+  2ce1a068b9aa7e5e 34
+test/sql/test_semi/R/test_struct_union_field_order
+  b9bde74942b26824 1-97
+test/sql/test_string_functions/R/test_string_functions
+  08aa024b8cde7cd2 860-888
+be/src/exec/lookup_node.h
+  2ce1a068b9aa7e5e 20,26
+be/src/exec/analytic_node.h
+  2ce1a068b9aa7e5e 19,26
+be/src/exec/cross_join_node.cpp
+  2ce1a068b9aa7e5e 46
+be/src/exec/repeat_node.cpp
+  2ce1a068b9aa7e5e 29
+be/src/exec/aggregate/aggregate_base_node.cpp
+  2ce1a068b9aa7e5e 23
+java-extensions/udf-extensions/src/test/java/com/starrocks/udf/CallStubGeneratorTest.java
+  5f0889d07b35e12a 129-163,194-370
+test/sql/test_string_functions/T/test_string_functions
+  08aa024b8cde7cd2 339-351
+be/src/exprs/cast_expr.cpp
+  b9bde74942b26824 27,31,43-44,46,200-208,210-218,220-226,279,287-296,299-300,303,1425,1449,2188-2237,2269-2270,2276-2278
+be/src/exprs/java_function_call_expr.cpp
+  5f0889d07b35e12a 241-251
+be/src/exprs/string_functions.h
+  08aa024b8cde7cd2 655-663
+be/test/udf/java/java_udf_test.cpp
+  5f0889d07b35e12a 26-27,125-450
+fe/fe-core/src/main/java/com/starrocks/sql/optimizer/rule/tree/lazymaterialize/GlobalLateMaterializationRewriter.java
+  7270a9e2ec2e526c 86-90
+be/src/exec/assert_num_rows_node.cpp
+  2ce1a068b9aa7e5e 29
+test/sql/test_join/R/test_expr_key_partition_hash_join
+  73b77462300d845f 1-55
+java-extensions/udf-examples/src/main/java/com/starrocks/example/udf/UDFVarargs.java
+  5f0889d07b35e12a 1-42
+gensrc/thrift/Exprs.thrift
+  b9bde74942b26824 259-262
+be/src/udf/java/java_udf.h
+  5f0889d07b35e12a 580-582,597
+be/src/exec/raw_values_node.cpp
+  2ce1a068b9aa7e5e 26
+be/src/formats/orc/column_reader.cpp
+  44672d823a04611a 236-237,253-254,293-294
+fe/fe-core/src/test/java/com/starrocks/sql/analyzer/CreateFunctionStmtAnalyzerTest.java
+  5f0889d07b35e12a 514-899
+be/CMakeLists.txt
+  19bdbf3c886a14b6 186-191,220-223,230,273-275,293-296,304,356,359,389-393,490-495,501,504,518-534,542,545,559-561,563-574,678-686,720-745,761-763,788-792,806-808,813-819,822-827,833-853,856,878,896,902
+be/src/exprs/cast_expr.h
+  b9bde74942b26824 48-49,88,166,238,311,355-358,370-371,374,378-379,385-387
+fs_brokers/apache_hdfs_broker/src/pom.xml
+  f5733d260efc90eb 53
+fe/fe-core/src/main/java/com/starrocks/sql/common/TypeManager.java
+  b9bde74942b26824 22,123-131,136,139-149,153,407-419
+be/src/exec/intersect_node.h
+  2ce1a068b9aa7e5e 29,40
+be/src/exec/repeat_node.h
+  2ce1a068b9aa7e5e 19,28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "40a4171dbac1ba4a1dd2e418745067afdcdb7307",
+  "prompts": {}
+}
