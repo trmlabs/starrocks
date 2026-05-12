@@ -1,0 +1,25 @@
+fs_brokers/apache_hdfs_broker/src/pom.xml
+  s_3e4cd117276bf6::t_60c90a33e9d8bd 49
+java-extensions/pom.xml
+  s_3e4cd117276bf6::t_d9a0115c3f6955 39
+fe/pom.xml
+  s_3e4cd117276bf6::t_01a84c32bb6749 51
+format-sdk/pom.xml
+  s_3e4cd117276bf6::t_9446fae8866001 89,95,101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "ca207d5e85e6da146eae28ddbeb521c0528069c4",
+  "prompts": {},
+  "sessions": {
+    "s_3e4cd117276bf6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fcb1f882-52bd-488b-84d6-831feb002696",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": null
+    }
+  }
+}
