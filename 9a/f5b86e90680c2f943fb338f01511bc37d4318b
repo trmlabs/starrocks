@@ -1,0 +1,25 @@
+fe/pom.xml
+  s_3e4cd117276bf6::t_d6a874b15f613b 266
+fs_brokers/apache_hdfs_broker/src/pom.xml
+  s_3e4cd117276bf6::t_1bce3de026f556 189
+format-sdk/pom.xml
+  s_3e4cd117276bf6::t_ac53d134361e4c 25
+java-extensions/udf-extensions/pom.xml
+  s_3e4cd117276bf6::t_95b2d0ad65d231 46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "9af5b86e90680c2f943fb338f01511bc37d4318b",
+  "prompts": {},
+  "sessions": {
+    "s_3e4cd117276bf6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fcb1f882-52bd-488b-84d6-831feb002696",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Vijay <vijay@trmlabs.com>"
+    }
+  }
+}
