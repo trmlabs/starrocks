@@ -1,0 +1,19 @@
+docs/docusaurus/package.json
+  s_3e4cd117276bf6::t_8a5936ec57ea00 43-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "49198158560349fba7e69923d9972fd1beaa49e9",
+  "prompts": {},
+  "sessions": {
+    "s_3e4cd117276bf6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fcb1f882-52bd-488b-84d6-831feb002696",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Vijay <vijay@trmlabs.com>"
+    }
+  }
+}
