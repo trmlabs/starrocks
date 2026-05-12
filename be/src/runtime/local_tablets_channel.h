@@ -33,11 +33,15 @@ class Controller;
 namespace starrocks {
 
 class MemTracker;
+class BrpcStubCache;
+class MetricRegistry;
+class TableMetricsManager;
 
 class LocalTabletsChannel : public TabletsChannel {
 public:
     LocalTabletsChannel(LoadChannel* load_channel, const TabletsChannelKey& key, MemTracker* mem_tracker,
-                        RuntimeProfile* parent_profile);
+                        RuntimeProfile* parent_profile, BrpcStubCache* brpc_stub_cache,
+                        MetricRegistry* metrics = nullptr, TableMetricsManager* table_metrics_mgr = nullptr);
     ~LocalTabletsChannel() override;
 
     LocalTabletsChannel(const LocalTabletsChannel&) = delete;
@@ -220,6 +224,8 @@ private:
     };
 
     LoadChannel* _load_channel;
+    BrpcStubCache* _brpc_stub_cache;
+    TableMetricsManager* _table_metrics_mgr = nullptr;
 
     TabletsChannelKey _key;
 
@@ -235,7 +241,7 @@ private:
     TupleDescriptor* _tuple_desc = nullptr;
 
     std::vector<Sender> _senders;
-    size_t _max_sliding_window_size = config::max_load_dop * 3;
+    size_t _max_sliding_window_size = 0;
 
     mutable bthread::Mutex _partitions_ids_lock;
     std::unordered_set<int64_t> _partition_ids;
@@ -300,7 +306,7 @@ private:
 class SecondaryReplicasWaiter {
 public:
     SecondaryReplicasWaiter(PUniqueId load_id, int64_t txn_id, int64_t sink_id, int64_t timeout_ms, int64_t eos_time_ms,
-                            std::vector<AsyncDeltaWriter*> delta_writers);
+                            std::vector<AsyncDeltaWriter*> delta_writers, BrpcStubCache* brpc_stub_cache);
     ~SecondaryReplicasWaiter();
     Status wait();
 
@@ -321,9 +327,13 @@ private:
     int64_t _replica_status_fail_num{0};
     ReusableClosure<PLoadReplicaStatusResult>* _replica_status_closure{nullptr};
     bool _diagnose_triggered{false};
+    BrpcStubCache* _brpc_stub_cache;
 };
 
 std::shared_ptr<LocalTabletsChannel> new_local_tablets_channel(LoadChannel* load_channel, const TabletsChannelKey& key,
-                                                               MemTracker* mem_tracker, RuntimeProfile* parent_profile);
+                                                               MemTracker* mem_tracker, RuntimeProfile* parent_profile,
+                                                               BrpcStubCache* brpc_stub_cache,
+                                                               MetricRegistry* metrics = nullptr,
+                                                               TableMetricsManager* table_metrics_mgr = nullptr);
 
 } // namespace starrocks

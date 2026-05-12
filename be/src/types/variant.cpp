@@ -22,12 +22,13 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <charconv>
 #include <cstdint>
+#include <ctime>
 #include <iomanip>
 #include <string_view>
 
 #include "absl/container/inlined_vector.h"
+#include "base/statusor.h"
 #include "base/url_coding.h"
-#include "common/statusor.h"
 #include "types/decimalv3.h"
 #include "types/timestamp_value.h"
 
@@ -220,29 +221,6 @@ Status VariantMetadata::_get_index(std::string_view key, void* _indexes, int hin
                 indexes.push_back(i);
             }
         }
-    }
-    return Status::OK();
-}
-
-void VariantEncodingContext::reset() {
-    keys.clear();
-    key_to_id.clear();
-    metadata_raw = {};
-    metadata_built = false;
-}
-
-Status VariantEncodingContext::use_metadata(const VariantMetadata& meta) {
-    // Since we use string_view in key-to-id map, we need to ensure the metadata raw data is the same
-    if (metadata_built && metadata_raw.data() == meta.raw().data() && metadata_raw.size() == meta.raw().size()) {
-        return Status::OK();
-    }
-    reset();
-    metadata_raw = meta.raw();
-    metadata_built = true;
-    RETURN_IF_ERROR(meta._build_lookup_index());
-    const auto& dict = meta._lookup_index.dict_strings;
-    for (uint32_t i = 0; i < dict.size(); ++i) {
-        key_to_id.emplace(dict[i], i);
     }
     return Status::OK();
 }
@@ -669,10 +647,13 @@ StatusOr<VariantValue> VariantValue::get_element_at_index(const VariantMetadata&
 }
 
 static std::string epoch_day_to_date(int32_t epoch_days) {
-    std::time_t raw_time = epoch_days * 86400; // to seconds
-    std::tm* ptm = std::gmtime(&raw_time);     // to UTC
+    std::time_t raw_time = static_cast<std::time_t>(epoch_days) * 86400; // to seconds
+    std::tm tm_buf{};
+    if (gmtime_r(&raw_time, &tm_buf) == nullptr) {
+        return {};
+    }
     char buffer[11];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", ptm);
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &tm_buf);
     return buffer;
 }
 

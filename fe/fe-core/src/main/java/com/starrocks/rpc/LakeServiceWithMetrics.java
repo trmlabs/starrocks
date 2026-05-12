@@ -20,6 +20,8 @@ import com.starrocks.proto.AbortTxnRequest;
 import com.starrocks.proto.AbortTxnResponse;
 import com.starrocks.proto.AggregateCompactRequest;
 import com.starrocks.proto.AggregatePublishVersionRequest;
+import com.starrocks.proto.BuildVectorIndexRequest;
+import com.starrocks.proto.BuildVectorIndexResponse;
 import com.starrocks.proto.CompactRequest;
 import com.starrocks.proto.CompactResponse;
 import com.starrocks.proto.DeleteDataRequest;
@@ -30,6 +32,8 @@ import com.starrocks.proto.DeleteTxnLogRequest;
 import com.starrocks.proto.DeleteTxnLogResponse;
 import com.starrocks.proto.DropTableRequest;
 import com.starrocks.proto.DropTableResponse;
+import com.starrocks.proto.DropTabletCacheRequest;
+import com.starrocks.proto.DropTabletCacheResponse;
 import com.starrocks.proto.GetTabletMetadatasRequest;
 import com.starrocks.proto.GetTabletMetadatasResponse;
 import com.starrocks.proto.LockTabletMetadataRequest;
@@ -123,6 +127,12 @@ public class LakeServiceWithMetrics implements LakeService {
     }
 
     @Override
+    public Future<DropTabletCacheResponse> dropTabletCache(DropTabletCacheRequest request) {
+        increaseMetrics();
+        return lakeService.dropTabletCache(request);
+    }
+
+    @Override
     public Future<PublishLogVersionResponse> publishLogVersion(PublishLogVersionRequest request) {
         increaseMetrics();
         return lakeService.publishLogVersion(request);
@@ -192,5 +202,11 @@ public class LakeServiceWithMetrics implements LakeService {
     public Future<RepairTabletMetadataResponse> repairTabletMetadata(RepairTabletMetadataRequest request) {
         increaseMetrics();
         return lakeService.repairTabletMetadata(request);
+    }
+
+    @Override
+    public Future<BuildVectorIndexResponse> buildVectorIndex(BuildVectorIndexRequest request) {
+        increaseMetrics();
+        return lakeService.buildVectorIndex(request);
     }
 }

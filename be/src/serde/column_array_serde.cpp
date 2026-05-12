@@ -22,13 +22,14 @@
 #include <limits>
 
 #include "base/coding.h"
+#include "base/compression/compression_headers.h"
 #include "base/status.h"
 #include "base/statusor.h"
 #include "column/array_column.h"
 #include "column/binary_column.h"
+#include "column/column_helper.h"
 #include "column/column_visitor_adapter.h"
 #include "column/const_column.h"
-#include "column/decimalv3_column.h"
 #include "column/fixed_length_column.h"
 #include "column/json_column.h"
 #include "column/map_column.h"
@@ -37,13 +38,10 @@
 #include "column/struct_column.h"
 #include "column/variant_column.h"
 #include "column/vectorized_fwd.h"
-#include "common/statusor.h"
-#include "serde/protobuf_serde.h"
-#include "types/hll.h"
+#include "common/config_diagnostic_fwd.h"
+#include "serde/encode_level.h"
 #include "types/json_value.h"
 #include "types/percentile_value.h"
-#include "types/variant_value.h"
-#include "util/compression/compression_headers.h"
 
 namespace starrocks::serde {
 
@@ -78,6 +76,17 @@ static uint8_t* write_little_endian_64(uint64_t value, uint8_t* buff) {
 static StatusOr<const uint8_t*> read_little_endian_64(const uint8_t* buff, const uint8_t* end, uint64_t* value) {
     RETURN_IF_ERROR(check_remaining_size(buff, end, sizeof(uint64_t)));
     *value = decode_fixed64_le(buff);
+    return buff + sizeof(*value);
+}
+
+static uint8_t* write_little_endian_8(uint8_t value, uint8_t* buff) {
+    *buff = value;
+    return buff + sizeof(value);
+}
+
+static StatusOr<const uint8_t*> read_little_endian_8(const uint8_t* buff, const uint8_t* end, uint8_t* value) {
+    RETURN_IF_ERROR(check_remaining_size(buff, end, sizeof(uint8_t)));
+    *value = *buff;
     return buff + sizeof(*value);
 }
 
@@ -205,7 +214,7 @@ public:
         // NOTE that `serialize` and `deserialize` will store and load the size as uint32_t.
         // If you use `serialize` and `deserialize`, please make sure that the size of the column is less than 2^32.
         int64_t size = sizeof(T) * column.size();
-        if (EncodeContext::enable_encode_integer(encode_level) && size >= ENCODE_SIZE_LIMIT) {
+        if (is_integer_encoding_enabled(encode_level) && size >= ENCODE_SIZE_LIMIT) {
             return sizeof(uint32_t) + sizeof(uint64_t) +
                    std::max((int64_t)size, (int64_t)streamvbyte_max_compressedbytes(upper_int32(size)));
         } else {
@@ -216,7 +225,7 @@ public:
     static uint8_t* serialize(const FixedLengthColumnBase<T>& column, uint8_t* buff, const int encode_level) {
         uint32_t size = sizeof(T) * column.size();
         buff = write_little_endian_32(size, buff);
-        if (EncodeContext::enable_encode_integer(encode_level) && size >= ENCODE_SIZE_LIMIT) {
+        if (is_integer_encoding_enabled(encode_level) && size >= ENCODE_SIZE_LIMIT) {
             // sorted 32-bit integers have a better optimize branch
             buff = encode_integers<(sizeof(T) == 4 && sorted)>(column.raw_data(), size, buff, encode_level);
         } else {
@@ -231,7 +240,7 @@ public:
         ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &size));
         auto& data = column->get_data();
         raw::make_room(&data, size / sizeof(T));
-        if (EncodeContext::enable_encode_integer(encode_level) && size >= ENCODE_SIZE_LIMIT) {
+        if (is_integer_encoding_enabled(encode_level) && size >= ENCODE_SIZE_LIMIT) {
             constexpr bool is_sorted_i32 = sizeof(T) == 4 && sorted;
             ASSIGN_OR_RETURN(buff, decode_integers<is_sorted_i32>(buff, end, data.data(), size));
         } else {
@@ -249,13 +258,13 @@ public:
         const auto& offsets = column.get_offset();
         int64_t res = sizeof(T) * 2;
         int64_t offsets_size = offsets.size() * sizeof(typename BinaryColumnBase<T>::Offset);
-        if (EncodeContext::enable_encode_integer(encode_level) && offsets_size >= ENCODE_SIZE_LIMIT) {
+        if (is_integer_encoding_enabled(encode_level) && offsets_size >= ENCODE_SIZE_LIMIT) {
             res += sizeof(uint64_t) +
                    std::max((int64_t)offsets_size, (int64_t)streamvbyte_max_compressedbytes(upper_int32(offsets_size)));
         } else {
             res += offsets_size;
         }
-        if (EncodeContext::enable_encode_string(encode_level) && bytes.size() >= ENCODE_SIZE_LIMIT) {
+        if (is_string_encoding_enabled(encode_level) && bytes.size() >= ENCODE_SIZE_LIMIT) {
             res += sizeof(uint64_t) + std::max((int64_t)bytes.size(), (int64_t)LZ4_compressBound(bytes.size()));
         } else {
             res += bytes.size();
@@ -274,7 +283,7 @@ public:
         } else {
             buff = write_little_endian_64(bytes_size, buff);
         }
-        if (EncodeContext::enable_encode_string(encode_level) && bytes_size >= ENCODE_SIZE_LIMIT &&
+        if (is_string_encoding_enabled(encode_level) && bytes_size >= ENCODE_SIZE_LIMIT &&
             bytes_size <= LZ4_MAX_INPUT_SIZE) {
             buff = encode_string_lz4(bytes.data(), bytes_size, buff, encode_level);
         } else {
@@ -288,7 +297,7 @@ public:
         } else {
             buff = write_little_endian_64(offsets_size, buff);
         }
-        if (EncodeContext::enable_encode_integer(encode_level) && offsets_size >= ENCODE_SIZE_LIMIT) {
+        if (is_integer_encoding_enabled(encode_level) && offsets_size >= ENCODE_SIZE_LIMIT) {
             if (sizeof(T) == 4) { // only support sorted 32-bit integers
                 buff = encode_integers<true>(offsets.data(), offsets_size, buff, encode_level);
             } else {
@@ -313,7 +322,7 @@ public:
         column->get_bytes().resize(bytes_size);
 
         auto* bytes_data = column->get_bytes().data();
-        if (EncodeContext::enable_encode_string(encode_level) && bytes_size >= ENCODE_SIZE_LIMIT &&
+        if (is_string_encoding_enabled(encode_level) && bytes_size >= ENCODE_SIZE_LIMIT &&
             bytes_size <= LZ4_MAX_INPUT_SIZE) {
             ASSIGN_OR_RETURN(buff, decode_string_lz4(buff, end, bytes_data, bytes_size));
         } else {
@@ -328,7 +337,7 @@ public:
         }
         raw::make_room(&column->get_offset(), offset_bytes_size / sizeof(typename BinaryColumnBase<T>::Offset));
 
-        if (EncodeContext::enable_encode_integer(encode_level) && offset_bytes_size >= ENCODE_SIZE_LIMIT) {
+        if (is_integer_encoding_enabled(encode_level) && offset_bytes_size >= ENCODE_SIZE_LIMIT) {
             constexpr bool is_i32 = sizeof(T) == 4;
             ASSIGN_OR_RETURN(buff, decode_integers<is_i32>(buff, end, column->get_offset().data(), offset_bytes_size));
         } else {
@@ -433,47 +442,311 @@ public:
 
 class VariantColumnSerde {
 public:
-    static int64_t max_serialized_size(const VariantColumn& column) {
-        const auto& pool = column.get_pool();
+    static int64_t max_serialized_size(const VariantColumn& column) { return max_serialized_size_shredded(column); }
+
+    static uint8_t* serialize(const VariantColumn& column, uint8_t* buff) { return serialize_shredded(column, buff); }
+
+    static StatusOr<const uint8_t*> deserialize(const uint8_t* buff, const uint8_t* end, VariantColumn* column) {
+        column->reset_column();
+        return deserialize_shredded(buff, end, column);
+    }
+
+private:
+    static int64_t max_serialized_size_shredded(const VariantColumn& column) {
         int64_t size = 0;
-        size += sizeof(uint32_t); // num_objects
-        for (const auto& obj : pool) {
-            size += sizeof(uint64_t);
-            size += obj.serialize_size();
+
+        // shredded_paths
+        size += sizeof(uint32_t); // num_paths
+        for (const auto& path : column.shredded_paths()) {
+            size += sizeof(uint32_t); // path length
+            size += path.size();
+        }
+
+        // shredded_types
+        size += sizeof(uint32_t); // num_types
+        for (const auto& type_desc : column.shredded_types()) {
+            size += max_serialized_size_type_descriptor(type_desc);
+        }
+
+        // typed_columns
+        size += sizeof(uint32_t); // num_typed_columns
+        for (const auto& typed_col : column.typed_columns()) {
+            size += sizeof(uint8_t); // is_nullable
+            size += serde::ColumnArraySerde::max_serialized_size(*typed_col, 0);
+        }
+
+        // metadata_column (nullable)
+        size += sizeof(uint8_t); // has_metadata
+        if (column.has_metadata_column()) {
+            size += sizeof(uint8_t); // is_nullable
+            size += serde::ColumnArraySerde::max_serialized_size(*column.metadata_column(), 0);
+        }
+
+        // remain_value_column (nullable)
+        size += sizeof(uint8_t); // has_remain
+        if (column.has_remain_value()) {
+            size += sizeof(uint8_t); // is_nullable
+            size += serde::ColumnArraySerde::max_serialized_size(*column.remain_value_column(), 0);
         }
 
         return size;
     }
 
-    static uint8_t* serialize(const VariantColumn& column, uint8_t* buff) {
-        buff = write_little_endian_32(column.get_pool().size(), buff);
-        for (const auto& v : column.get_pool()) {
-            constexpr uint64_t size_field_length = sizeof(uint64_t);
-            uint64_t actual = v.serialize(buff + size_field_length);
-            buff = write_little_endian_64(actual, buff);
-            buff += actual;
+    static int64_t max_serialized_size_type_descriptor(const TypeDescriptor& type_desc) {
+        int64_t size = 0;
+        size += sizeof(uint32_t); // type (LogicalType)
+        size += sizeof(int32_t);  // len
+        size += sizeof(int32_t);  // precision
+        size += sizeof(int32_t);  // scale
+        size += sizeof(uint32_t); // num_children
+        for (const auto& child : type_desc.children) {
+            size += max_serialized_size_type_descriptor(child);
+        }
+        size += sizeof(uint32_t); // num_field_names
+        for (const auto& name : type_desc.field_names) {
+            size += sizeof(uint32_t); // name length
+            size += name.size();
+        }
+        size += sizeof(uint32_t); // num_field_ids
+        size += type_desc.field_ids.size() * sizeof(int32_t);
+        size += sizeof(uint32_t); // num_field_physical_names
+        for (const auto& name : type_desc.field_physical_names) {
+            size += sizeof(uint32_t); // name length
+            size += name.size();
+        }
+        return size;
+    }
+
+    static uint8_t* serialize_shredded(const VariantColumn& column, uint8_t* buff) {
+        // shredded_paths
+        const auto& paths = column.shredded_paths();
+        buff = write_little_endian_32(paths.size(), buff);
+        for (const auto& path : paths) {
+            buff = write_little_endian_32(path.size(), buff);
+            memcpy(buff, path.data(), path.size());
+            buff += path.size();
+        }
+
+        // shredded_types
+        const auto& types = column.shredded_types();
+        buff = write_little_endian_32(types.size(), buff);
+        for (const auto& type_desc : types) {
+            buff = serialize_type_descriptor(type_desc, buff);
+        }
+
+        // typed_columns
+        const auto& typed_cols = column.typed_columns();
+        buff = write_little_endian_32(typed_cols.size(), buff);
+        for (const auto& typed_col : typed_cols) {
+            buff = write_little_endian_8(typed_col->is_nullable() ? 1 : 0, buff);
+            auto result = serde::ColumnArraySerde::serialize(*typed_col, buff, false, 0);
+            if (!result.ok()) {
+                LOG(WARNING) << "Failed to serialize typed column: " << result.status();
+                return buff;
+            }
+            buff = result.value();
+        }
+
+        // metadata_column
+        buff = write_little_endian_8(column.has_metadata_column() ? 1 : 0, buff);
+        if (column.has_metadata_column()) {
+            buff = write_little_endian_8(column.metadata_column()->is_nullable() ? 1 : 0, buff);
+            auto result = serde::ColumnArraySerde::serialize(*column.metadata_column(), buff, false, 0);
+            if (!result.ok()) {
+                LOG(WARNING) << "Failed to serialize metadata column: " << result.status();
+                return buff;
+            }
+            buff = result.value();
+        }
+
+        // remain_value_column
+        buff = write_little_endian_8(column.has_remain_value() ? 1 : 0, buff);
+        if (column.has_remain_value()) {
+            buff = write_little_endian_8(column.remain_value_column()->is_nullable() ? 1 : 0, buff);
+            auto result = serde::ColumnArraySerde::serialize(*column.remain_value_column(), buff, false, 0);
+            if (!result.ok()) {
+                LOG(WARNING) << "Failed to serialize remain column: " << result.status();
+                return buff;
+            }
+            buff = result.value();
         }
 
         return buff;
     }
 
-    static StatusOr<const uint8_t*> deserialize(const uint8_t* buff, const uint8_t* end, VariantColumn* column) {
-        uint32_t num_objects = 0;
-        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &num_objects));
-        column->reset_column();
-        auto& pool = column->get_pool();
-        pool.reserve(num_objects);
-        for (int i = 0; i < num_objects; ++i) {
-            uint64_t serialized_size = 0;
-            ASSIGN_OR_RETURN(buff, read_little_endian_64(buff, end, &serialized_size));
-            auto variant = VariantRowValue::create(Slice(buff, serialized_size));
-            if (!variant.ok()) {
-                return Status::Corruption(fmt::format("Failed to deserialize VariantRowValue at index {}: {}", i,
-                                                      variant.status().to_string()));
-            }
+    static uint8_t* serialize_type_descriptor(const TypeDescriptor& type_desc, uint8_t* buff) {
+        buff = write_little_endian_32(static_cast<uint32_t>(type_desc.type), buff);
+        buff = write_little_endian_32(static_cast<uint32_t>(type_desc.len), buff);
+        buff = write_little_endian_32(static_cast<uint32_t>(type_desc.precision), buff);
+        buff = write_little_endian_32(static_cast<uint32_t>(type_desc.scale), buff);
 
-            pool.emplace_back(std::move(variant.value()));
-            buff += serialized_size;
+        // children
+        buff = write_little_endian_32(type_desc.children.size(), buff);
+        for (const auto& child : type_desc.children) {
+            buff = serialize_type_descriptor(child, buff);
+        }
+
+        // field_names
+        buff = write_little_endian_32(type_desc.field_names.size(), buff);
+        for (const auto& name : type_desc.field_names) {
+            buff = write_little_endian_32(name.size(), buff);
+            memcpy(buff, name.data(), name.size());
+            buff += name.size();
+        }
+
+        // field_ids
+        buff = write_little_endian_32(type_desc.field_ids.size(), buff);
+        for (int32_t fid : type_desc.field_ids) {
+            buff = write_little_endian_32(static_cast<uint32_t>(fid), buff);
+        }
+
+        // field_physical_names
+        buff = write_little_endian_32(type_desc.field_physical_names.size(), buff);
+        for (const auto& name : type_desc.field_physical_names) {
+            buff = write_little_endian_32(name.size(), buff);
+            memcpy(buff, name.data(), name.size());
+            buff += name.size();
+        }
+
+        return buff;
+    }
+
+    static StatusOr<const uint8_t*> deserialize_shredded(const uint8_t* buff, const uint8_t* end,
+                                                         VariantColumn* column) {
+        // shredded_paths
+        uint32_t num_paths = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &num_paths));
+        std::vector<std::string> paths;
+        paths.reserve(num_paths);
+        for (uint32_t i = 0; i < num_paths; ++i) {
+            uint32_t path_len = 0;
+            ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &path_len));
+            RETURN_IF_ERROR(check_remaining_size(buff, end, path_len));
+            std::string path(reinterpret_cast<const char*>(buff), path_len);
+            paths.push_back(std::move(path));
+            buff += path_len;
+        }
+
+        // shredded_types
+        uint32_t num_types = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &num_types));
+        if (num_types != num_paths) {
+            return Status::Corruption(
+                    fmt::format("Shredded type count {} does not match path count {}", num_types, num_paths));
+        }
+        std::vector<TypeDescriptor> types;
+        types.reserve(num_types);
+        for (uint32_t i = 0; i < num_types; ++i) {
+            TypeDescriptor type_desc;
+            ASSIGN_OR_RETURN(buff, deserialize_type_descriptor(buff, end, &type_desc));
+            types.push_back(std::move(type_desc));
+        }
+
+        // typed_columns
+        uint32_t num_typed_cols = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &num_typed_cols));
+        if (num_typed_cols != num_paths) {
+            return Status::Corruption(
+                    fmt::format("Typed column count {} does not match path count {}", num_typed_cols, num_paths));
+        }
+        MutableColumns typed_cols;
+        typed_cols.reserve(num_typed_cols);
+        for (uint32_t i = 0; i < num_typed_cols; ++i) {
+            uint8_t is_nullable = 0;
+            ASSIGN_OR_RETURN(buff, read_little_endian_8(buff, end, &is_nullable));
+            MutableColumnPtr col = ColumnHelper::create_column(types[i], is_nullable != 0);
+            ASSIGN_OR_RETURN(buff, serde::ColumnArraySerde::deserialize(buff, end, col.get(), false, 0));
+            typed_cols.push_back(std::move(col));
+        }
+
+        // metadata_column
+        // metadata/remain are always BinaryColumn (nulls encoded as binary sentinel payloads).
+        // The is_nullable byte is read for wire-format backward compatibility but always ignored.
+        uint8_t has_metadata = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_8(buff, end, &has_metadata));
+        BinaryColumn::MutablePtr metadata_col;
+        if (has_metadata) {
+            uint8_t is_nullable_metadata = 0;
+            ASSIGN_OR_RETURN(buff, read_little_endian_8(buff, end, &is_nullable_metadata));
+            metadata_col = BinaryColumn::create();
+            ASSIGN_OR_RETURN(buff, serde::ColumnArraySerde::deserialize(buff, end, metadata_col.get(), false, 0));
+        }
+
+        // remain_value_column
+        uint8_t has_remain = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_8(buff, end, &has_remain));
+        BinaryColumn::MutablePtr remain_col;
+        if (has_remain) {
+            uint8_t is_nullable_remain = 0;
+            ASSIGN_OR_RETURN(buff, read_little_endian_8(buff, end, &is_nullable_remain));
+            remain_col = BinaryColumn::create();
+            ASSIGN_OR_RETURN(buff, serde::ColumnArraySerde::deserialize(buff, end, remain_col.get(), false, 0));
+        }
+
+        column->set_shredded_columns(std::move(paths), std::move(types), std::move(typed_cols), std::move(metadata_col),
+                                     std::move(remain_col));
+
+        return buff;
+    }
+
+    static StatusOr<const uint8_t*> deserialize_type_descriptor(const uint8_t* buff, const uint8_t* end,
+                                                                TypeDescriptor* type_desc) {
+        uint32_t type_val = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &type_val));
+        type_desc->type = static_cast<LogicalType>(type_val);
+
+        uint32_t len_val = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &len_val));
+        type_desc->len = static_cast<int32_t>(len_val);
+
+        uint32_t precision_val = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &precision_val));
+        type_desc->precision = static_cast<int32_t>(precision_val);
+
+        uint32_t scale_val = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &scale_val));
+        type_desc->scale = static_cast<int32_t>(scale_val);
+
+        // children
+        uint32_t num_children = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &num_children));
+        type_desc->children.resize(num_children);
+        for (uint32_t i = 0; i < num_children; ++i) {
+            ASSIGN_OR_RETURN(buff, deserialize_type_descriptor(buff, end, &type_desc->children[i]));
+        }
+
+        // field_names
+        uint32_t num_field_names = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &num_field_names));
+        type_desc->field_names.resize(num_field_names);
+        for (uint32_t i = 0; i < num_field_names; ++i) {
+            uint32_t name_len = 0;
+            ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &name_len));
+            RETURN_IF_ERROR(check_remaining_size(buff, end, name_len));
+            type_desc->field_names[i].assign(reinterpret_cast<const char*>(buff), name_len);
+            buff += name_len;
+        }
+
+        // field_ids
+        uint32_t num_field_ids = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &num_field_ids));
+        type_desc->field_ids.resize(num_field_ids);
+        for (uint32_t i = 0; i < num_field_ids; ++i) {
+            uint32_t fid = 0;
+            ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &fid));
+            type_desc->field_ids[i] = static_cast<int32_t>(fid);
+        }
+
+        // field_physical_names
+        uint32_t num_field_physical_names = 0;
+        ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &num_field_physical_names));
+        type_desc->field_physical_names.resize(num_field_physical_names);
+        for (uint32_t i = 0; i < num_field_physical_names; ++i) {
+            uint32_t name_len = 0;
+            ASSIGN_OR_RETURN(buff, read_little_endian_32(buff, end, &name_len));
+            RETURN_IF_ERROR(check_remaining_size(buff, end, name_len));
+            type_desc->field_physical_names[i].assign(reinterpret_cast<const char*>(buff), name_len);
+            buff += name_len;
         }
 
         return buff;
@@ -658,6 +931,11 @@ public:
         return Status::OK();
     }
 
+    Status do_visit(const AdaptiveNullableColumn& column) {
+        // TODO: supported later
+        return Status::NotSupported("AdaptiveNullableColumn is not supported");
+    }
+
     int64_t size() const { return _size; }
 
 private:
@@ -725,6 +1003,11 @@ public:
     Status do_visit(const VariantColumn& column) {
         _cur = VariantColumnSerde::serialize(column, _cur);
         return Status::OK();
+    }
+
+    Status do_visit(const AdaptiveNullableColumn& column) {
+        // TODO: supported later
+        return Status::NotSupported("AdaptiveNullableColumn is not supported");
     }
 
     uint8_t* cur() const { return _cur; }
@@ -805,6 +1088,11 @@ public:
     Status do_visit(VariantColumn* column) {
         ASSIGN_OR_RETURN(_cur, VariantColumnSerde::deserialize(_cur, _end, column));
         return Status::OK();
+    }
+
+    Status do_visit(AdaptiveNullableColumn* column) {
+        // TODO: supported later
+        return Status::NotSupported("AdaptiveNullableColumn is not supported");
     }
 
     const uint8_t* cur() const { return _cur; }

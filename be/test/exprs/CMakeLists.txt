@@ -12,19 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+set(BE_TEST_MACOS_LINK_STUBS)
+if (APPLE)
+    list(APPEND BE_TEST_MACOS_LINK_STUBS ../base/macos_link_stubs.cpp)
+endif()
+
 set(EXPR_CORE_TEST_FILES
-    ../base/cxa_throw_wrap.cpp
+    ${BE_TEST_MACOS_LINK_STUBS}
     arithmetic_expr_test.cpp
     array_expr_test.cpp
     case_expr_test.cpp
+    cast_expr_core_test.cpp
     function_context_core_test.cpp
     expr_core_test.cpp
+    expr_factory_core_test.cpp
     expr_context_core_test.cpp
     hash_functions_test.cpp
     hyperloglog_functions_test.cpp
     in_const_predicate_test.cpp
     in_predicate_test.cpp
     is_null_predicate_test.cpp
+    binary_predicate_core_test.cpp
     array_element_expr_test.cpp
     es_functions_test.cpp
     function_helper_test.cpp
@@ -32,11 +40,11 @@ set(EXPR_CORE_TEST_FILES
     map_expr_test.cpp
     map_element_expr_test.cpp
     map_functions_test.cpp
+    condition_expr_core_test.cpp
     compound_predicate_core_test.cpp
     json_each_core_test.cpp
     struct_functions_test.cpp
     subfield_expr_test.cpp
-    variant_path_parser_test.cpp
     vectorized_literal_test.cpp
 )
 
@@ -52,7 +60,7 @@ set(EXPR_CORE_TEST_LINK_LIBS
     StarRocksGen
     ${STARROCKS_DEPENDENCIES}
     ${STARROCKS_STATIC_LINK_LIBS}
-    ${WL_LINK_DYNAMIC} -lresolv -liberty -lc -lm -ldl -rdynamic -pthread ${WRAP_LINKER_FLAGS}
+    ${WL_LINK_DYNAMIC} ${STARROCKS_SYSTEM_LINK_LIBS} ${WRAP_LINKER_FLAGS}
     ${WL_START_GROUP}
     gmock
     gtest
@@ -64,4 +72,5 @@ target_link_libraries(starrocks_expr_core_test_objs PRIVATE StarRocksPCH)
 set_target_properties(starrocks_expr_core_test_objs PROPERTIES
     COMPILE_FLAGS "-fno-access-control -DSTARROCKS_EXPR_CORE_TEST_NO_JIT")
 add_executable(expr_core_test $<TARGET_OBJECTS:starrocks_expr_core_test_objs>)
+target_link_be_test_cxa_throw_wrap(expr_core_test)
 target_link_libraries(expr_core_test ${EXPR_CORE_TEST_LINK_LIBS} gtest_main)

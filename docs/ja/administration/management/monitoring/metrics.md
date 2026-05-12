@@ -1,5 +1,6 @@
 ---
 displayed_sidebar: docs
+sidebar_position: 10
 ---
 
 # 一般的なモニタリングメトリクス
@@ -555,6 +556,45 @@ StarRocks クラスタのモニタリングサービスの構築方法につい�
 - タイプ: Cumulative
 - 説明: 各リソースグループの誤ったクエリ数。
 
+### Catalog タイプ別クエリメトリクス
+
+これらのメトリクスは、Catalog タイプごとのクエリ可観測性を提供します。各メトリクスには `catalog_type` ラベルがあり、
+値は `default`、`hive`、`iceberg`、`jdbc`、`deltalake`、`hudi`、`paimon`、`odps`、`kudu`、`elasticsearch` です。
+
+`default` は StarRocks 内部テーブル（OLAP/Cloud Native）を表します。
+
+| メトリクス | タイプ | 単位 | 説明 |
+|------|------|------|------|
+| `starrocks_fe_catalog_query_total` | Counter | リクエスト数 | Catalog タイプ別の総クエリ数 |
+| `starrocks_fe_catalog_query_success` | Counter | リクエスト数 | Catalog タイプ別の成功クエリ数 |
+| `starrocks_fe_catalog_query_err` | Counter | リクエスト数 | Catalog タイプ別の失敗クエリ数 |
+| `starrocks_fe_catalog_query_timeout` | Counter | リクエスト数 | Catalog タイプ別のタイムアウトクエリ数 |
+| `starrocks_fe_catalog_query_analysis_err` | Counter | リクエスト数 | Catalog タイプ別の分析エラークエリ数 |
+| `starrocks_fe_catalog_query_internal_err` | Counter | リクエスト数 | Catalog タイプ別の内部エラークエリ数 |
+| `starrocks_fe_catalog_query_err_rate` | Gauge | QPS | Catalog タイプ別のエラー率 |
+| `starrocks_fe_catalog_query_timeout_rate` | Gauge | QPS | Catalog タイプ別のタイムアウト率 |
+| `starrocks_fe_catalog_query_analysis_err_rate` | Gauge | QPS | Catalog タイプ別の分析エラー率 |
+| `starrocks_fe_catalog_query_internal_err_rate` | Gauge | QPS | Catalog タイプ別の内部エラー率 |
+| `starrocks_fe_catalog_query_latency_ms` | Histogram | ms | Catalog タイプ別のクエリレイテンシー |
+| `starrocks_fe_catalog_slow_query` | Counter | リクエスト数 | Catalog タイプ別のスロークエリ数 |
+| `starrocks_be_catalog_query_scan_bytes` | Counter | バイト | Catalog タイプ別のスキャンバイト数 |
+| `starrocks_be_catalog_query_scan_rows` | Counter | 行 | Catalog タイプ別のスキャン行数 |
+| `starrocks_be_catalog_files_scan_num_bytes_read` | Counter | バイト | Catalog タイプ別のファイルスキャン読み取りバイト数 |
+| `starrocks_be_catalog_files_scan_num_rows_return` | Counter | 行 | Catalog タイプ別のファイルスキャン戻り行数 |
+
+**Prometheus クエリ例:**
+
+```promql
+# Hive Catalog の総クエリ数
+starrocks_fe_catalog_query_total{catalog_type="hive"}
+
+# すべての Catalog タイプのエラー率比較
+starrocks_fe_catalog_query_err_rate
+
+# 外部テーブルのみのスキャンバイト数（default を除外）
+starrocks_be_catalog_query_scan_bytes{catalog_type!="default"}
+```
+
 ### starrocks_be_resource_group_cpu_limit_ratio
 
 - 単位: -
@@ -573,11 +613,35 @@ StarRocks クラスタのモニタリングサービスの構築方法につい�
 - タイプ: Instantaneous
 - 説明: リソースグループのメモリクォータの瞬時値。
 
-### starrocks_be_resource_group_mem_allocated_bytes
+### starrocks_be_resource_group_mem_inuse_bytes
 
 - 単位: Bytes
 - タイプ: Instantaneous
 - 説明: リソースグループのメモリ使用量の瞬時値。
+
+### starrocks_be_mem_pool_mem_limit_bytes
+
+- 単位: Bytes
+- タイプ: Instantaneous
+- 説明: メモリプールのメモリクォータの瞬時値。
+
+### starrocks_be_mem_pool_mem_usage_bytes
+
+- 単位: Bytes
+- タイプ: Instantaneous
+- 説明: メモリプールのメモリ使用量の瞬時値。
+
+### starrocks_be_mem_pool_mem_usage_ratio
+
+- 単位: -
+- タイプ: Instantaneous
+- 説明: メモリプールのメモリクォータに対するメモリ使用量の比率。
+
+### starrocks_be_mem_pool_workgroup_count
+
+- 単位: Count
+- タイプ: Instantaneous
+- 説明: メモリプールに割り当てられたリソースグループ数の瞬時値。
 
 ### starrocks_be_pipe_prepare_pool_queue_len
 
@@ -988,6 +1052,11 @@ StarRocks クラスタのモニタリングサービスの構築方法につい�
 
 - 単位: Count
 - 説明: セグメントフラッシュスレッドプールにおけるキュータスクの数。
+
+### starrocks_be_segment_file_not_found_total
+
+- 単位: Count
+- 説明: セグメントオープン時にセグメントファイルが見つからなかった（ファイル欠損）回数の累計。値が継続的に増加する場合は、データ損失またはストレージの不整合を示している可能性があります。
 
 ### jemalloc_metadata_bytes
 
@@ -1440,6 +1509,18 @@ StarRocks クラスタのモニタリングサービスの構築方法につい�
 - 単位: Count
 - 説明: 主キーインデックス Compaction スレッドプールにおけるキュータスクの数。
 
+### pk_index_sst_read_error_total
+
+- タイプ: Counter
+- 単位: Count
+- 説明: レイク主キー永続インデックスにおける SST ファイル読み取り失敗の合計回数。SST multi-get（読み取り）操作が失敗した場合にインクリメントされます。
+
+### pk_index_sst_write_error_total
+
+- タイプ: Counter
+- 単位: Count
+- 説明: レイク主キー永続インデックスにおける SST ファイル書き込み失敗の合計回数。SST ファイルのビルドが失敗した場合にインクリメントされます。
+
 ### disks_total_capacity
 
 - 説明: ディスクの総容量。
@@ -1828,6 +1909,12 @@ StarRocks クラスタのモニタリングサービスの構築方法につい�
 
 ### トランザクション遅延メトリクス
 
+#### starrocks_fe_publish_version_daemon_loop_total
+
+- 単位: Count
+- タイプ: Cumulative
+- 説明: この FE ノードで `publish-version-daemon` ループが実行された総回数。
+
 以下のメトリクスは、トランザクションの各フェーズにおける遅延分布を提供する `summary` タイプのメトリクスです。これらのメトリクスはリーダー FE ノードのみが報告します。
 
 各メトリクスには以下の出力が含まれます。
@@ -1855,7 +1942,7 @@ StarRocks クラスタのモニタリングサービスの構築方法につい�
 
 - 単位: ms
 - タイプ: Summary
-- 説明: `publish` フェーズのレイテンシ。`commit` 時点から `finish` 時点までの時間。これはコミットされたトランザクションがクエリから可視化されるまでの所要時間であり、`schedule`、`execute`、`ack` の各サブフェーズの合計である。
+- 説明: `publish` フェーズのレイテンシ。`commit` 時点から `finish` 時点までの時間。これはコミットされたトランザクションがクエリから可視化されるまでの所要時間であり、`schedule`、`execute`、`can_finish`、`ack` の各サブフェーズの合計である。
 
 #### starrocks_fe_txn_publish_schedule_latency_ms
 
@@ -1869,11 +1956,17 @@ StarRocks クラスタのモニタリングサービスの構築方法につい�
 - タイプ: Summary
 - 説明: `publish` タスクのアクティブな実行時間。タスクがピックアップされてから完了するまでの時間。このメトリックは、トランザクションの変更を可視化するために実際に費やされた時間を表します。
 
+#### starrocks_fe_txn_publish_can_finish_latency_ms
+
+- 単位: ms
+- タイプ: Summary
+- 説明: `publish` タスク完了から `canTxnFinish()` が初めて true を返すまでの遅延（`publish version finish` から `ready-to-finish` までの時間）。
+
 #### starrocks_fe_txn_publish_ack_latency_ms
 
 - 単位: ms
 - タイプ: Summary
-- 説明: 最終的な確認遅延。`publish` タスクが完了してから、トランザクションが `VISIBLE` としてマークされる最終的な `finish` 時点までの時間。このメトリックには、必要な最終的なステップや確認が含まれます。
+- 説明: 最終的な確認遅延。`ready-to-finish` 時点から、トランザクションが `VISIBLE` としてマークされる最終的な `finish` 時点までの時間。このメトリックには、トランザクションが完了可能になった後の最終確認ステップが含まれます。
 
 ### Merge Commit メトリクス
 
@@ -1969,6 +2062,22 @@ StarRocks クラスタのモニタリングサービスの構築方法につい�
 - タイプ: Summary
 - 説明: merge commit のロード操作が完了するまで待機する時間。
 
+### Iceberg metadata FE メトリクス
+
+#### iceberg_time_travel_query_total
+
+- 単位: Count
+- タイプ: Cumulative
+- ラベル: 分類済み系列には `time_travel_type` が付き、値は `branch`、`tag`、`snapshot`、`timestamp` のいずれかです。
+- 説明: Iceberg の time travel クエリ総数。ラベルなし系列は各 time travel クエリを 1 回だけカウントします。ラベル付き系列は、そのクエリで使用された各 time travel タイプごとにカウントします。`snapshot` は `FOR VERSION AS OF <snapshot_id>`、`branch` と `tag` は `FOR VERSION AS OF <reference_name>`、`timestamp` は `FOR TIMESTAMP AS OF ...` を意味します。
+
+#### iceberg_metadata_table_query_total
+
+- 単位: Count
+- タイプ: Cumulative
+- ラベル: `metadata_table` (`refs`, `history`, `metadata_log_entries`, `snapshots`, `manifests`, `files`, `partitions`, または `properties`)
+- 説明: Iceberg metadata table にアクセスする SQL クエリの総数。各クエリは、アクセス先の metadata table を表す `metadata_table` ラベルごとに集計されます。
+
 ### Iceberg delete FE メトリクス
 
 #### iceberg_delete_total
@@ -2001,3 +2110,166 @@ StarRocks クラスタのモニタリングサービスの構築方法につい�
 - タイプ: Cumulative
 - ラベル: `delete_type` (`position` または `metadata`)
 - 説明: Iceberg `DELETE` タスクによって削除された総行数。`metadata` 削除の場合、削除されたデータファイル内の行数を表します。`position` 削除の場合、作成された position delete レコード数を表します。
+
+#### iceberg_compaction_total
+
+- 単位: Count
+- タイプ: Cumulative
+- ラベル: `compaction_type` (`manual` または `auto`)
+- 説明: Iceberg Compaction（`rewrite_data_files`）タスクの総数。
+
+#### iceberg_compaction_duration_ms_total
+
+- 単位: Millisecond
+- タイプ: Cumulative
+- ラベル: `compaction_type` (`manual` または `auto`)
+- 説明: Iceberg Compaction タスクの実行に費やされた合計時間。
+
+#### iceberg_compaction_input_files_total
+
+- 単位: Count
+- タイプ: Cumulative
+- ラベル: `compaction_type` (`manual` または `auto`)
+- 説明: Iceberg Compaction タスクによって読み込まれたデータファイルの総数。
+
+#### iceberg_compaction_output_files_total
+
+- 単位: Count
+- タイプ: Cumulative
+- ラベル: `compaction_type` (`manual` または `auto`)
+- 説明: Iceberg Compaction タスクによって生成されたデータファイルの総数。
+
+#### iceberg_compaction_removed_delete_files_total
+
+- 単位: Count
+- タイプ: Cumulative
+- ラベル: `compaction_type` (`manual` または `auto`)
+- 説明: Iceberg Compaction タスクによって削除された Delete File の総数。
+
+### Iceberg write FE メトリクス
+
+#### iceberg_write_total
+
+- 単位: Count
+- タイプ: Cumulative
+- ラベル:
+  - `status` (`success` または `failed`)
+  - `reason` (`none`, `timeout`, `oom`, `access_denied`, `unknown`)
+  - `write_type` (`insert`, `overwrite`, または `ctas`)
+- 説明: Iceberg テーブルを対象とした `INSERT`、`INSERT OVERWRITE`、または `CTAS` タスクの総数。タスクが終了するたびに成功/失敗に関わらず 1 増加します。`write_type` は 3 つの操作タイプを区別します。
+
+#### iceberg_write_duration_ms_total
+
+- 単位: Millisecond
+- タイプ: Cumulative
+- ラベル: `write_type` (`insert`, `overwrite`, または `ctas`)
+- 説明: Iceberg 書き込みタスク（`INSERT`、`INSERT OVERWRITE`、`CTAS`）の総実行時間（ミリ秒）。タスクが終了するたびにそのタスクの実行時間が加算されます。`write_type` は 3 つの操作タイプを区別します。
+
+#### iceberg_write_bytes
+
+- 単位: Bytes
+- タイプ: Cumulative
+- ラベル: `write_type` (`insert`, `overwrite`, または `ctas`)
+- 説明: Iceberg 書き込みタスク（`INSERT`、`INSERT OVERWRITE`、`CTAS`）の書き込み総バイト数。Iceberg テーブルに書き込まれたデータファイルの総サイズを表します。`write_type` は 3 つの操作タイプを区別します。
+
+#### iceberg_write_rows
+
+- 単位: Rows
+- タイプ: Cumulative
+- ラベル: `write_type` (`insert`, `overwrite`, または `ctas`)
+- 説明: Iceberg 書き込みタスク（`INSERT`、`INSERT OVERWRITE`、`CTAS`）の書き込み総行数。Iceberg テーブルに書き込まれた行数を表します。`write_type` は 3 つの操作タイプを区別します。
+
+#### iceberg_write_files
+
+- 単位: Count
+- タイプ: Cumulative
+- ラベル: `write_type` (`insert`, `overwrite`, または `ctas`)
+- 説明: Iceberg 書き込みタスク（`INSERT`、`INSERT OVERWRITE`、`CTAS`）で書き込まれたデータファイルの総数。Iceberg テーブルに書き込まれたデータファイルの個数を表します。`write_type` は 3 つの操作タイプを区別します。
+
+### Hive 書き込み FE メトリクス
+
+#### hive_write_total
+
+- 単位: 個
+- タイプ: 累積値
+- ラベル:
+  - `status`（`success` または `failed`）
+  - `reason`（`none`、`timeout`、`oom`、`access_denied`、`unknown`）
+  - `write_type`（`insert` または `overwrite`）
+- 説明: Hive テーブルを対象とした `INSERT` または `INSERT OVERWRITE` タスクの総数。タスクが終了するたびに成功/失敗に関わらず 1 増加します。`write_type` は 2 つの操作タイプを区別します。
+
+#### hive_write_duration_ms_total
+
+- 単位: ミリ秒
+- タイプ: 累積値
+- ラベル: `write_type`（`insert` または `overwrite`）
+- 説明: Hive 書き込みタスク（`INSERT`、`INSERT OVERWRITE`）の総実行時間（ミリ秒）。タスクが終了するたびにそのタスクの実行時間が加算されます。`write_type` は 2 つの操作タイプを区別します。
+
+#### hive_write_bytes
+
+- 単位: バイト
+- タイプ: 累積値
+- ラベル: `write_type`（`insert` または `overwrite`）
+- 説明: Hive 書き込みタスク（`INSERT`、`INSERT OVERWRITE`）の書き込み総バイト数。Hive テーブルに書き込まれたデータファイルの総サイズを表します。`write_type` は 2 つの操作タイプを区別します。
+
+#### hive_write_rows
+
+- 単位: 行
+- タイプ: 累積値
+- ラベル: `write_type`（`insert` または `overwrite`）
+- 説明: Hive 書き込みタスク（`INSERT`、`INSERT OVERWRITE`）の書き込み総行数。Hive テーブルに書き込まれた行数を表します。`write_type` は 2 つの操作タイプを区別します。
+
+#### hive_write_files
+
+- 単位: 個
+- タイプ: 累積値
+- ラベル: `write_type`（`insert` または `overwrite`）
+- 説明: Hive 書き込みタスク（`INSERT`、`INSERT OVERWRITE`）で書き込まれたデータファイルの総数。Hive テーブルに書き込まれたデータファイルの個数を表します。`write_type` は 2 つの操作タイプを区別します。
+
+### DataCache メトリクス
+
+DataCache メトリクスは、データキャッシュのキャッシュ容量、使用量、およびヒット率の可視性を提供します。
+
+以下のメトリクスは BE Prometheus エンドポイント (`/metrics`) で公開されています。
+
+#### datacache_mem_quota_bytes
+
+- 単位: Bytes
+- タイプ: Gauge
+- 説明: datacache の設定されたメモリクォータ。
+
+#### datacache_mem_used_bytes
+
+- 単位: Bytes
+- タイプ: Gauge
+- 説明: datacache の現在のメモリ使用量。
+
+#### datacache_disk_quota_bytes
+
+- 単位: Bytes
+- タイプ: Gauge
+- 説明: datacache の設定されたディスククォータ。
+
+#### datacache_disk_used_bytes
+
+- 単位: Bytes
+- タイプ: Gauge
+- 説明: datacache の現在のディスク使用量。
+
+#### datacache_meta_used_bytes
+
+- 単位: Bytes
+- タイプ: Gauge
+- 説明: datacache メタデータのメモリ使用量。
+
+#### block_cache_hit_bytes
+
+- 単位: Bytes
+- タイプ: Counter
+- 説明: ブロックキャッシュヒットの累積バイト数。現在、外部テーブルのキャッシュヒットバイトのみがカウントされています。
+
+#### block_cache_miss_bytes
+
+- 単位: Bytes
+- タイプ: Counter
+- 説明: ブロックキャッシュミスの累積バイト数。現在、外部テーブルのキャッシュミスバイトのみがカウントされています。

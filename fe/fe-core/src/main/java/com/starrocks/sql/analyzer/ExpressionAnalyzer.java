@@ -552,14 +552,35 @@ public class ExpressionAnalyzer {
         @Override
         public Void visitMapExpr(MapExpr node, Scope scope) {
             if (!node.getChildren().isEmpty()) {
-                Type originalType = node.getType();
-                if (originalType == AnyMapType.ANY_MAP) {
-                    Type keyType = getKeyCommonType(node);
-                    if (!keyType.isValidMapKeyType()) {
-                        throw new SemanticException("Map key don't supported type: " + keyType, node.getPos());
+                try {
+                    Type originalType = node.getType();
+                    Type keyType;
+                    Type valueType;
+                    if (originalType == AnyMapType.ANY_MAP) {
+                        keyType = getKeyCommonType(node);
+                        if (!keyType.isValidMapKeyType()) {
+                            throw new SemanticException("Map key doesn't support type: " + keyType, node.getPos());
+                        }
+                        valueType = getValueCommonType(node);
+                    } else {
+                        MapType mapType = (MapType) originalType;
+                        keyType = mapType.getKeyType();
+                        valueType = mapType.getValueType();
                     }
-                    Type valueType = getValueCommonType(node);
+
+                    for (int i = 0; i < node.getChildren().size(); i++) {
+                        Type desired = (i % 2 == 0) ? keyType : valueType;
+                        Expr child = node.getChildren().get(i);
+                        if (!child.getType().matchesType(desired)) {
+                            ExprCastFunction.castChild(node, desired, i);
+                        }
+                    }
+
                     node.setType(new MapType(keyType, valueType));
+                } catch (SemanticException e) {
+                    throw e;
+                } catch (AnalysisException e) {
+                    throw new SemanticException(e.getMessage());
                 }
             } else {
                 node.setType(new MapType(NullType.NULL, NullType.NULL));
@@ -1090,9 +1111,75 @@ public class ExpressionAnalyzer {
             Type[] argumentTypes = node.getChildren().stream().map(Expr::getType).toArray(Type[]::new);
             // check fn & throw exception direct if analyze failed
             checkFunction(fnName, node, argumentTypes);
+
+            // Handle named arguments reordering before function lookup
+            List<String> exprsNames = node.getParams().getExprsNames();
+            if (exprsNames != null && !exprsNames.isEmpty()) {
+                // Named arguments are used - we need to find the function first, then reorder
+                Function fn = FunctionAnalyzer.getAnalyzedFunctionForNamedArgs(session, node, argumentTypes, exprsNames);
+                if (fn == null) {
+                    // Try to provide a more user-friendly error message
+                    FunctionAnalyzer.throwFriendlyNamedArgError(fnName, argumentTypes, exprsNames);
+                    // Fallback to generic error if no specific error was thrown
+                    String msg = String.format("No matching function with signature: %s(%s)",
+                            fnName, FunctionAnalyzer.getNamedArgStr(node.getParams()));
+                    throw new SemanticException(msg, node.getPos());
+                }
+
+                // This prevents confusing IllegalStateException when duplicate parameters exist.
+                // validateNamedArgumentsStructure checks: duplicates, unknown params, missing required params
+                FunctionAnalyzer.validateNamedArgumentsStructure(fnName, fn, exprsNames);
+
+                // Reorder arguments according to function definition
+                FunctionAnalyzer.reorderNamedArgAndAppendDefaults(node.getParams(), fn);
+
+                // Update children to match reordered params
+                node.clearChildren();
+                node.addChildren(node.getParams().exprs());
+
+                // Re-analyze children after reordering (includes default values)
+                for (Expr child : node.getChildren()) {
+                    if (!child.isAnalyzed()) {
+                        visit(child, scope);
+                    }
+                }
+
+                // Validate NULL constraints AFTER reordering
+                // This must be after reordering because it depends on parameter positions
+                FunctionAnalyzer.validateNullConstraints(fnName, fn, node);
+
+                node.setFn(fn);
+                node.setType(fn.getReturnType());
+                FunctionAnalyzer.analyze(node);
+                return null;
+            }
+
             // get function by function expression and argument types
             Function fn = FunctionAnalyzer.getAnalyzedFunction(session, node, argumentTypes);
             if (fn == null) {
+                // Try to find a function with named arguments that can accept positional arguments
+                fn = FunctionAnalyzer.getAnalyzedFunctionForPositionalCallWithNamedArgs(
+                        session, fnName, argumentTypes);
+                if (fn != null) {
+                    // Append default values for remaining parameters
+                    FunctionAnalyzer.appendDefaultsForPositionalArgs(node.getParams(), fn);
+                    // Update children to match the expanded params
+                    node.clearChildren();
+                    node.addChildren(node.getParams().exprs());
+                    // Re-analyze new children (default values)
+                    for (Expr child : node.getChildren()) {
+                        if (!child.isAnalyzed()) {
+                            visit(child, scope);
+                        }
+                    }
+                    node.setFn(fn);
+                    node.setType(fn.getReturnType());
+                    FunctionAnalyzer.analyze(node);
+                    return null;
+                }
+                // Try to provide a more user-friendly error message for positional calls
+                FunctionAnalyzer.throwFriendlyPositionalArgError(fnName, argumentTypes);
+                // Fallback to generic error if no specific error was thrown
                 String msg = String.format("No matching function with signature: %s(%s)",
                         fnName,
                         node.getParams().isStar() ? "*" : Joiner.on(", ")
@@ -1564,6 +1651,9 @@ public class ExpressionAnalyzer {
             }
             node.getPartitionExprs().forEach(e -> visit(e, context));
             node.getOrderByElements().stream().map(OrderByElement::getExpr).forEach(e -> visit(e, context));
+            if (node.getSkewColumn() != null) {
+                visit(node.getSkewColumn(), context);
+            }
             verifyAnalyticExpression(node);
             return null;
         }
@@ -1902,7 +1992,7 @@ public class ExpressionAnalyzer {
             Table table = GlobalStateMgr.getCurrentState().getMetadataMgr().getTable(
                     session, dictionary.getCatalogName(), dictionary.getDbName(), dictionary.getQueryableObject());
             if (table == null) {
-                throw new SemanticException("dict table %s is not found", table.getName());
+                throw new SemanticException("dict table %s is not found", dictionary.getQueryableObject());
             }
 
             List<Column> schema = table.getFullSchema();

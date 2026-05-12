@@ -26,9 +26,11 @@
 #include "exec/pipeline/context_with_dependency.h"
 #include "exec/pipeline/runtime_filter_types.h"
 #include "exec/pipeline/schedule/observer.h"
+#include "exec/runtime_filter/runtime_filter_descriptor.h"
+#include "exec/runtime_filter/runtime_filter_probe.h"
 #include "exec/sorting/merge.h"
+#include "exec/sorting/sort_cursor.h"
 #include "exec/sorting/sorting.h"
-#include "exprs/runtime_filter_bank.h"
 
 namespace starrocks::pipeline {
 

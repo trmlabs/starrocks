@@ -21,7 +21,7 @@
  * 1. XML Configuration-based Type Mapping (Recommended)
  *    - Type mappings can be defined in XML configuration files
  *    - Location specified via STARROCKS_TYPE_CHECKER_CONFIG environment variable
- *    - Default location: $STARROCKS_HOME/conf/type_checker_config.xml
+ *    - Default location: $STARROCKS_HOME/lib/type_checker_config.xml
  *    - Provides dynamic type registration without recompilation
  *    - See type_checker_xml_loader.h for XML format details
  * 
@@ -50,6 +50,7 @@
 
 #pragma once
 #include <string>
+#include <utility>
 
 #include "common/status.h"
 #include "common/statusor.h"
@@ -85,8 +86,8 @@ public:
         LogicalType return_type;  // What to return when this type is matched
     };
 
-    ConfigurableTypeChecker(const std::string& display_name, const std::vector<TypeRule>& rules)
-            : _display_name(display_name), _rules(rules) {}
+    ConfigurableTypeChecker(std::string display_name, std::vector<TypeRule> rules)
+            : _display_name(std::move(display_name)), _rules(std::move(rules)) {}
 
     StatusOr<LogicalType> check(const std::string& java_class, const SlotDescriptor* slot_desc) const override;
 

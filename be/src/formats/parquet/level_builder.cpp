@@ -26,8 +26,8 @@
 #include "column/fixed_length_column.h"
 #include "column/map_column.h"
 #include "column/nullable_column.h"
+#include "column/runtime_type_traits.h"
 #include "column/struct_column.h"
-#include "column/type_traits.h"
 #include "column/variant_column.h"
 #include "common/compiler_util.h"
 #include "gutil/casts.h"
@@ -686,12 +686,22 @@ Status LevelBuilder::_write_variant_column_chunk(const LevelBuilderContext& ctx,
 
         auto values = new ::parquet::ByteArray[col->size()];
         DeferOp defer([&] { delete[] values; });
+        std::vector<std::string> datas;
+        datas.reserve(col->size());
 
         for (size_t i = 0; i < col->size(); ++i) {
-            const VariantRowValue* variant = variant_col->get_object(i);
-            std::string_view slice = write_metadata ? variant->get_metadata().raw() : variant->get_value().raw();
-            values[i].len = static_cast<uint32_t>(slice.size());
-            values[i].ptr = reinterpret_cast<const uint8_t*>(slice.data());
+            VariantRowValue variant_buffer;
+            const VariantRowValue* variant = variant_col->get_row_value(i, &variant_buffer);
+
+            if (variant == nullptr) {
+                datas.emplace_back();
+            } else {
+                std::string_view slice = write_metadata ? variant->get_metadata().raw() : variant->get_value().raw();
+                datas.emplace_back(slice);
+            }
+            const std::string& data = datas.back();
+            values[i].len = static_cast<uint32_t>(data.size());
+            values[i].ptr = reinterpret_cast<const uint8_t*>(data.data());
         }
 
         write_leaf_callback(LevelBuilderResult{

@@ -76,9 +76,10 @@ public:
 
     bool is_timestamp() const override { return IsTimestamp<ValueType>; }
 
-    const uint8_t* raw_data() const override { return reinterpret_cast<const uint8_t*>(immutable_data().data()); }
+    const uint8_t* raw_data() const { return reinterpret_cast<const uint8_t*>(immutable_data().data()); }
+    const uint8_t* raw_bytes() const { return raw_data(); }
 
-    uint8_t* mutable_raw_data() override {
+    uint8_t* mutable_raw_data() {
         get_data();
         return reinterpret_cast<uint8_t*>(_data.data());
     }
@@ -239,7 +240,6 @@ public:
 
     const ImmContainer get_data() const { return immutable_data(); }
 
-    // TODO: remove this function
     const ImmContainer immutable_data() const {
         if (!_resource.empty()) {
             return _resource.span<T>();

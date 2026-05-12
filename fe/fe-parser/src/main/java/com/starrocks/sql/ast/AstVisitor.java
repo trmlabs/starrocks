@@ -182,6 +182,10 @@ public interface AstVisitor<R, C> {
         return visitShowStatement(statement, context);
     }
 
+    default R visitAdminShowTabletStatusStatement(AdminShowTabletStatusStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
     default R visitAdminShowReplicaStatusStatement(AdminShowReplicaStatusStmt statement, C context) {
         return visitShowStatement(statement, context);
     }
@@ -756,6 +760,10 @@ public interface AstVisitor<R, C> {
     }
 
     default R visitDropPartitionColumnClause(DropPartitionColumnClause clause, C context) {
+        return visitNode(clause, context);
+    }
+
+    default R visitReplacePartitionColumnClause(ReplacePartitionColumnClause clause, C context) {
         return visitNode(clause, context);
     }
 

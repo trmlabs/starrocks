@@ -40,6 +40,7 @@
 #include <map>
 #include <set>
 
+#include "common/config_storage_fwd.h"
 #include "fs/fs.h"
 #include "gen_cpp/Types_constants.h"
 #include "gutil/strings/join.h"
@@ -47,6 +48,7 @@
 #include "runtime/exec_env.h"
 #include "storage/del_vector.h"
 #include "storage/index/index_descriptor.h"
+
 #ifndef __APPLE__
 #include "storage/index/inverted/clucene/clucene_plugin.h"
 #endif
@@ -678,26 +680,23 @@ StatusOr<std::string> SnapshotManager::snapshot_primary(const TabletSharedPtr& t
 }
 
 Status SnapshotManager::make_snapshot_on_tablet_meta(const TabletSharedPtr& tablet) {
+    int64_t snapshot_version = 0;
     std::vector<RowsetSharedPtr> snapshot_rowsets;
-    std::shared_lock rdlock(tablet->get_header_lock());
-    int64_t snapshot_version = tablet->max_version().second;
-    RETURN_IF_ERROR(tablet->capture_consistent_rowsets(Version(0, snapshot_version), &snapshot_rowsets));
-    rdlock.unlock();
+    {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        snapshot_version = tablet->max_version().second;
+        RETURN_IF_ERROR(tablet->capture_consistent_rowsets(Version(0, snapshot_version), &snapshot_rowsets));
+    }
+
     std::vector<RowsetMetaSharedPtr> snapshot_rowset_metas;
     snapshot_rowset_metas.reserve(snapshot_rowsets.size());
     for (const auto& snapshot_rowset : snapshot_rowsets) {
         snapshot_rowset_metas.emplace_back(snapshot_rowset->rowset_meta());
     }
-    std::string meta_path = tablet->schema_hash_path();
-    (void)fs::remove_all(meta_path);
-    RETURN_IF_ERROR(fs::create_directories(meta_path));
-    auto st = make_snapshot_on_tablet_meta(SNAPSHOT_TYPE_FULL, meta_path, tablet, snapshot_rowset_metas,
-                                           snapshot_version, g_Types_constants.TSNAPSHOT_REQ_VERSION2);
-    if (!st.ok()) {
-        (void)fs::remove(meta_path);
-        return st;
-    }
-    return Status::OK();
+
+    std::string schema_hash_path = tablet->schema_hash_path();
+    return make_snapshot_on_tablet_meta(SNAPSHOT_TYPE_FULL, schema_hash_path, tablet, snapshot_rowset_metas,
+                                        snapshot_version, g_Types_constants.TSNAPSHOT_REQ_VERSION2);
 }
 
 Status SnapshotManager::make_snapshot_on_tablet_meta(SnapshotTypePB snapshot_type, const std::string& snapshot_dir,
@@ -751,7 +750,8 @@ Status SnapshotManager::make_snapshot_on_tablet_meta(SnapshotTypePB snapshot_typ
         version->set_creation_time(time(nullptr));
         for (const auto& rowset_meta_pb : snapshot_meta.rowset_metas()) {
             auto rsid = rowset_meta_pb.rowset_seg_id();
-            next_segment_id = std::max<uint32_t>(next_segment_id, rsid + std::max(1L, rowset_meta_pb.num_segments()));
+            next_segment_id =
+                    std::max<uint32_t>(next_segment_id, rsid + std::max<int64_t>(1, rowset_meta_pb.num_segments()));
             version->add_rowsets(rsid);
         }
         meta_pb.mutable_updates()->set_next_rowset_id(next_segment_id);
@@ -817,6 +817,18 @@ Status SnapshotManager::assign_new_rowset_id(SnapshotMeta* snapshot_meta, const 
                                 clone_dir, new_rowset_id.to_string(), segment_n, index.index_id());
                         std::string src_index_file_path = IndexDescriptor::vector_index_file_path(
                                 clone_dir, old_rowset_id.to_string(), segment_n, index.index_id());
+                        // .vi may be absent when the writer skipped the build below
+                        // threshold; segment footer is then NONE and the read path
+                        // skips this index without ever opening it. Tolerate ENOENT
+                        // only — fail on real IO errors so we don't produce a
+                        // cloned snapshot that's missing a file segment metadata
+                        // still expects.
+                        auto st = FileSystem::Default()->path_exists(src_index_file_path);
+                        if (st.is_not_found()) {
+                            VLOG(2) << "skip linking non-existent vector index file " << src_index_file_path;
+                            continue;
+                        }
+                        if (!st.ok()) return st;
                         if (link(src_index_file_path.c_str(), dst_index_link_path.c_str()) != 0) {
                             PLOG(WARNING) << "Fail to link " << src_index_file_path << " to " << dst_index_link_path;
                             return Status::RuntimeError("Fail to link index data file");

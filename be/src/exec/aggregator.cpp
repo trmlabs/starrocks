@@ -22,6 +22,7 @@
 #include "column/chunk.h"
 #include "column/column_helper.h"
 #include "column/vectorized_fwd.h"
+#include "common/config_exec_flow_fwd.h"
 #include "common/logging.h"
 #include "common/runtime_profile.h"
 #include "common/status.h"
@@ -39,6 +40,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/current_thread.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "types/logical_type.h"
 #ifndef __APPLE__
 #include "udf/java/java_udf.h"
@@ -106,22 +108,6 @@ inline AggDataPtr AllocateState<HashMapWithKey>::operator()(std::nullptr_t) {
     }
 }
 
-template <bool UseIntermediateAsOutput>
-bool AggFunctionTypes::is_result_nullable() const {
-    if constexpr (UseIntermediateAsOutput) {
-        // If using intermediate results as output, no output will be generated and only the input will be serialized.
-        // Therefore, only judge whether the input is nullable to decide whether to serialize null data.
-        return has_nullable_child || serialize_always_nullable;
-    } else {
-        // `is_nullable` means whether the output MAY be nullable. It will be false only when the output is always non-nullable.
-        // Therefore, we need to decide whether the output is really nullable case by case:
-        // 1. Same as input: `has_nullable_child` = `has_nullable_child && is_nullable(true)`.
-        // 2. Always non-nullable: `false` = `has_nullable_child && is_nullable(false)`, eg. count, count distinct, and bitmap_union_int.
-        // 3. Always nullable: `is_always_nullable_result`.
-        return (has_nullable_child && is_nullable) || is_always_nullable_result;
-    }
-}
-
 bool AggFunctionTypes::use_nullable_fn(bool use_intermediate_as_output) const {
     // The non-nullable version functions assume that both the input and output are non-nullable, while the nullable version
     // functions support nullable input or nullable output, which will judge whether the input and output are nullable.
@@ -172,7 +158,15 @@ bool AggrAutoContext::is_low_reduction(const size_t agg_count, const size_t chun
 }
 
 Status init_udaf_context(int64_t fid, const std::string& url, const std::string& checksum, const std::string& symbol,
-                         FunctionContext* context);
+                         FunctionContext* context, const TCloudConfiguration& cloud_configuration,
+                         bool use_cache = false, bool* cache_hit_out = nullptr);
+
+int64_t Aggregator::get_two_level_threahold() {
+    if (config::two_level_memory_threshold < 0) {
+        return agg::two_level_memory_threshold;
+    }
+    return config::two_level_memory_threshold;
+}
 
 AggregatorParamsPtr convert_to_aggregator_params(const TPlanNode& tnode) {
     auto params = std::make_shared<AggregatorParams>();
@@ -227,6 +221,7 @@ void AggregatorParams::init() {
             bool is_nullable = desc.nodes[0].is_nullable;
             // collect arg_typedescs for aggregate function.
             std::vector<FunctionContext::TypeDesc> arg_typedescs;
+            arg_typedescs.reserve(fn.arg_types.size());
             for (auto& type : fn.arg_types) {
                 arg_typedescs.push_back(TypeDescriptor::from_thrift(type));
             }
@@ -300,14 +295,31 @@ Status Aggregator::open(RuntimeState* state) {
                             [](const auto& ctx) { return ctx.binary_type == TFunctionBinaryType::SRJAR; });
 #ifndef __APPLE__
     if (_has_udaf) {
-        auto promise_st = call_function_in_pthread(state, [this]() {
+        auto& opts = state->query_options();
+        bool enable_cache = opts.__isset.enable_cache_udaf && opts.enable_cache_udaf;
+        auto promise_st = call_function_in_pthread(state, [this, enable_cache]() {
             std::vector<int> attached_udaf_idx;
             attached_udaf_idx.reserve(_agg_fn_ctxs.size());
             for (int i = 0; i < _agg_fn_ctxs.size(); ++i) {
                 if (_fns[i].binary_type == TFunctionBinaryType::SRJAR) {
                     const auto& fn = _fns[i];
-                    auto st = init_udaf_context(fn.fid, fn.hdfs_location, fn.checksum, fn.aggregate_fn.symbol,
-                                                _agg_fn_ctxs[i]);
+                    // use_cache only when isolation is explicitly shared and enable_cache_udaf is set
+                    bool use_cache = enable_cache && fn.__isset.isolated && !fn.isolated;
+                    bool cache_hit = false;
+                    Status st;
+                    {
+                        SCOPED_TIMER(_agg_stat->udaf_load_timer);
+                        st = init_udaf_context(fn.fid, fn.hdfs_location, fn.checksum, fn.aggregate_fn.symbol,
+                                               _agg_fn_ctxs[i], fn.cloud_configuration, use_cache,
+                                               use_cache ? &cache_hit : nullptr);
+                    }
+                    if (use_cache) {
+                        if (cache_hit) {
+                            COUNTER_UPDATE(_agg_stat->udaf_cache_hit_count, 1);
+                        } else {
+                            COUNTER_UPDATE(_agg_stat->udaf_cache_populate_count, 1);
+                        }
+                    }
                     if (!st.ok()) {
                         for (int idx : attached_udaf_idx) {
                             destroy_java_udaf_context(_agg_fn_ctxs[idx]);
@@ -592,6 +604,7 @@ bool Aggregator::_is_agg_result_nullable(const TExpr& desc, const AggFunctionTyp
 Status Aggregator::_create_aggregate_function(starrocks::RuntimeState* state, const TFunction& fn,
                                               bool is_result_nullable, const AggregateFunction** ret) {
     std::vector<TypeDescriptor> arg_types;
+    arg_types.reserve(fn.arg_types.size());
     for (auto& type : fn.arg_types) {
         arg_types.push_back(TypeDescriptor::from_thrift(type));
     }

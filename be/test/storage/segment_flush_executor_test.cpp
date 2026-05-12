@@ -21,10 +21,12 @@
 
 #include "base/testutil/assert.h"
 #include "column/datum_tuple.h"
+#include "common/config_exec_fwd.h"
+#include "fs/fs_factory.h"
 #include "fs/fs_util.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "runtime/starrocks_metrics.h"
 #include "service/brpc_service_test_util.h"
 #include "storage/async_delta_writer.h"
 #include "storage/chunk_helper.h"
@@ -34,6 +36,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/rowset/segment_options.h"
 #include "storage/storage_engine.h"
+#include "storage/storage_metrics.h"
 #include "storage/tablet.h"
 #include "storage/tablet_manager.h"
 #include "storage/txn_manager.h"
@@ -167,7 +170,7 @@ public:
 
     void attach_segment_data(SegmentPB& segment_pb, brpc::Controller* controller) {
         std::shared_ptr<FileSystem> fs;
-        ASSIGN_OR_ABORT(fs, FileSystem::CreateSharedFromString(segment_pb.path()));
+        ASSIGN_OR_ABORT(fs, FileSystemFactory::CreateSharedFromString(segment_pb.path()));
         auto res = fs->new_random_access_file(segment_pb.path());
         ASSERT_TRUE(res.ok());
         auto rfile = std::move(res.value());
@@ -195,7 +198,7 @@ public:
     void check_single_segment_rowset_result(RowsetSharedPtr& rowset, int num_rows) {
         ASSERT_EQ(1, rowset->rowset_meta()->num_segments());
         SegmentReadOptions seg_options;
-        ASSIGN_OR_ABORT(seg_options.fs, FileSystem::CreateSharedFromString("posix://"));
+        ASSIGN_OR_ABORT(seg_options.fs, FileSystemFactory::CreateSharedFromString("posix://"));
         OlapReaderStatistics stats;
         seg_options.stats = &stats;
         std::string segment_file = Rowset::segment_file_path(_tablet->schema_hash_path(), rowset->rowset_id(), 0);
@@ -273,8 +276,8 @@ TEST_F(SegmentFlushExecutorTest, test_write_and_commit_segment) {
     // just verify the metrics have value, rather than verify it accurately
     // because other test cases may also update the metrics concurrently if
     // run tests in parallel, and it's hard to get the accurate value
-    ASSERT_TRUE(StarRocksMetrics::instance()->segment_flush_total.value() > 0);
-    ASSERT_TRUE(StarRocksMetrics::instance()->segment_flush_bytes_total.value() > 0);
+    ASSERT_TRUE(StorageMetrics::instance()->segment_flush_total.value() > 0);
+    ASSERT_TRUE(StorageMetrics::instance()->segment_flush_bytes_total.value() > 0);
 }
 
 TEST_F(SegmentFlushExecutorTest, test_submit_after_cancel) {

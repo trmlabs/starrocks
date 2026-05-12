@@ -42,8 +42,8 @@ import com.starrocks.common.tvr.TvrTableSnapshot;
 import com.starrocks.common.tvr.TvrVersionRange;
 import com.starrocks.common.util.PropertyAnalyzer;
 import com.starrocks.common.util.TimeUtils;
-import com.starrocks.connector.ConnectorMetadatRequestContext;
 import com.starrocks.connector.ConnectorMetadata;
+import com.starrocks.connector.ConnectorMetadataRequestContext;
 import com.starrocks.connector.ConnectorProperties;
 import com.starrocks.connector.ConnectorTableVersion;
 import com.starrocks.connector.ConnectorType;
@@ -71,8 +71,10 @@ import com.starrocks.connector.metadata.MetadataTableType;
 import com.starrocks.connector.share.iceberg.SerializableTable;
 import com.starrocks.connector.statistics.StatisticsUtils;
 import com.starrocks.credential.CloudConfiguration;
-import com.starrocks.metric.IcebergMetricsMgr;
+import com.starrocks.metric.ConnectorMetricsMgr;
+import com.starrocks.metric.MetricRepo;
 import com.starrocks.qe.ConnectContext;
+import com.starrocks.qe.ShowResultSet;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.AlterTableStmt;
 import com.starrocks.sql.ast.AlterViewStmt;
@@ -130,6 +132,7 @@ import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SnapshotUpdate;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.StarRocksIcebergTableScan;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -175,8 +178,11 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -194,10 +200,12 @@ import static java.util.Comparator.comparing;
 import static org.apache.iceberg.TableProperties.DEFAULT_WRITE_METRICS_MODE_DEFAULT;
 import static org.apache.iceberg.TableProperties.DELETE_ISOLATION_LEVEL;
 import static org.apache.iceberg.TableProperties.DELETE_ISOLATION_LEVEL_DEFAULT;
+import static org.apache.iceberg.TableProperties.ENCRYPTION_TABLE_KEY;
 
 public class IcebergMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadata.class);
+    private static final long CLOSE_WARN_DELAY_SECONDS = 60;
 
     public static final String LOCATION_PROPERTY = "location";
     public static final String FILE_FORMAT = "file_format";
@@ -395,7 +403,7 @@ public class IcebergMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public void alterTable(ConnectContext context, AlterTableStmt stmt) throws StarRocksException {
+    public ShowResultSet alterTable(ConnectContext context, AlterTableStmt stmt) throws StarRocksException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
         org.apache.iceberg.Table table = icebergCatalog.getTable(context, dbName, tableName);
@@ -413,7 +421,7 @@ public class IcebergMetadata implements ConnectorMetadata {
         }
 
         IcebergAlterTableExecutor executor = new IcebergAlterTableExecutor(stmt, table, icebergCatalog, context, hdfsEnvironment);
-        executor.execute();
+        ShowResultSet resultSet = executor.execute();
 
         synchronized (this) {
             tables.remove(TableIdentifier.of(dbName, tableName));
@@ -425,6 +433,7 @@ public class IcebergMetadata implements ConnectorMetadata {
             }
             asyncRefreshOthersFeMetadataCache(dbName, tableName);
         }
+        return resultSet;
     }
 
     @Override
@@ -554,8 +563,10 @@ public class IcebergMetadata implements ConnectorMetadata {
         // Convert ScalarOperator to Iceberg Expression
         Expression deleteExpr = convertScalarOperatorToIcebergExpr(predicate, nativeTbl.schema());
         if (deleteExpr == null) {
-            IcebergMetricsMgr.increaseIcebergDeleteTotalFail("Failed to convert predicate to Iceberg expression", deleteType);
-            IcebergMetricsMgr.increaseIcebergDeleteDurationMsTotal(System.currentTimeMillis() - startMs, deleteType);
+            ConnectorMetricsMgr.increaseDeleteTotalFail(ConnectorMetricsMgr.CONNECTOR_ICEBERG,
+                    "Failed to convert predicate to Iceberg expression", deleteType);
+            ConnectorMetricsMgr.increaseDeleteDurationMs(ConnectorMetricsMgr.CONNECTOR_ICEBERG,
+                    System.currentTimeMillis() - startMs, deleteType);
             throw new StarRocksConnectorException("Failed to convert predicate to Iceberg expression");
         }
 
@@ -578,19 +589,20 @@ public class IcebergMetadata implements ConnectorMetadata {
                         summary.getOrDefault(SnapshotSummary.DELETED_RECORDS_PROP, "0"));
                 long deletedBytes = Long.parseLong(
                         summary.getOrDefault(SnapshotSummary.REMOVED_FILE_SIZE_PROP, "0"));
-                IcebergMetricsMgr.increaseIcebergDeleteTotalSuccess(deleteType);
-                IcebergMetricsMgr.increaseIcebergDeleteRows(deletedRows, deleteType);
-                IcebergMetricsMgr.increaseIcebergDeleteBytes(deletedBytes, deleteType);
+                ConnectorMetricsMgr.increaseDeleteTotalSuccess(ConnectorMetricsMgr.CONNECTOR_ICEBERG, deleteType);
+                ConnectorMetricsMgr.increaseDeleteRows(ConnectorMetricsMgr.CONNECTOR_ICEBERG, deletedRows, deleteType);
+                ConnectorMetricsMgr.increaseDeleteBytes(ConnectorMetricsMgr.CONNECTOR_ICEBERG, deletedBytes, deleteType);
             } else {
-                IcebergMetricsMgr.increaseIcebergDeleteTotalSuccess(deleteType);
+                ConnectorMetricsMgr.increaseDeleteTotalSuccess(ConnectorMetricsMgr.CONNECTOR_ICEBERG, deleteType);
             }
         } catch (UncheckedIOException | ValidationException | CommitFailedException | CommitStateUnknownException e) {
             LOG.error("Failed to execute metadata delete on {}.{}", dbName, tableName, e);
-            IcebergMetricsMgr.increaseIcebergDeleteTotalFail(e, deleteType);
+            ConnectorMetricsMgr.increaseDeleteTotalFail(ConnectorMetricsMgr.CONNECTOR_ICEBERG, e, deleteType);
             throw new StarRocksConnectorException("Failed to execute metadata delete on %s.%s: %s",
                     dbName, tableName, e.getMessage());
         } finally {
-            IcebergMetricsMgr.increaseIcebergDeleteDurationMsTotal(System.currentTimeMillis() - startMs, deleteType);
+            ConnectorMetricsMgr.increaseDeleteDurationMs(ConnectorMetricsMgr.CONNECTOR_ICEBERG,
+                    System.currentTimeMillis() - startMs, deleteType);
         }
 
         // Invalidate cache after commit
@@ -660,7 +672,6 @@ public class IcebergMetadata implements ConnectorMetadata {
             Database db = getDb(context, dbName);
             IcebergTable table =
                     IcebergApiConverter.toIcebergTable(icebergTable, catalogName, dbName, tblName, catalogType.name());
-            table.setComment(icebergTable.properties().getOrDefault(COMMENT, ""));
             tables.put(identifier, icebergTable);
             updateTableProperty(db, table);
             return table;
@@ -669,6 +680,23 @@ public class IcebergMetadata implements ConnectorMetadata {
             throw e;
         } catch (NoSuchTableException e) {
             return getView(context, dbName, tblName);
+        }
+    }
+
+    static void checkUnsupportedEncryption(org.apache.iceberg.Table icebergTable) {
+        if (icebergTable.properties().containsKey(ENCRYPTION_TABLE_KEY)) {
+            throw new StarRocksConnectorException(
+                    "Iceberg table encryption is not supported. Table '%s' has encryption property '%s' set.",
+                    icebergTable.name(), ENCRYPTION_TABLE_KEY);
+        }
+
+        if (icebergTable instanceof BaseTable) {
+            TableMetadata metadata = ((BaseTable) icebergTable).operations().current();
+            if (metadata.encryptionKeys() != null && !metadata.encryptionKeys().isEmpty()) {
+                throw new StarRocksConnectorException(
+                        "Iceberg table encryption is not supported. Table '%s' has encryption keys set.",
+                        icebergTable.name());
+            }
         }
     }
 
@@ -762,12 +790,20 @@ public class IcebergMetadata implements ConnectorMetadata {
             return Collections.emptyList();
         }
         // fromSnapshotExclusive can be empty, but toSnapshotInclusive must have a valid snapshot ID
-        final long fromSnapshotIdExclusive = fromSnapshotExclusive.getSnapshotId();
+        final Long fromSnapshotIdExclusive = fromSnapshotExclusive.isEmpty() ? null : fromSnapshotExclusive.getSnapshotId();
         final long toSnapshotIdInclusive =
                 toSnapshotInclusive.end().orElseThrow(() -> new StarRocksConnectorException(
                         "toSnapshotInclusive must have a valid snapshot ID"));
         final IcebergTable icebergTable = (IcebergTable) table;
         final org.apache.iceberg.Table nativeTable = icebergTable.getNativeTable();
+
+        if (fromSnapshotIdExclusive != null &&
+                !SnapshotUtil.isParentAncestorOf(nativeTable, toSnapshotIdInclusive, fromSnapshotIdExclusive)) {
+            throw new StarRocksConnectorException(
+                    "Starting snapshot (exclusive) %s is not a parent ancestor of end snapshot %s",
+                    fromSnapshotIdExclusive, toSnapshotIdInclusive);
+        }
+
         long lastSnapshotId = toSnapshotIdInclusive;
 
         final List<TvrTableDeltaTrait> tvrDeltaTraits = Lists.newArrayList();
@@ -775,6 +811,12 @@ public class IcebergMetadata implements ConnectorMetadata {
         final Iterable<Snapshot> snapshots = SnapshotUtil.ancestorsBetween(
                 toSnapshotIdInclusive, fromSnapshotIdExclusive, nativeTable::snapshot);
         for (Snapshot snapshot : snapshots) {
+            // Skip REPLACE (compaction) snapshots - they rewrite files without changing logical data,
+            // consistent with Iceberg's IncrementalAppendScan and IncrementalChangelogScan behavior.
+            if (DataOperations.REPLACE.equals(snapshot.operation())) {
+                lastSnapshotId = snapshot.snapshotId();
+                continue;
+            }
             long currentSnapshotId = snapshot.snapshotId();
             TvrTableDelta delta = TvrTableDelta.of(currentSnapshotId, lastSnapshotId);
             TvrDeltaStats stats = TvrDeltaStats.of(snapshot);
@@ -812,9 +854,11 @@ public class IcebergMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public List<String> listPartitionNames(String dbName, String tblName, ConnectorMetadatRequestContext requestContext) {
-        Table table = getTable(new ConnectContext(), dbName, tblName);
-        return icebergCatalog.listPartitionNames((IcebergTable) table, requestContext, jobPlanningExecutor);
+    public List<String> listPartitionNames(String dbName, String tblName, ConnectorMetadataRequestContext requestContext) {
+        try (ConnectContext.ContextScope scope = ConnectContext.enterOnlyReadIcebergCacheScope(ConnectContext.get())) {
+            Table table = getTable(scope.getContext(), dbName, tblName);
+            return icebergCatalog.listPartitionNames((IcebergTable) table, requestContext, jobPlanningExecutor);
+        }
     }
 
     @Override
@@ -838,6 +882,15 @@ public class IcebergMetadata implements ConnectorMetadata {
     public List<PartitionInfo> getPartitions(Table table, List<String> partitionNames) {
         List<Partition> ans =
                 icebergCatalog.getPartitionsByNames((IcebergTable) table, null, partitionNames);
+        return new ArrayList<>(ans);
+    }
+
+    @Override
+    public List<PartitionInfo> getPartitions(Table table, List<String> partitionNames,
+                                             ConnectorMetadataRequestContext requestContext) {
+        long snapshotId = requestContext.getSnapshotId();
+        List<Partition> ans =
+                icebergCatalog.getPartitionsByNames((IcebergTable) table, snapshotId, null, partitionNames);
         return new ArrayList<>(ans);
     }
 
@@ -882,6 +935,13 @@ public class IcebergMetadata implements ConnectorMetadata {
     @Override
     public SerializedMetaSpec getSerializedMetaSpec(String dbName, String tableName, long snapshotId, String serializedPredicate,
                                                     MetadataTableType metadataTableType) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null || !connectContext.isMetadataContext()) {
+            MetricRepo.COUNTER_ICEBERG_METADATA_TABLE_QUERY_TOTAL
+                    .getMetric(metadataTableType.typeString)
+                    .increase(1L);
+        }
+
         List<RemoteMetaSplit> remoteMetaSplits = new ArrayList<>();
         IcebergTable icebergTable = (IcebergTable) getTable(new ConnectContext(), dbName, tableName);
         org.apache.iceberg.Table nativeTable = icebergTable.getNativeTable();
@@ -1218,6 +1278,7 @@ public class IcebergMetadata implements ConnectorMetadata {
         String tableName = icebergTable.getCatalogTableName();
 
         org.apache.iceberg.Table nativeTbl = icebergTable.getNativeTable();
+        checkUnsupportedEncryption(nativeTbl);
         traceIcebergMetricsConfig(nativeTbl);
 
         StarRocksIcebergTableScanContext scanContext = new StarRocksIcebergTableScanContext(
@@ -1280,52 +1341,214 @@ public class IcebergMetadata implements ConnectorMetadata {
 
             private void ensureOpen() {
                 if (fileScanTaskIterator == null) {
-                    fileScanTaskIterable = TableScanUtil.splitFiles(tableScan.planFiles(), tableScan.targetSplitSize());
-                    fileScanTaskIterator = fileScanTaskIterable.iterator();
+                    openPlannedTaskIterator(tableScan);
                 }
-                if (!fileScanTaskIterator.hasNext()) {
-                    try {
-                        fileScanTaskIterable.close();
-                        fileScanTaskIterator.close();
-                    } catch (Exception e) {
-                        // ignore
-                    } finally {
-                        //record scan metrics profile
-                        if (tableScan instanceof StarRocksIcebergTableScan) {
-                            IcebergMetricsReporter metricsReporter =
-                                    ((StarRocksIcebergTableScan) tableScan).getMetricsReporter();
-                            if (metricsReporter.getScanReport() != null) {
-                                String name = "ICEBERG.ScanMetrics." +
-                                        ((StarRocksIcebergTableScan) tableScan).getIcebergTableName().toString();
-                                String value = metricsReporter.getScanReport().toString();
-                                Tracers.record(Tracers.Module.EXTERNAL, name, value);
-                            }
-                        }
-                    }
-                    hasMore = false;
+                if (fileScanTaskIterator.hasNext()) {
+                    return;
                 }
+                closePlannedTaskIterator();
+                recordScanMetrics(tableScan);
+                hasMore = false;
+            }
+
+            private void openPlannedTaskIterator(Scan tableScan) {
+                fileScanTaskIterable = normalizePlannedTaskIterable(tableScan.planFiles());
+                fileScanTaskIterator = buildSplitFileScanTaskIterator(
+                        fileScanTaskIterable, fileScanTaskIterable.iterator(), tableScan.targetSplitSize(),
+                        dbName, tableName, snapshotId);
+            }
+
+            private void closePlannedTaskIterator() {
+                closeQuietly(fileScanTaskIterator, "fileScanTaskIterator", dbName, tableName, snapshotId);
+                closeQuietly(fileScanTaskIterable, "fileScanTaskIterable", dbName, tableName, snapshotId);
+                fileScanTaskIterator = null;
+                fileScanTaskIterable = null;
             }
 
             @Override
             public void close() {
-                try {
-                    if (fileScanTaskIterator != null) {
-                        fileScanTaskIterator.close();
-                    }
-                } catch (Exception ignore) {
-                }
-
-                try {
-                    if (fileScanTaskIterable != null) {
-                        fileScanTaskIterable.close();
-                    }
-                } catch (Exception ignore) {
-                } finally {
-                    fileScanTaskIterator = null;
-                    fileScanTaskIterable = null;
-                }
+                closePlannedTaskIterator();
             }
         };
+    }
+
+    private boolean hasPositionDeletes(FileScanTask task) {
+        for (DeleteFile deleteFile : task.deletes()) {
+            if (deleteFile.content() == FileContent.POSITION_DELETES) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private CloseableIterable<FileScanTask> splitFileScanTask(FileScanTask task, long targetSplitSize) {
+        if (!hasPositionDeletes(task)) {
+            return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(task), targetSplitSize);
+        }
+
+        List<FileScanTask> splitTasks = Lists.newArrayList(task.split(targetSplitSize));
+        if (splitTasks.size() <= 1) {
+            return CloseableIterable.withNoopClose(task);
+        }
+
+        return CloseableIterable.withNoopClose(coalesceSplitTasks(task, splitTasks, targetSplitSize));
+    }
+
+    private List<FileScanTask> coalesceSplitTasks(FileScanTask task, List<FileScanTask> splitTasks, long targetSplitSize) {
+        List<FileScanTask> coalescedTasks = new ArrayList<>();
+        long currentOffset = -1;
+        long currentLength = 0;
+        long currentEnd = -1;
+        for (FileScanTask splitTask : splitTasks) {
+            if (currentOffset < 0) {
+                currentOffset = splitTask.start();
+                currentLength = splitTask.length();
+                currentEnd = splitTask.start() + splitTask.length();
+                continue;
+            }
+
+            if (currentLength < targetSplitSize && currentEnd == splitTask.start()) {
+                currentLength += splitTask.length();
+                currentEnd += splitTask.length();
+                continue;
+            }
+
+            coalescedTasks.add(buildCoalescedSplitTask(task, currentOffset, currentLength));
+            currentOffset = splitTask.start();
+            currentLength = splitTask.length();
+            currentEnd = splitTask.start() + splitTask.length();
+        }
+        coalescedTasks.add(buildCoalescedSplitTask(task, currentOffset, currentLength));
+        return coalescedTasks;
+    }
+
+    private FileScanTask buildCoalescedSplitTask(FileScanTask task, long offset, long length) {
+        if (offset == task.start() && length == task.length()) {
+            return task;
+        }
+        return new IcebergSplitScanTask(offset, length, task);
+    }
+
+    private CloseableIterator<FileScanTask> buildSplitFileScanTaskIterator(
+            CloseableIterable<FileScanTask> plannedTaskIterable,
+            CloseableIterator<FileScanTask> plannedTaskIterator,
+            long targetSplitSize,
+            String dbName,
+            String tableName,
+            long snapshotId) {
+        return new CloseableIterator<>() {
+            private CloseableIterable<FileScanTask> currentTaskIterable = CloseableIterable.empty();
+            private CloseableIterator<FileScanTask> currentTaskIterator = CloseableIterator.empty();
+
+            @Override
+            public void close() throws IOException {
+                closeUnchecked(currentTaskIterator, "currentTaskIterator", dbName, tableName, snapshotId);
+                closeUnchecked(currentTaskIterable, "currentTaskIterable", dbName, tableName, snapshotId);
+                closeUnchecked(plannedTaskIterator, "plannedTaskIterator", dbName, tableName, snapshotId);
+                closeUnchecked(plannedTaskIterable, "plannedTaskIterable", dbName, tableName, snapshotId);
+            }
+
+            @Override
+            public boolean hasNext() {
+                while (!currentTaskIterator.hasNext() && plannedTaskIterator.hasNext()) {
+                    openNextTask();
+                }
+                return currentTaskIterator.hasNext();
+            }
+
+            @Override
+            public FileScanTask next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                return currentTaskIterator.next();
+            }
+
+            private void openNextTask() {
+                closeCurrentTask();
+                FileScanTask task = plannedTaskIterator.next();
+                currentTaskIterable = splitFileScanTask(task, targetSplitSize);
+                currentTaskIterator = currentTaskIterable.iterator();
+            }
+
+            private void closeCurrentTask() {
+                closeUnchecked(currentTaskIterator);
+                closeUnchecked(currentTaskIterable);
+                currentTaskIterator = CloseableIterator.empty();
+                currentTaskIterable = CloseableIterable.empty();
+            }
+        };
+    }
+
+    private CloseableIterable<FileScanTask> normalizePlannedTaskIterable(CloseableIterable<FileScanTask> plannedTasks) {
+        return plannedTasks != null ? plannedTasks : CloseableIterable.empty();
+    }
+
+    private void recordScanMetrics(Scan tableScan) {
+        if (!(tableScan instanceof StarRocksIcebergTableScan)) {
+            return;
+        }
+
+        IcebergMetricsReporter metricsReporter = ((StarRocksIcebergTableScan) tableScan).getMetricsReporter();
+        if (metricsReporter.getScanReport() == null) {
+            return;
+        }
+
+        String name = "ICEBERG.ScanMetrics." + ((StarRocksIcebergTableScan) tableScan).getIcebergTableName();
+        String value = metricsReporter.getScanReport().toString();
+        Tracers.record(EXTERNAL, name, value);
+    }
+
+    private void closeUnchecked(AutoCloseable closeable, String closeableName, String dbName, String tableName,
+                                long snapshotId) {
+        AtomicBoolean finished = watchSlowClose(closeable, closeableName, dbName, tableName, snapshotId);
+        try {
+            closeable.close();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            finished.set(true);
+        }
+    }
+
+    private void closeUnchecked(AutoCloseable closeable) {
+        try {
+            closeable.close();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void closeQuietly(AutoCloseable closeable, String closeableName, String dbName, String tableName,
+                              long snapshotId) {
+        if (closeable == null) {
+            return;
+        }
+        AtomicBoolean finished = watchSlowClose(closeable, closeableName, dbName, tableName, snapshotId);
+        try {
+            closeable.close();
+        } catch (Exception ignore) {
+        } finally {
+            finished.set(true);
+        }
+    }
+
+    private AtomicBoolean watchSlowClose(AutoCloseable closeable, String closeableName, String dbName, String tableName,
+                                         long snapshotId) {
+        AtomicBoolean finished = new AtomicBoolean(false);
+        CompletableFuture.delayedExecutor(CLOSE_WARN_DELAY_SECONDS, TimeUnit.SECONDS).execute(() -> {
+            if (!finished.get()) {
+                LOG.warn("Iceberg planned task close is still running after {} seconds, table: {}.{}, snapshot: {}, "
+                                + "closeable name: {}, closeable class: {}",
+                        CLOSE_WARN_DELAY_SECONDS, dbName, tableName, snapshotId, closeableName,
+                        closeable.getClass().getName());
+            }
+        });
+        return finished;
     }
 
     public Set<DeleteFile> getDeleteFiles(IcebergTable icebergTable, Long snapshotId,
@@ -1733,17 +1956,19 @@ public class IcebergMetadata implements ConnectorMetadata {
                         summary.getOrDefault(SnapshotSummary.ADDED_POS_DELETES_PROP, "0"));
                 long deletedBytes = Long.parseLong(
                         summary.getOrDefault(SnapshotSummary.ADDED_FILE_SIZE_PROP, "0"));
-                IcebergMetricsMgr.increaseIcebergDeleteTotalSuccess(deleteType);
-                IcebergMetricsMgr.increaseIcebergDeleteRows(deletedRows, deleteType);
-                IcebergMetricsMgr.increaseIcebergDeleteBytes(deletedBytes, deleteType);
+                ConnectorMetricsMgr.increaseDeleteTotalSuccess(ConnectorMetricsMgr.CONNECTOR_ICEBERG, deleteType);
+                ConnectorMetricsMgr.increaseDeleteRows(ConnectorMetricsMgr.CONNECTOR_ICEBERG, deletedRows, deleteType);
+                ConnectorMetricsMgr.increaseDeleteBytes(ConnectorMetricsMgr.CONNECTOR_ICEBERG, deletedBytes, deleteType);
             } else {
-                IcebergMetricsMgr.increaseIcebergDeleteTotalSuccess(deleteType);
+                ConnectorMetricsMgr.increaseDeleteTotalSuccess(ConnectorMetricsMgr.CONNECTOR_ICEBERG, deleteType);
             }
         } catch (Exception e) {
-            IcebergMetricsMgr.increaseIcebergDeleteTotalFail(e, deleteType);
+            // Delete failure metrics are recorded centrally in StmtExecutor.recordExternalSinkFailure(),
+            // which covers both commit-time failures and BE-level write failures.
             throw e;
         } finally {
-            IcebergMetricsMgr.increaseIcebergDeleteDurationMsTotal(System.currentTimeMillis() - startMs, deleteType);
+            ConnectorMetricsMgr.increaseDeleteDurationMs(ConnectorMetricsMgr.CONNECTOR_ICEBERG,
+                    System.currentTimeMillis() - startMs, deleteType);
         }
 
         asyncRefreshOthersFeMetadataCache(dbName, tableName);
@@ -1754,6 +1979,17 @@ public class IcebergMetadata implements ConnectorMetadata {
                                      boolean isOverwrite, boolean isRewrite, Object extra,
                                      String dbName, String tableName,
                                      ConnectContext context) {
+        long startMs = System.currentTimeMillis();
+        // Determine write type: ctas, overwrite, insert (default)
+        String writeType;
+        if (context != null && context.isCTAS()) {
+            writeType = "ctas";
+        } else if (isOverwrite) {
+            writeType = "overwrite";
+        } else {
+            writeType = "insert";
+        }
+
         BatchWrite batchWrite = getBatchWrite(transaction, isOverwrite, isRewrite);
 
         if (branch != null) {
@@ -1800,10 +2036,36 @@ public class IcebergMetadata implements ConnectorMetadata {
                     context.getCurrentUserIdentity() != null ? context.getCurrentUserIdentity().getUser() : "None");
         }
 
-        commitWithCleanup(() -> {
-            batchWrite.commit();
-            transaction.commitTransaction();
-        }, () -> invalidateCacheAfterCommit(dbName, tableName), dataFiles, dbName, tableName);
+        try {
+            commitWithCleanup(() -> {
+                batchWrite.commit();
+                transaction.commitTransaction();
+            }, () -> invalidateCacheAfterCommit(dbName, tableName), dataFiles, dbName, tableName);
+
+            // Record metrics after successful commit
+            Snapshot newSnapshot = nativeTbl.currentSnapshot();
+            if (newSnapshot != null && newSnapshot.summary() != null) {
+                Map<String, String> summary = newSnapshot.summary();
+                long writtenRows = Long.parseLong(
+                        summary.getOrDefault(SnapshotSummary.ADDED_RECORDS_PROP, "0"));
+                long writtenBytes = Long.parseLong(
+                        summary.getOrDefault(SnapshotSummary.ADDED_FILE_SIZE_PROP, "0"));
+                ConnectorMetricsMgr.increaseWriteTotalSuccess(ConnectorMetricsMgr.CONNECTOR_ICEBERG, writeType);
+                ConnectorMetricsMgr.increaseWriteRows(ConnectorMetricsMgr.CONNECTOR_ICEBERG, writtenRows, writeType);
+                ConnectorMetricsMgr.increaseWriteBytes(ConnectorMetricsMgr.CONNECTOR_ICEBERG, writtenBytes, writeType);
+                ConnectorMetricsMgr.increaseWriteFiles(ConnectorMetricsMgr.CONNECTOR_ICEBERG, dataFiles.size(), writeType);
+            } else {
+                ConnectorMetricsMgr.increaseWriteTotalSuccess(ConnectorMetricsMgr.CONNECTOR_ICEBERG, writeType);
+            }
+        } catch (Exception e) {
+            // Write failure metrics are recorded centrally in StmtExecutor.recordExternalSinkFailure(),
+            // which covers both commit-time failures and BE-level write failures.
+            throw e;
+        } finally {
+            ConnectorMetricsMgr.increaseWriteDurationMs(ConnectorMetricsMgr.CONNECTOR_ICEBERG,
+                    System.currentTimeMillis() - startMs, writeType);
+        }
+
         asyncRefreshOthersFeMetadataCache(dbName, tableName);
     }
 

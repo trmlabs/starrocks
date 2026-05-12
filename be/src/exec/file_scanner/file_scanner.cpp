@@ -16,6 +16,7 @@
 
 #include <memory>
 
+#include "base/compression/stream_decompressor.h"
 #include "base/utility/defer_op.h"
 #include "column/chunk.h"
 #include "column/column_helper.h"
@@ -29,13 +30,14 @@
 #include "exprs/expr_factory.h"
 #include "fs/fs.h"
 #include "fs/fs_broker.h"
+#include "fs/fs_factory.h"
 #include "gutil/strings/substitute.h"
 #include "io/compressed_input_stream.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/runtime_state_helper.h"
 #include "runtime/stream_load/load_stream_mgr.h"
-#include "util/compression/stream_decompressor.h"
 
 namespace starrocks {
 
@@ -47,9 +49,7 @@ FileScanner::FileScanner(starrocks::RuntimeState* state, starrocks::RuntimeProfi
           _params(params),
           _counter(counter),
           _row_desc(nullptr),
-          _strict_mode(false),
-          _error_counter(0),
-          _file_scan_type(TFileScanType::LOAD),
+
           _file_format_str("UNKNOWN"),
           _schema_only(schema_only) {
     if (_params.__isset.file_scan_type) {
@@ -211,7 +211,7 @@ StatusOr<ChunkPtr> FileScanner::materialize(const starrocks::ChunkPtr& src, star
             column_pointers.emplace(col_pointer);
         }
 
-        col = ColumnHelper::unfold_const_column(slot->type(), cast->num_rows(), std::move(col));
+        col = ColumnHelper::unfold_const_column(slot->type(), cast->num_rows(), col);
 
         // The column builder in ctx->evaluate may build column as non-nullable.
         // See be/src/column/column_builder.h#L79.
@@ -292,7 +292,8 @@ Status FileScanner::create_sequential_file(const TBrokerRangeDesc& range_desc, c
         break;
     }
     case TFileType::FILE_STREAM: {
-        auto pipe = _state->exec_env()->load_stream_mgr()->get(range_desc.load_id);
+        auto* query_execution_services = _state->query_execution_services();
+        auto pipe = query_execution_services->runtime->load_stream_mgr->get(range_desc.load_id);
         if (pipe == nullptr) {
             std::stringstream ss("Invalid or outdated load id ");
             range_desc.load_id.printTo(ss);
@@ -304,7 +305,7 @@ Status FileScanner::create_sequential_file(const TBrokerRangeDesc& range_desc, c
     }
     case TFileType::FILE_BROKER: {
         if (params.__isset.use_broker && !params.use_broker) {
-            ASSIGN_OR_RETURN(auto fs, FileSystem::CreateUniqueFromString(range_desc.path, FSOptions(&params)));
+            ASSIGN_OR_RETURN(auto fs, FileSystemFactory::CreateUniqueFromString(range_desc.path, FSOptions(&params)));
             ASSIGN_OR_RETURN(auto file, fs->new_sequential_file(range_desc.path));
             src_file = std::shared_ptr<SequentialFile>(std::move(file));
             break;
@@ -341,7 +342,7 @@ Status FileScanner::create_random_access_file(const TBrokerRangeDesc& range_desc
     }
     case TFileType::FILE_BROKER: {
         if (params.__isset.use_broker && !params.use_broker) {
-            ASSIGN_OR_RETURN(auto fs, FileSystem::CreateUniqueFromString(range_desc.path, FSOptions(&params)));
+            ASSIGN_OR_RETURN(auto fs, FileSystemFactory::CreateUniqueFromString(range_desc.path, FSOptions(&params)));
             ASSIGN_OR_RETURN(auto file, fs->new_random_access_file(RandomAccessFileOptions(), range_desc.path));
             src_file = std::shared_ptr<RandomAccessFile>(std::move(file));
             break;
@@ -375,18 +376,20 @@ void FileScanner::merge_schema(const std::vector<std::vector<SlotDescriptor>>& i
     std::map<std::string, size_t> merged_schema_index;
     for (const auto& schema : input) {
         for (const auto& slot : schema) {
-            auto itr = merged_schema_index.find(slot.col_name());
+            auto col = std::string(slot.col_name());
+            auto itr = merged_schema_index.find(col);
             if (itr == merged_schema_index.end()) {
-                merged_schema.emplace_back(
-                        std::make_shared<SlotDescriptor>(merged_schema.size(), slot.col_name(), slot.type()));
-                merged_schema_index.insert({slot.col_name(), merged_schema.size() - 1});
+                merged_schema.emplace_back(std::make_shared<SlotDescriptor>(merged_schema.size(),
+                                                                            std::string(slot.col_name()), slot.type()));
+                merged_schema_index.emplace(std::string(slot.col_name()), merged_schema.size() - 1);
             } else {
                 const auto& merged_type = merged_schema[itr->second]->type();
                 const auto& slot_type = slot.type();
                 // handle conflicted types.
                 if (merged_type != slot_type) {
-                    merged_schema[itr->second] = std::make_shared<SlotDescriptor>(
-                            slot.id(), slot.col_name(), TypeDescriptor::promote_types(merged_type, slot_type));
+                    merged_schema[itr->second] =
+                            std::make_shared<SlotDescriptor>(slot.id(), std::string(slot.col_name()),
+                                                             TypeDescriptor::promote_types(merged_type, slot_type));
                 }
             }
         }
@@ -394,7 +397,7 @@ void FileScanner::merge_schema(const std::vector<std::vector<SlotDescriptor>>& i
 
     for (size_t i = 0; i < merged_schema.size(); ++i) {
         const auto& schema = merged_schema[i];
-        output->emplace_back(i, schema->col_name(), schema->type());
+        output->emplace_back(i, std::string(schema->col_name()), schema->type());
     }
 }
 
@@ -493,7 +496,7 @@ Status FileScanner::sample_schema(RuntimeState* state, const TBrokerScanRange& s
         // Column names are case insensitive.
         // Check duplicated column names.
         for (const auto& slot : schema) {
-            auto name = slot.col_name();
+            std::string name(slot.col_name());
             auto lowercase_name = boost::algorithm::to_lower_copy(name);
 
             auto itr = unique_names.find(lowercase_name);

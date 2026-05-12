@@ -56,17 +56,6 @@ bool StructColumn::is_struct() const {
     return true;
 }
 
-const uint8_t* StructColumn::raw_data() const {
-    // TODO(SmithCruise)
-    DCHECK(false) << "Don't support struct column raw_data";
-    return nullptr;
-}
-
-uint8_t* StructColumn::mutable_raw_data() {
-    // TODO(SmithCruise)
-    DCHECK(false) << "Don't support struct column raw_data";
-    return nullptr;
-}
 size_t StructColumn::size() const {
     return _fields[0]->size();
 }
@@ -155,8 +144,8 @@ bool StructColumn::has_large_column() const {
 void StructColumn::assign(size_t n, size_t idx) {
     DCHECK_LE(idx, size()) << "Range error when assign StructColumn";
     auto desc = this->clone_empty();
-    auto datum = get(idx);
-    desc->append_value_multiple_times(&datum, n);
+    // Avoid Datum-based round-trip for nested object fields (e.g. shredded VARIANT).
+    desc->append_value_multiple_times(*this, idx, n);
     swap_column(*desc);
     desc->reset_column();
 }
