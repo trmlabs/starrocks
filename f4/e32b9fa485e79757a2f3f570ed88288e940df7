@@ -1,0 +1,24 @@
+format-sdk/pom.xml
+  s_3e4cd117276bf6::t_d7f8f9d6d3b585 82
+contrib/trino-connector/pom.xml
+  s_3e4cd117276bf6::t_6a0cc6eaad3c0f 17
+  s_3e4cd117276bf6::t_743ed7fd697084 294
+fe/fe-core/pom.xml
+  s_3e4cd117276bf6::t_83b828eef8629f 291
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "f4e32b9fa485e79757a2f3f570ed88288e940df7",
+  "prompts": {},
+  "sessions": {
+    "s_3e4cd117276bf6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fcb1f882-52bd-488b-84d6-831feb002696",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Vijay <vijay@trmlabs.com>"
+    }
+  }
+}
