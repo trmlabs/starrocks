@@ -1,0 +1,19 @@
+fe/pom.xml
+  s_3e4cd117276bf6::t_e02293f03222d1 103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "99bcb0367f24e5b87b6bd6017a6b2dd8beb1c8d9",
+  "prompts": {},
+  "sessions": {
+    "s_3e4cd117276bf6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fcb1f882-52bd-488b-84d6-831feb002696",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Vijay <vijay@trmlabs.com>"
+    }
+  }
+}
