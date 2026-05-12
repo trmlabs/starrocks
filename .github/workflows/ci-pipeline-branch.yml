@@ -117,7 +117,7 @@ jobs:
           ./scripts/check-approve.sh
 
   repo-handbook:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: basic-checker
     name: Repo Handbook
     if: needs.basic-checker.outputs.PASS == 'true'
@@ -160,7 +160,7 @@ jobs:
           python3 build-support/check_repo_handbook.py
 
   schema-compatibility:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: basic-checker
     name: Schema Compatibility
     if: needs.basic-checker.outputs.PASS == 'true'
@@ -290,7 +290,7 @@ jobs:
           rm -rf ${{ github.workspace }}/*
 
   thirdparty-info:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs:
       - be-checker
       - thirdparty-update

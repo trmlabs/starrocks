@@ -119,7 +119,7 @@ jobs:
           separator: ","
 
   docusaurus-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     needs: markdownlint # Only runs if markdownlint passes!
     env:
       PR_NUMBER: ${{ github.event.number }}
