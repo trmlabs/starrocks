@@ -14,7 +14,7 @@
 
 #include <gtest/gtest.h>
 
-#include "exprs/runtime_filter_bank.h"
+#include "exec/runtime_filter/runtime_filter_probe.h"
 #include "gen_cpp/RuntimeFilter_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_filter.h"

@@ -36,6 +36,7 @@
 
 #include <roaring/roaring.hh>
 
+#include "base/concurrency/once.h"
 #include "column/column_helper.h"
 #include "common/status.h"
 #include "fs/fs.h"
@@ -43,7 +44,6 @@
 #include "storage/range.h"
 #include "storage/rowset/common.h"
 #include "storage/rowset/indexed_column_reader.h"
-#include "util/once.h"
 
 namespace starrocks {
 
@@ -57,7 +57,7 @@ using Roaring = roaring::Roaring;
 
 class BitmapIndexReader {
 public:
-    BitmapIndexReader(int32_t gram_num = -1);
+    BitmapIndexReader(int32_t gram_num = -1, bool owned_mem_tracker = true);
     ~BitmapIndexReader();
 
     // Load index data into memory.
@@ -124,6 +124,9 @@ private:
     std::unique_ptr<IndexedColumnReader> _ngram_dict_column_reader;
     std::unique_ptr<IndexedColumnReader> _ngram_bitmap_column_reader;
     bool _has_null = false;
+    // if _owned_mem_tracker == false, means there is a parent class holding BitmapIndexReader and
+    // the memory usage of BitmapIndexReader is tracked by the parent class.
+    bool _owned_mem_tracker;
 };
 
 class BitmapIndexIterator {

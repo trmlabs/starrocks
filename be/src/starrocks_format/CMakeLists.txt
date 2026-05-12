@@ -24,15 +24,19 @@ set(STARROCKS_LIBS
     ${WL_START_GROUP}
     Base
     Common
-    Column
+    ChunkCore
     ColumnCore
     Connector
     Exec
     -Wl,--whole-archive Exprs -Wl,--no-whole-archive
     -Wl,--whole-archive ExprCore -Wl,--no-whole-archive
     FileSystem
+    FSCore
     Formats
+    orc
     Gutil
+    HttpClient
+    HttpCore
     IO
     Serde
     Storage

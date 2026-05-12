@@ -124,6 +124,9 @@ public class TaskManager implements MemoryTrackable {
             clearUnfinishedTaskRun();
             registerPeriodicalTask();
             dispatchScheduler.scheduleAtFixedRate(() -> {
+                if (!GlobalStateMgr.getCurrentState().isLeader()) {
+                    return;
+                }
                 if (!taskRunManager.tryTaskRunLock()) {
                     LOG.warn("TaskRun scheduler cannot acquire the lock");
                     return;
@@ -270,9 +273,6 @@ public class TaskManager implements MemoryTrackable {
         Task task = nameToTaskMap.get(taskName);
         if (task.getType() != Constants.TaskType.PERIODICAL) {
             return false;
-        }
-        if (task.getState() == Constants.TaskState.PAUSE) {
-            return true;
         }
         TaskSchedule taskSchedule = task.getSchedule();
         // this will not happen
@@ -596,6 +596,25 @@ public class TaskManager implements MemoryTrackable {
         }
     }
 
+    /**
+     * Remove a property from the task's properties map.
+     * This method is thread-safe and acquires the task lock before modifying the properties.
+     */
+    public void removeTaskProperty(Task task, String propertyKey) {
+        if (task == null || propertyKey == null) {
+            return;
+        }
+        takeTaskLock();
+        try {
+            Map<String, String> current = task.getProperties();
+            if (current != null) {
+                current.remove(propertyKey);
+            }
+        } finally {
+            taskUnlock();
+        }
+    }
+
     public void dropTasks(List<Long> taskIdList) {
         takeTaskLock();
         try {
@@ -695,6 +714,9 @@ public class TaskManager implements MemoryTrackable {
         }
 
         if (hasChanged) {
+            // Log first to ensure durability, then apply in-memory changes.
+            // The WAL callback applies the same change on followers during replay.
+            // This ensures atomicity: if logging fails, no in-memory changes are made.
             GlobalStateMgr.getCurrentState().getEditLog().logAlterTask(
                     new AlterTaskInfo(currentTask.getName(), changedType, changedTask.getSchedule()),
                     wal -> {
@@ -702,6 +724,8 @@ public class TaskManager implements MemoryTrackable {
                         changeTask(currentTask, alterTaskInfo.getType(), alterTaskInfo.getSchedule());
                     }
             );
+            // Apply in-memory change after successful logging
+            changeTask(currentTask, changedType, changedTask.getSchedule());
             if (changedType == Constants.TaskType.PERIODICAL) {
                 registerScheduler(currentTask);
             }
@@ -811,6 +835,9 @@ public class TaskManager implements MemoryTrackable {
         // set task's next schedule time
         task.setNextScheduleTime(currentDateTime.plusSeconds(initialDelay).toEpochSecond(ZoneOffset.UTC));
         ScheduledFuture<?> future = periodScheduler.scheduleAtFixedRate(() -> {
+            if (!GlobalStateMgr.getCurrentState().isLeader()) {
+                return;
+            }
             // ensure an execute task will not throw exception
             try {
                 task.setLastScheduleTime(TimeUtils.getEpochSeconds());

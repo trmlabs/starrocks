@@ -61,7 +61,7 @@ import com.starrocks.ha.LeaderInfo;
 import com.starrocks.journal.JournalEntity;
 import com.starrocks.journal.JournalInconsistentException;
 import com.starrocks.journal.JournalTask;
-import com.starrocks.journal.LeaderTransferException;
+import com.starrocks.journal.JournalWriteException;
 import com.starrocks.journal.SerializeException;
 import com.starrocks.journal.bdbje.Timestamp;
 import com.starrocks.load.DeleteMgr;
@@ -77,7 +77,6 @@ import com.starrocks.metric.MetricRepo;
 import com.starrocks.persist.gson.GsonUtils;
 import com.starrocks.plugin.PluginInfo;
 import com.starrocks.proto.EncryptionKeyPB;
-import com.starrocks.qe.ConnectContext;
 import com.starrocks.replication.ReplicationJob;
 import com.starrocks.scheduler.Task;
 import com.starrocks.scheduler.mv.MVEpoch;
@@ -122,6 +121,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
 /**
@@ -591,6 +592,11 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_COLOCATE_V2: {
                     final TablePropertyInfo info = (TablePropertyInfo) journal.data();
                     globalStateMgr.getColocateTableIndex().replayModifyTableColocate(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_RANGE_UPDATE: {
+                    final ColocateRangePersistInfo info = (ColocateRangePersistInfo) journal.data();
+                    globalStateMgr.getColocateTableIndex().replayColocateRangeUpdate(info);
                     break;
                 }
                 case OperationType.OP_HEARTBEAT_V2: {
@@ -1373,6 +1379,20 @@ public class EditLog {
         walApplier.apply(writable);
     }
 
+    public void logJsonObjectOrThrow(short op, Object obj, WALApplier applier)
+            throws JournalWriteException, InterruptedException {
+        JournalTask task = submitLogOrThrow(op, new Writable() {
+            @Override
+            public void write(DataOutput out) throws IOException {
+                Text.writeString(out, GsonUtils.GSON.toJson(obj));
+            }
+        }, -1);
+        waitOrThrow(task, -1);
+        if (applier != null) {
+            applier.apply(obj);
+        }
+    }
+
     public void logJsonObject(short op, Object obj) {
         logEdit(op, new Writable() {
             @Override
@@ -1400,12 +1420,6 @@ public class EditLog {
      */
     private JournalTask submitLog(short op, Writable writable, long maxWaitIntervalMs) {
         long startTimeNano = System.nanoTime();
-        if (GlobalStateMgr.getCurrentState().isLeaderTransferred()) {
-            if (ConnectContext.get() != null) {
-                ConnectContext.get().setIsLeaderTransferred(true);
-            }
-            throw new LeaderTransferException();
-        }
 
         // do not check whether global state mgr is leader when writing star mgr journal,
         // because starmgr state change happens before global state mgr state change,
@@ -1449,6 +1463,25 @@ public class EditLog {
         return task;
     }
 
+    public JournalTask submitLogOrThrow(short op, Writable writable, long maxWaitIntervalMs)
+            throws JournalWriteException, InterruptedException {
+        ensureLeaderWorkAdmission(op);
+        long startTimeNano = System.nanoTime();
+        DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
+
+        try {
+            buffer.writeShort(op);
+            writable.write(buffer);
+        } catch (IOException | JsonParseException e) {
+            LOG.info("failed to serialize journal data", e);
+            throw new SerializeException("failed to serialize journal data");
+        }
+
+        JournalTask task = new JournalTask(startTimeNano, buffer, maxWaitIntervalMs);
+        this.journalQueue.put(task);
+        return task;
+    }
+
     /**
      * wait for JournalWriter commit all logs
      */
@@ -1467,12 +1500,6 @@ public class EditLog {
                 result = task.get();
                 break;
             } catch (InterruptedException | ExecutionException e) {
-                if (e.getCause() != null && e.getCause() instanceof LeaderTransferException) {
-                    if (ConnectContext.get() != null) {
-                        ConnectContext.get().setIsLeaderTransferred(true);
-                    }
-                    throw (LeaderTransferException) (e.getCause());
-                }
                 LOG.warn("failed to wait, wait and retry {} times..: {}", cnt, e);
                 cnt++;
             }
@@ -1483,6 +1510,55 @@ public class EditLog {
         if (MetricRepo.hasInit) {
             MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((System.nanoTime() - startTimeNano) / 1000000);
         }
+    }
+
+    public static void waitOrThrow(JournalTask task, long timeoutMs) throws JournalWriteException, InterruptedException {
+        long startTimeNano = task.getStartTimeNano();
+        boolean result;
+        try {
+            if (timeoutMs < 0) {
+                result = task.get();
+            } else {
+                result = task.get(timeoutMs, TimeUnit.MILLISECONDS);
+            }
+        } catch (ExecutionException e) {
+            throw toJournalWriteException(e.getCause());
+        } catch (TimeoutException e) {
+            throw new JournalWriteException(JournalWriteException.Reason.TIMEOUT, "timed out waiting for journal task",
+                    e);
+        }
+
+        if (!result) {
+            throw new JournalWriteException(JournalWriteException.Reason.WRITER_ABORTED,
+                    "journal task aborted without detailed cause");
+        }
+        if (MetricRepo.hasInit) {
+            MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((System.nanoTime() - startTimeNano) / 1000000);
+        }
+    }
+
+    private void ensureLeaderWorkAdmission(short op) throws JournalWriteException {
+        if (op == OperationType.OP_STARMGR) {
+            return;
+        }
+        GlobalStateMgr globalStateMgr = GlobalStateMgr.getCurrentState();
+        if (!globalStateMgr.isLeader()) {
+            throw new JournalWriteException(JournalWriteException.Reason.NOT_LEADER,
+                    String.format("Current node is not leader, but %s, submit log is not allowed",
+                            globalStateMgr.getFeType()));
+        }
+        if (!globalStateMgr.isLeaderWorkAdmissionOpen()) {
+            throw new JournalWriteException(JournalWriteException.Reason.ADMISSION_CLOSED,
+                    "leader work admission is closed");
+        }
+    }
+
+    private static JournalWriteException toJournalWriteException(Throwable cause) {
+        if (cause instanceof JournalWriteException) {
+            return (JournalWriteException) cause;
+        }
+        return new JournalWriteException(JournalWriteException.Reason.WRITER_ABORTED,
+                "journal task aborted", cause);
     }
 
     public void logSaveNextId(long nextId, WALApplier walApplier) {
@@ -1501,30 +1577,28 @@ public class EditLog {
         logJsonObject(OperationType.OP_DELETE_AUTO_INCREMENT_ID, info, walApplier);
     }
 
-    public void logCreateDb(Database db, String storageVolumeId) {
-        CreateDbInfo createDbInfo = new CreateDbInfo(db.getId(), db.getFullName());
-        createDbInfo.setStorageVolumeId(storageVolumeId);
-        logJsonObject(OperationType.OP_CREATE_DB_V2, createDbInfo);
+    public void logCreateDb(CreateDbInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_CREATE_DB_V2, info, walApplier);
     }
 
-    public void logDropDb(DropDbInfo dropDbInfo) {
-        logJsonObject(OperationType.OP_DROP_DB, dropDbInfo);
+    public void logDropDb(DropDbInfo dropDbInfo, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_DROP_DB, dropDbInfo, walApplier);
     }
 
     public void logEraseDb(long dbId, WALApplier walApplier) {
         logJsonObject(OperationType.OP_ERASE_DB_V2, new EraseDbLog(dbId), walApplier);
     }
 
-    public void logRecoverDb(RecoverInfo info) {
-        logJsonObject(OperationType.OP_RECOVER_DB_V2, info);
+    public void logRecoverDb(RecoverInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_RECOVER_DB_V2, info, walApplier);
     }
 
     public void logAlterDb(DatabaseInfo dbInfo, WALApplier walApplier) {
         logJsonObject(OperationType.OP_ALTER_DB_V2, dbInfo, walApplier);
     }
 
-    public void logCreateTable(CreateTableInfo info) {
-        logJsonObject(OperationType.OP_CREATE_TABLE_V2, info);
+    public void logCreateTable(CreateTableInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_CREATE_TABLE_V2, info, walApplier);
     }
 
     public void logResourceGroupOp(ResourceGroupOpEntry op, WALApplier applier) {
@@ -1559,16 +1633,12 @@ public class EditLog {
         logJsonObject(OperationType.OP_UPDATE_TASK_RUN_STATE, info);
     }
 
-    public void logAddPartition(PartitionPersistInfoV2 info) {
-        logJsonObject(OperationType.OP_ADD_PARTITION_V2, info);
+    public void logAddPartitions(AddPartitionsInfoV2 info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_ADD_PARTITIONS_V2, info, walApplier);
     }
 
-    public void logAddPartitions(AddPartitionsInfoV2 info) {
-        logJsonObject(OperationType.OP_ADD_PARTITIONS_V2, info);
-    }
-
-    public void logAddSubPartitions(AddSubPartitionsInfoV2 info) {
-        logJsonObject(OperationType.OP_ADD_SUB_PARTITIONS_V2, info);
+    public void logAddSubPartitions(AddSubPartitionsInfoV2 info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_ADD_SUB_PARTITIONS_V2, info, walApplier);
     }
 
     public void logDropPartitions(DropPartitionsInfo info, WALApplier walApplier) {
@@ -1587,12 +1657,12 @@ public class EditLog {
         logJsonObject(OperationType.OP_MODIFY_PARTITION_V2, info, walApplier);
     }
 
-    public void logBatchModifyPartition(BatchModifyPartitionsInfo info) {
-        logJsonObject(OperationType.OP_BATCH_MODIFY_PARTITION, info);
+    public void logBatchModifyPartition(BatchModifyPartitionsInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_BATCH_MODIFY_PARTITION, info, walApplier);
     }
 
-    public void logDropTable(DropInfo info) {
-        logJsonObject(OperationType.OP_DROP_TABLE_V2, info);
+    public void logDropTable(DropInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_DROP_TABLE_V2, info, walApplier);
     }
 
     public void logDisablePartitionRecovery(long partitionId, WALApplier walApplier) {
@@ -1611,12 +1681,12 @@ public class EditLog {
         logJsonObject(OperationType.OP_RECOVER_TABLE_V2, info, walApplier);
     }
 
-    public void logDropRollup(DropInfo info) {
-        logJsonObject(OperationType.OP_DROP_ROLLUP_V2, info);
+    public void logDropRollup(DropInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_DROP_ROLLUP_V2, info, walApplier);
     }
 
-    public void logBatchDropRollup(BatchDropInfo batchDropInfo) {
-        logJsonObject(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
+    public void logBatchDropRollup(BatchDropInfo batchDropInfo, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo, walApplier);
     }
 
     public JournalTask logFinishConsistencyCheck(ConsistencyCheckInfo info) {
@@ -1664,12 +1734,12 @@ public class EditLog {
         logJsonObject(OperationType.OP_FINISH_MULTI_DELETE, info, walApplier);
     }
 
-    public void logAddReplica(ReplicaPersistInfo info) {
-        logJsonObject(OperationType.OP_ADD_REPLICA_V2, info);
+    public void logAddReplica(ReplicaPersistInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_ADD_REPLICA_V2, info, walApplier);
     }
 
-    public void logUpdateReplica(ReplicaPersistInfo info) {
-        logJsonObject(OperationType.OP_UPDATE_REPLICA_V2, info);
+    public void logUpdateReplica(ReplicaPersistInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_UPDATE_REPLICA_V2, info, walApplier);
     }
 
     public void logDeleteReplica(ReplicaPersistInfo info, WALApplier walApplier) {
@@ -1741,12 +1811,12 @@ public class EditLog {
     }
 
     // for TransactionState
-    public void logInsertTransactionState(TransactionState transactionState) {
-        logJsonObject(OperationType.OP_UPSERT_TRANSACTION_STATE_V2, transactionState);
+    public void logInsertTransactionState(TransactionState transactionState, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_UPSERT_TRANSACTION_STATE_V2, transactionState, walApplier);
     }
 
-    public void logInsertTransactionStateBatch(TransactionStateBatch stateBatch) {
-        logJsonObject(OperationType.OP_UPSERT_TRANSACTION_STATE_BATCH, stateBatch);
+    public void logInsertTransactionStateBatch(TransactionStateBatch stateBatch, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_UPSERT_TRANSACTION_STATE_BATCH, stateBatch, walApplier);
     }
 
     public void logBackupJob(BackupJob job, WALApplier walApplier) {
@@ -1773,20 +1843,34 @@ public class EditLog {
         logJsonObject(OperationType.OP_COLOCATE_ADD_TABLE_V2, info);
     }
 
-    public void logColocateBackendsPerBucketSeq(ColocatePersistInfo info) {
-        logJsonObject(OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ_V2, info);
+    public void logColocateBackendsPerBucketSeq(ColocatePersistInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ_V2, info, walApplier);
     }
 
-    public void logColocateMarkUnstable(ColocatePersistInfo info) {
-        logJsonObject(OperationType.OP_COLOCATE_MARK_UNSTABLE_V2, info);
+    public void logColocateMarkUnstable(ColocatePersistInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_COLOCATE_MARK_UNSTABLE_V2, info, walApplier);
     }
 
-    public void logColocateMarkStable(ColocatePersistInfo info) {
-        logJsonObject(OperationType.OP_COLOCATE_MARK_STABLE_V2, info);
+    public void logColocateMarkStable(ColocatePersistInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_COLOCATE_MARK_STABLE_V2, info, walApplier);
     }
 
     public void logModifyTableColocate(TablePropertyInfo info) {
         logJsonObject(OperationType.OP_MODIFY_TABLE_COLOCATE_V2, info);
+    }
+
+    public void logColocateRangeUpdate(ColocateRangePersistInfo info) {
+        logJsonObject(OperationType.OP_COLOCATE_RANGE_UPDATE, info);
+    }
+
+    /**
+     * WAL-applier overload: the supplied applier runs after the journal record is durable,
+     * so the in-memory mutation matches the persisted state on both leader and follower.
+     * Used by the SplitTabletJob post-publish path so the ColocateRangeMgr update is
+     * sequenced with the same semantics as markGroupUnstable.
+     */
+    public void logColocateRangeUpdate(ColocateRangePersistInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_COLOCATE_RANGE_UPDATE, info, walApplier);
     }
 
     public void logHeartbeat(HbPackage hbPackage) {
@@ -1917,8 +2001,8 @@ public class EditLog {
         logJsonObject(OperationType.OP_MODIFY_BASE_COMPACTION_FORBIDDEN_TIME_RANGES, info, walApplier);
     }
 
-    public void logReplaceTempPartition(ReplacePartitionOperationLog info) {
-        logJsonObject(OperationType.OP_REPLACE_TEMP_PARTITION, info);
+    public void logReplaceTempPartition(ReplacePartitionOperationLog info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_REPLACE_TEMP_PARTITION, info, walApplier);
     }
 
     public void logInstallPlugin(PluginInfo plugin, WALApplier walApplier) {
@@ -1949,8 +2033,8 @@ public class EditLog {
         logEdit(OperationType.OP_GLOBAL_VARIABLE_V2, info, walApplier);
     }
 
-    public void logSwapTable(SwapTableOperationLog log) {
-        logJsonObject(OperationType.OP_SWAP_TABLE, log);
+    public void logSwapTable(SwapTableOperationLog log, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_SWAP_TABLE, log, walApplier);
     }
 
     public void logAddAnalyzeJob(AnalyzeJob job, WALApplier walApplier) {
@@ -2067,8 +2151,8 @@ public class EditLog {
         logJsonObject(OperationType.OP_INSERT_OVERWRITE_STATE_CHANGE, info, walApplier);
     }
 
-    public void logAlterMvStatus(AlterMaterializedViewStatusLog log) {
-        logJsonObject(OperationType.OP_ALTER_MATERIALIZED_VIEW_STATUS, log);
+    public void logAlterMvStatus(AlterMaterializedViewStatusLog log, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_ALTER_MATERIALIZED_VIEW_STATUS, log, walApplier);
     }
 
     public void logAlterMvBaseTableInfos(AlterMaterializedViewBaseTableInfosLog log) {
@@ -2079,8 +2163,8 @@ public class EditLog {
         logJsonObject(OperationType.OP_RENAME_MATERIALIZED_VIEW, log, walApplier);
     }
 
-    public void logMvChangeRefreshScheme(ChangeMaterializedViewRefreshSchemeLog log) {
-        logJsonObject(OperationType.OP_CHANGE_MATERIALIZED_VIEW_REFRESH_SCHEME, log);
+    public void logMvChangeRefreshScheme(ChangeMaterializedViewRefreshSchemeLog log, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_CHANGE_MATERIALIZED_VIEW_REFRESH_SCHEME, log, walApplier);
     }
 
     public void logAlterMaterializedViewProperties(ModifyTablePropertyOperationLog log, WALApplier walApplier) {
@@ -2163,14 +2247,6 @@ public class EditLog {
         logJsonObject(OperationType.OP_MODIFY_BINLOG_AVAILABLE_VERSION, log, walApplier);
     }
 
-    public void logMVJobState(MVMaintenanceJob job, WALApplier walApplier) {
-        logJsonObject(OperationType.OP_MV_JOB_STATE, job, walApplier);
-    }
-
-    public void logMVEpochChange(MVEpoch epoch) {
-        logJsonObject(OperationType.OP_MV_EPOCH_UPDATE, epoch);
-    }
-
     public void logAlterTableProperties(ModifyTablePropertyOperationLog info, WALApplier walApplier) {
         logJsonObject(OperationType.OP_ALTER_TABLE_PROPERTIES, info, walApplier);
     }
@@ -2183,8 +2259,8 @@ public class EditLog {
         logJsonObject(OperationType.OP_ALTER_PIPE, log, walApplier);
     }
 
-    public void logModifyTableAddOrDrop(TableColumnAlterInfo info) {
-        logJsonObject(OperationType.OP_FAST_ALTER_TABLE_COLUMNS, info);
+    public void logModifyTableAddOrDrop(TableColumnAlterInfo info, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_FAST_ALTER_TABLE_COLUMNS, info, walApplier);
     }
 
     public void logAlterTask(AlterTaskInfo info, WALApplier applier) {

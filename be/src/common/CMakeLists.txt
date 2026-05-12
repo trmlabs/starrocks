@@ -15,9 +15,16 @@
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/common")
 
 set(COMMON_FILES
+  bthread_timer.cpp
+  brpc/brpc_stub_cache.cpp
+  brpc/internal_service_recoverable_stub.cpp
+  brpc/lake_service_recoverable_stub.cpp
+  brpc_helper.cpp
   configbase.cpp
   config.cpp
+  greplog.cpp
   memory/column_allocator.cpp
+  metrics/process_metrics_registry.cpp
   runtime_profile.cpp
   stack_util.cpp
   system/backend_options.cpp
@@ -25,12 +32,12 @@ set(COMMON_FILES
   system/disk_info.cpp
   system/cpu_info.cpp
   system/cpu_info_debug.cpp
+  system/master_info.cpp
   system/mem_info.cpp
   thread/cpu_util.cpp
   thread/thread.cpp
   thread/threadpool.cpp
   s3_uri.cpp
-  tracer.cpp
   process_exit.cpp
   util/bthreads/executor.cpp
   util/debug_util.cpp
@@ -40,7 +47,14 @@ set(COMMON_FILES
   util/thrift_client.cpp
   util/thrift_server.cpp
   util/thrift_util.cpp
+  vlog_cntl.cpp
 )
+
+if (APPLE)
+    list(APPEND COMMON_FILES tracer_mac_shim.cpp)
+else()
+    list(APPEND COMMON_FILES tracer.cpp)
+endif()
 
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     list(APPEND COMMON_FILES util/minidump.cpp)

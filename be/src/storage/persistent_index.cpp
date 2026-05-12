@@ -29,11 +29,17 @@
 #include "base/string/faststring.h"
 #include "base/testutil/sync_point.h"
 #include "base/utility/defer_op.h"
+#include "column/raw_data_visitor.h"
+#include "common/config_cache_fwd.h"
+#include "common/config_compression_fwd.h"
+#include "common/config_primary_key_fwd.h"
+#include "common/config_storage_fwd.h"
 #include "common/util/debug_util.h"
 #include "fs/fs.h"
+#include "fs/fs_factory.h"
 #include "gutil/strings/escaping.h"
 #include "gutil/strings/substitute.h"
-#include "io/io_profiler.h"
+#include "io/core/io_profiler.h"
 #include "runtime/current_thread.h"
 #include "storage/chunk_helper.h"
 #include "storage/chunk_iterator.h"
@@ -243,12 +249,14 @@ Status ImmutableIndexShard::compress_and_write(const CompressionTypePB& compress
         RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
         int32_t offset = 0;
         faststring compressed_body;
+        BlockCompressionOptions compression_options;
+        compression_options.lz4_acceleration = config::lz4_acceleration;
         for (int32_t i = 0; i < npage(); i++) {
             compressed_body.resize(codec->max_compressed_len(_page_size));
             Slice input((uint8_t*)_pages.data() + i * _page_size, _page_size);
             *uncompressed_size += input.get_size();
             Slice compressed_slice(compressed_body);
-            RETURN_IF_ERROR(codec->compress(input, &compressed_slice));
+            RETURN_IF_ERROR(codec->compress(input, &compressed_slice, compression_options));
             RETURN_IF_ERROR(wb.append(compressed_slice));
             compressed_pages_off[i] = offset;
             offset += compressed_slice.get_size();
@@ -618,7 +626,7 @@ Status ImmutableIndexWriter::init(const string& idx_file_path, const EditVersion
     _version = version;
     _idx_file_path = idx_file_path;
     _idx_file_path_tmp = _idx_file_path + ".tmp";
-    ASSIGN_OR_RETURN(_fs, FileSystem::CreateSharedFromString(_idx_file_path_tmp));
+    ASSIGN_OR_RETURN(_fs, FileSystemFactory::CreateSharedFromString(_idx_file_path_tmp));
     WritableFileOptions wblock_opts{.sync_on_close = sync_on_close, .mode = FileSystem::CREATE_OR_OPEN_WITH_TRUNCATE};
     ASSIGN_OR_RETURN(_idx_wb, _fs->new_writable_file(wblock_opts, _idx_file_path_tmp));
 
@@ -2129,7 +2137,7 @@ static Status checksum_of_file(RandomAccessFile* file, uint64_t offset, uint32_t
 
 Status ShardByLengthMutableIndex::commit(MutableIndexMetaPB* meta, const EditVersion& version, const CommitType& type) {
     std::shared_ptr<FileSystem> fs;
-    ASSIGN_OR_RETURN(fs, FileSystem::CreateSharedFromString(_path));
+    ASSIGN_OR_RETURN(fs, FileSystemFactory::CreateSharedFromString(_path));
     switch (type) {
     case kFlush: {
         // create a new empty _l0 file because all data in _l0 has write into _l1 files
@@ -2252,7 +2260,7 @@ Status ShardByLengthMutableIndex::load(const MutableIndexMetaPB& meta) {
     }
     std::string index_file_name = get_l0_index_file_name(_path, start_version);
     std::shared_ptr<FileSystem> fs;
-    ASSIGN_OR_RETURN(fs, FileSystem::CreateSharedFromString(_path));
+    ASSIGN_OR_RETURN(fs, FileSystemFactory::CreateSharedFromString(_path));
     ASSIGN_OR_RETURN(auto read_file, fs->new_random_access_file(index_file_name));
     phmap::BinaryInputArchive ar(index_file_name.data());
     if (snapshot_size > 0) {
@@ -2385,7 +2393,7 @@ Status ShardByLengthMutableIndex::create_index_file(std::string& path) {
         std::string msg = strings::Substitute("l0 index file already exist: $0", _index_file->filename());
         return Status::InternalError(msg);
     }
-    ASSIGN_OR_RETURN(_fs, FileSystem::CreateSharedFromString(_path));
+    ASSIGN_OR_RETURN(_fs, FileSystemFactory::CreateSharedFromString(_path));
     WritableFileOptions wblock_opts{.sync_on_close = true, .mode = FileSystem::CREATE_OR_OPEN_WITH_TRUNCATE};
     ASSIGN_OR_RETURN(_index_file, _fs->new_writable_file(wblock_opts, path));
     return Status::OK();
@@ -3213,6 +3221,7 @@ StatusOr<std::unique_ptr<ImmutableIndex>> ImmutableIndex::load(std::unique_ptr<R
     size_t nshard_bf = meta.shard_bf_off_size();
     DCHECK(nshard_bf == 0 || nshard_bf == nshard + 1);
     std::vector<size_t> bf_off;
+    bf_off.reserve(nshard_bf);
     for (size_t i = 0; i < nshard_bf; i++) {
         bf_off.emplace_back(meta.shard_bf_off(i));
     }
@@ -3295,7 +3304,7 @@ Status PersistentIndex::create(size_t key_size, const EditVersion& version) {
         return st.status();
     }
     _l0 = std::move(st).value();
-    ASSIGN_OR_RETURN(_fs, FileSystem::CreateSharedFromString(_path));
+    ASSIGN_OR_RETURN(_fs, FileSystemFactory::CreateSharedFromString(_path));
     return Status::OK();
 }
 
@@ -3308,7 +3317,7 @@ Status PersistentIndex::load(const PersistentIndexMetaPB& index_meta) {
         return st.status();
     }
     _l0 = std::move(st).value();
-    ASSIGN_OR_RETURN(_fs, FileSystem::CreateSharedFromString(_path));
+    ASSIGN_OR_RETURN(_fs, FileSystemFactory::CreateSharedFromString(_path));
     RETURN_IF_ERROR(_load(index_meta));
     // delete expired _l0 file and _l1 file
     const MutableIndexMetaPB& l0_meta = index_meta.l0_meta();
@@ -3521,17 +3530,21 @@ Status PersistentIndex::_insert_rowsets(TabletLoader* loader, const Schema& pkey
                         values.emplace_back(base + rowids[i]);
                     }
                     Status st;
-                    if (pkc->is_binary()) {
-                        st = insert(pkc->size(), reinterpret_cast<const Slice*>(pkc->raw_data()), values.data(), false);
+                    // TODO: Refactor the code to remove tmp slice array.
+                    Buffer<Slice> keys;
+                    TRY_CATCH_BAD_ALLOC(keys.reserve(pkc->size()));
+                    if (pkc->is_binary() || pkc->is_large_binary()) {
+                        ColumnHelper::build_slices(pkc, keys);
+                        st = insert(pkc->size(), keys.data(), values.data(), false);
                     } else {
-                        std::vector<Slice> keys;
-                        TRY_CATCH_BAD_ALLOC(keys.reserve(pkc->size()));
-                        const auto* fkeys = pkc->continuous_data();
-                        for (size_t i = 0; i < pkc->size(); ++i) {
+                        RawBytesVisitor visitor;
+                        RETURN_IF_ERROR(pkc->accept(&visitor));
+                        const auto* fkeys = visitor.result();
+                        for (size_t j = 0; j < pkc->size(); ++j) {
                             keys.emplace_back(fkeys, _key_size);
                             fkeys += _key_size;
                         }
-                        st = insert(pkc->size(), reinterpret_cast<const Slice*>(keys.data()), values.data(), false);
+                        st = insert(pkc->size(), keys.data(), values.data(), false);
                     }
                     if (!st.ok()) {
                         LOG(ERROR) << "load index failed: tablet=" << loader->tablet_id() << " rowset:" << rowset_id
@@ -3808,7 +3821,7 @@ private:
     std::map<size_t, KeysInfo>* _keys_info_by_key_size;
     KeysInfo* _found_keys_info;
     PersistentIndex* _index;
-    IOStatEntry* _io_stat_entry;
+    [[maybe_unused]] IOStatEntry* _io_stat_entry;
 };
 
 Status PersistentIndex::get_from_one_immutable_index(ImmutableIndex* immu_index, size_t n, const Slice* keys,
@@ -3955,8 +3968,8 @@ Status PersistentIndex::_update_usage_and_size_by_key_length(
             LOG(WARNING) << msg;
             return Status::InternalError(msg);
         } else {
-            iter->second.first = std::max(0L, iter->second.first + add_usage_and_size[_key_size].first);
-            iter->second.second = std::max(0L, iter->second.second + add_usage_and_size[_key_size].second);
+            iter->second.first = std::max<int64_t>(0, iter->second.first + add_usage_and_size[_key_size].first);
+            iter->second.second = std::max<int64_t>(0, iter->second.second + add_usage_and_size[_key_size].second);
         }
     } else {
         for (int key_size = 1; key_size <= kSliceMaxFixLength; key_size++) {
@@ -3967,8 +3980,8 @@ Status PersistentIndex::_update_usage_and_size_by_key_length(
                 LOG(WARNING) << msg;
                 return Status::InternalError(msg);
             } else {
-                iter->second.first = std::max(0L, iter->second.first + add_usage_and_size[key_size].first);
-                iter->second.second = std::max(0L, iter->second.second + add_usage_and_size[key_size].second);
+                iter->second.first = std::max<int64_t>(0, iter->second.first + add_usage_and_size[key_size].first);
+                iter->second.second = std::max<int64_t>(0, iter->second.second + add_usage_and_size[key_size].second);
             }
         }
 
@@ -3986,8 +3999,8 @@ Status PersistentIndex::_update_usage_and_size_by_key_length(
             LOG(WARNING) << msg;
             return Status::InternalError(msg);
         }
-        iter->second.first = std::max(0L, iter->second.first + slice_usage);
-        iter->second.second = std::max(0L, iter->second.second + slice_size);
+        iter->second.first = std::max<int64_t>(0, iter->second.first + slice_usage);
+        iter->second.second = std::max<int64_t>(0, iter->second.second + slice_size);
     }
     return Status::OK();
 }
@@ -5104,7 +5117,7 @@ Status PersistentIndex::major_compaction(DataDir* data_dir, int64_t tablet_id, s
         return Status::OK();
     }
     // 1. load current l2 vec
-    ASSIGN_OR_RETURN(auto fs, FileSystem::CreateSharedFromString(_path));
+    ASSIGN_OR_RETURN(auto fs, FileSystemFactory::CreateSharedFromString(_path));
     std::vector<EditVersion> l2_versions;
     std::vector<std::unique_ptr<ImmutableIndex>> l2_vec;
     DCHECK(prev_index_meta.l2_versions_size() == prev_index_meta.l2_version_merged_size());
@@ -5359,7 +5372,7 @@ Status PersistentIndex::_load_by_loader(TabletLoader* loader) {
         return st.status();
     }
     _l0 = std::move(st).value();
-    ASSIGN_OR_RETURN(_fs, FileSystem::CreateSharedFromString(_path));
+    ASSIGN_OR_RETURN(_fs, FileSystemFactory::CreateSharedFromString(_path));
     // set _dump_snapshot to true
     // In this case, only do flush or dump snapshot, set _dump_snapshot to avoid append wal
     _dump_snapshot = true;

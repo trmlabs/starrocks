@@ -34,7 +34,6 @@ public:
     using ValueType = JsonValue;
     using SuperClass = CowFactory<ColumnFactory<ObjectColumn<JsonValue>, JsonColumn>, JsonColumn, Column>;
     using BaseClass = JsonColumnBase;
-    using ImmContainer = ObjectDataProxyContainer;
 
     JsonColumn() = default;
     explicit JsonColumn(size_t size) : SuperClass(size) {}
@@ -73,6 +72,7 @@ public:
 
     void assign(size_t n, size_t idx) override;
 
+    using Column::append;
     void append(const JsonValue* object);
 
     void append(JsonValue&& object);

@@ -17,7 +17,12 @@
 #include "base/phmap/phmap.h"
 #include "base/time/time.h"
 #include "base/utility/defer_op.h"
+#include "common/config_compaction_fwd.h"
+#include "common/config_exec_fwd.h"
+#include "common/config_primary_key_fwd.h"
+#include "common/stack_util.h"
 #include "common/tracer.h"
+#include "fs/fs_factory.h"
 #include "fs/fs_util.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/current_thread.h"
@@ -34,7 +39,6 @@
 #include "storage/tablet.h"
 #include "storage/tablet_meta_manager.h"
 #include "storage/update_manager.h"
-#include "util/stack_util.h"
 
 namespace starrocks {
 
@@ -96,6 +100,7 @@ Status RowsetColumnUpdateState::_load_upserts(Rowset* rowset, MemTracker* update
     OlapReaderStatistics stats;
     auto& schema = rowset->schema();
     vector<uint32_t> pk_columns;
+    pk_columns.reserve(schema->num_key_columns());
     for (size_t i = 0; i < schema->num_key_columns(); i++) {
         pk_columns.push_back((uint32_t)i);
     }
@@ -154,10 +159,6 @@ Status RowsetColumnUpdateState::_load_upserts(Rowset* rowset, MemTracker* update
     TRY_CATCH_BAD_ALLOC(header_ptr->offsets.push_back(header_ptr->upserts->size()));
     header_ptr->end_idx = *end_idx;
     DCHECK(header_ptr->offsets.size() == header_ptr->end_idx - header_ptr->start_idx + 1);
-    // This is a little bit trick. If pk column is a binary column, we will call function `raw_data()` in the following
-    // And the function `raw_data()` will build slice of pk column which will increase the memory usage of pk column
-    // So we try build slice in advance in here to make sure the correctness of memory statistics
-    TRY_CATCH_BAD_ALLOC(header_ptr->upserts->raw_data());
     _memory_usage += header_ptr->upserts->memory_usage();
 
     return Status::OK();
@@ -320,7 +321,7 @@ static Status read_from_source_segment_and_update(
         RowsetSegmentId rowset_seg_id, const std::string& path,
         const std::function<Status(StreamChunkContainer, bool, int64_t)>& update_func) {
     CHECK_MEM_LIMIT("RowsetColumnUpdateState::read_from_source_segment");
-    ASSIGN_OR_RETURN(auto fs, FileSystem::CreateSharedFromString(rowset->rowset_path()));
+    ASSIGN_OR_RETURN(auto fs, FileSystemFactory::CreateSharedFromString(rowset->rowset_path()));
     // We need to estimate each update rows size before it has been actually updated.
     const int64_t upt_memory_usage_per_row = RowsetColumnUpdateState::calc_upt_memory_usage_per_row(rowset);
     auto segment = Segment::open(fs, FileInfo{path}, rowset_seg_id.segment_id, rowset->schema());
@@ -388,7 +389,7 @@ static Status read_from_source_segment_and_update(
 // this function build delta writer for delta column group's file.(end with `.col`)
 StatusOr<std::unique_ptr<SegmentWriter>> RowsetColumnUpdateState::_prepare_delta_column_group_writer(
         Rowset* rowset, const std::shared_ptr<TabletSchema>& tschema, uint32_t rssid, int64_t ver, int idx) {
-    ASSIGN_OR_RETURN(auto fs, FileSystem::CreateSharedFromString(rowset->rowset_path()));
+    ASSIGN_OR_RETURN(auto fs, FileSystemFactory::CreateSharedFromString(rowset->rowset_path()));
     ASSIGN_OR_RETURN(auto rowsetid_segid, _find_rowset_seg_id(rssid));
     // always 0 file suffix here, because alter table will execute after this version has been applied only.
     const std::string path = Rowset::delta_column_group_path(rowset->rowset_path(), rowsetid_segid.unique_rowset_id,
@@ -486,7 +487,7 @@ Status RowsetColumnUpdateState::_update_source_chunk_by_upt(const UptidToRowidPa
 // this function build segment writer for segment files
 StatusOr<std::unique_ptr<SegmentWriter>> RowsetColumnUpdateState::_prepare_segment_writer(
         Rowset* rowset, const TabletSchemaCSPtr& tablet_schema, int segment_id) {
-    ASSIGN_OR_RETURN(auto fs, FileSystem::CreateSharedFromString(rowset->rowset_path()));
+    ASSIGN_OR_RETURN(auto fs, FileSystemFactory::CreateSharedFromString(rowset->rowset_path()));
     const std::string path = Rowset::segment_file_path(rowset->rowset_path(), rowset->rowset_id(), segment_id);
     (void)fs->delete_file(path); // delete .dat if already exist
     WritableFileOptions opts{.sync_on_close = true};
@@ -550,6 +551,7 @@ Status RowsetColumnUpdateState::_update_primary_index(const TabletSchemaCSPtr& t
                                                       PrimaryIndex& index) {
     // 1. build pk column
     vector<uint32_t> pk_column_ids;
+    pk_column_ids.reserve(tablet_schema->num_key_columns());
     for (size_t i = 0; i < tablet_schema->num_key_columns(); i++) {
         pk_column_ids.push_back((uint32_t)i);
     }
@@ -581,7 +583,7 @@ Status RowsetColumnUpdateState::_update_primary_index(const TabletSchemaCSPtr& t
 Status RowsetColumnUpdateState::_update_rowset_meta(const RowsetSegmentStat& stat, Rowset* rowset) {
     rowset->rowset_meta()->set_num_rows(stat.num_rows_written);
     rowset->rowset_meta()->set_total_row_size(stat.total_row_size);
-    rowset->rowset_meta()->set_total_disk_size(stat.total_data_size);
+    rowset->rowset_meta()->set_total_disk_size(stat.total_data_size + stat.total_index_size);
     rowset->rowset_meta()->set_data_disk_size(stat.total_data_size);
     rowset->rowset_meta()->set_index_disk_size(stat.total_index_size);
     rowset->rowset_meta()->set_empty(stat.num_rows_written == 0);
@@ -638,9 +640,9 @@ Status RowsetColumnUpdateState::_insert_new_rows(const TabletSchemaCSPtr& tablet
             padding_char_columns(schema, tablet_schema, chunk_ptr.get());
             RETURN_IF_ERROR(writer->append_chunk(*chunk_ptr));
             RETURN_IF_ERROR(writer->finalize(&segment_file_size, &index_size, &footer_position));
-            // update statisic
+            // update statistic
             stat.num_segment++;
-            stat.total_data_size += segment_file_size;
+            stat.total_data_size += static_cast<int64_t>(segment_file_size) - static_cast<int64_t>(index_size);
             stat.total_index_size += index_size;
             stat.num_rows_written += static_cast<int64_t>(chunk_ptr->num_rows());
             stat.total_row_size += static_cast<int64_t>(chunk_ptr->bytes_usage());

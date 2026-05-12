@@ -14,6 +14,7 @@
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <cassert>
 #include <cstdlib>
@@ -23,6 +24,7 @@
 #include "base/string/faststring.h"
 #include "base/testutil/assert.h"
 #include "base/testutil/parallel_test.h"
+#include "common/config_primary_key_fwd.h"
 #include "fs/fs_memory.h"
 #include "fs/fs_util.h"
 #include "storage/chunk_helper.h"
@@ -65,7 +67,8 @@ struct TestParams {
     bool print_debug_info = false;
 };
 
-static const std::string kTestDirectory = "./test_persistent_index_consistency";
+// Suffix with PID so concurrent processes (e.g. gtest-parallel) never share this dir.
+static const std::string kTestDirectory = "./test_persistent_index_consistency_" + std::to_string(getpid());
 
 template <typename T>
 class PersistentIndexWrapper {

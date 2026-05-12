@@ -221,6 +221,34 @@ public class IcebergDeleteSinkTest {
     }
 
     @Test
+    public void testIsUnpartitionedTable() {
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0), "DeleteTuple");
+
+        Column fileColumn = new Column(IcebergTable.FILE_PATH, VarcharType.VARCHAR);
+        SlotDescriptor fileSlot = new SlotDescriptor(new SlotId(0), desc);
+        fileSlot.setColumn(fileColumn);
+        desc.addSlot(fileSlot);
+
+        Column posColumn = new Column(IcebergTable.ROW_POSITION, IntegerType.BIGINT);
+        SlotDescriptor posSlot = new SlotDescriptor(new SlotId(1), desc);
+        posSlot.setColumn(posColumn);
+        desc.addSlot(posSlot);
+
+        IcebergTable icebergTable = mock(IcebergTable.class);
+        org.apache.iceberg.Table nativeTable = mock(org.apache.iceberg.Table.class);
+        when(icebergTable.getNativeTable()).thenReturn(nativeTable);
+        when(nativeTable.location()).thenReturn("/tmp/iceberg");
+
+        when(icebergTable.isPartitioned()).thenReturn(false);
+        IcebergDeleteSink unpartitionedSink = new IcebergDeleteSink(icebergTable, desc, new SessionVariable());
+        assertTrue(unpartitionedSink.isUnpartitionedTable());
+
+        when(icebergTable.isPartitioned()).thenReturn(true);
+        IcebergDeleteSink partitionedSink = new IcebergDeleteSink(icebergTable, desc, new SessionVariable());
+        assertFalse(partitionedSink.isUnpartitionedTable());
+    }
+
+    @Test
     public void testCompressionTypePriority() {
         // Create a valid tuple descriptor
         TupleDescriptor desc = new TupleDescriptor(new TupleId(0), "DeleteTuple");
@@ -252,7 +280,7 @@ public class IcebergDeleteSinkTest {
 
             TDataSink tDataSink = sink.toThrift();
             TIcebergTableSink icebergSink = tDataSink.getIceberg_table_sink();
-            assertEquals(TCompressionType.ZSTD, icebergSink.getCompression_type());
+            assertEquals(TCompressionType.ZSTD, icebergSink.getDelete_compression_type());
         }
 
         // Test 2: Only write.parquet.compression is set (fallback)
@@ -272,7 +300,7 @@ public class IcebergDeleteSinkTest {
 
             TDataSink tDataSink = sink.toThrift();
             TIcebergTableSink icebergSink = tDataSink.getIceberg_table_sink();
-            assertEquals(TCompressionType.SNAPPY, icebergSink.getCompression_type());
+            assertEquals(TCompressionType.SNAPPY, icebergSink.getDelete_compression_type());
         }
 
         // Test 3: Both set, write.delete.parquet.compression has higher priority
@@ -294,7 +322,7 @@ public class IcebergDeleteSinkTest {
             TDataSink tDataSink = sink.toThrift();
             TIcebergTableSink icebergSink = tDataSink.getIceberg_table_sink();
             // Should use write.delete.parquet.compression (gzip), not write.parquet.compression (snappy)
-            assertEquals(TCompressionType.GZIP, icebergSink.getCompression_type());
+            assertEquals(TCompressionType.GZIP, icebergSink.getDelete_compression_type());
         }
 
         // Test 4: Neither set, use session variable default (uncompressed)
@@ -313,7 +341,7 @@ public class IcebergDeleteSinkTest {
 
             TDataSink tDataSink = sink.toThrift();
             TIcebergTableSink icebergSink = tDataSink.getIceberg_table_sink();
-            assertEquals(TCompressionType.NO_COMPRESSION, icebergSink.getCompression_type());
+            assertEquals(TCompressionType.NO_COMPRESSION, icebergSink.getDelete_compression_type());
         }
 
         // Test 5: Session variable with custom compression
@@ -335,7 +363,7 @@ public class IcebergDeleteSinkTest {
 
             TDataSink tDataSink = sink.toThrift();
             TIcebergTableSink icebergSink = tDataSink.getIceberg_table_sink();
-            assertEquals(TCompressionType.LZ4, icebergSink.getCompression_type());
+            assertEquals(TCompressionType.LZ4, icebergSink.getDelete_compression_type());
         }
     }
 }

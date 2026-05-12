@@ -20,6 +20,7 @@ import com.starrocks.sql.ast.AdminShowAutomatedSnapshotStmt;
 import com.starrocks.sql.ast.AdminShowConfigStmt;
 import com.starrocks.sql.ast.AdminShowReplicaDistributionStmt;
 import com.starrocks.sql.ast.AdminShowReplicaStatusStmt;
+import com.starrocks.sql.ast.AdminShowTabletStatusStmt;
 import com.starrocks.sql.ast.LabelName;
 import com.starrocks.sql.ast.QualifiedName;
 import com.starrocks.sql.ast.SetType;
@@ -952,6 +953,19 @@ public class ShowStmtMetaTest {
     }
 
     @Test
+    public void testAdminShowTabletStatusStmt() {
+        AdminShowTabletStatusStmt stmt = new AdminShowTabletStatusStmt(null, null, null, NodePosition.ZERO);
+        ShowResultSetMetaData metaData = new ShowResultMetaFactory().getMetadata(stmt);
+        Assertions.assertEquals(6, metaData.getColumnCount());
+        Assertions.assertEquals("TabletId", metaData.getColumn(0).getName());
+        Assertions.assertEquals("PartitionId", metaData.getColumn(1).getName());
+        Assertions.assertEquals("Version", metaData.getColumn(2).getName());
+        Assertions.assertEquals("Status", metaData.getColumn(3).getName());
+        Assertions.assertEquals("MissingDataFileCount", metaData.getColumn(4).getName());
+        Assertions.assertEquals("MissingDataFiles", metaData.getColumn(5).getName());
+    }
+
+    @Test
     public void testShowAlterStmt() {
         ShowAlterStmt stmt = new ShowAlterStmt(ShowAlterStmt.AlterType.COLUMN, "test_db", null, null, null, NodePosition.ZERO);
         ShowResultSetMetaData metaData = new ShowResultMetaFactory().getMetadata(stmt);
@@ -987,7 +1001,7 @@ public class ShowStmtMetaTest {
     public void testShowMaterializedViewsStmt() {
         ShowMaterializedViewsStmt stmt = new ShowMaterializedViewsStmt("test_db", null);
         ShowResultSetMetaData metaData = new ShowResultMetaFactory().getMetadata(stmt);
-        Assertions.assertEquals(27, metaData.getColumnCount());
+        Assertions.assertEquals(28, metaData.getColumnCount());
         Assertions.assertEquals("id", metaData.getColumn(0).getName());
         Assertions.assertEquals("database_name", metaData.getColumn(1).getName());
         Assertions.assertEquals("name", metaData.getColumn(2).getName());
@@ -1015,6 +1029,7 @@ public class ShowStmtMetaTest {
         Assertions.assertEquals("creator", metaData.getColumn(24).getName());
         Assertions.assertEquals("last_refresh_process_time", metaData.getColumn(25).getName());
         Assertions.assertEquals("last_refresh_job_id", metaData.getColumn(26).getName());
+        Assertions.assertEquals("last_refresh_time", metaData.getColumn(27).getName());
     }
 
     @Test

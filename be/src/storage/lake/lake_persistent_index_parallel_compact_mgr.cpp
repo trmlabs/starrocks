@@ -24,11 +24,11 @@
 #include "base/concurrency/countdown_latch.h"
 #include "base/debug/trace.h"
 #include "base/utility/defer_op.h"
+#include "common/config_primary_key_fwd.h"
 #include "common/system/cpu_info.h"
 #include "fs/fs_util.h"
 #include "fs/key_cache.h"
 #include "gutil/strings/substitute.h"
-#include "runtime/starrocks_metrics.h"
 #include "storage/lake/filenames.h"
 #include "storage/lake/lake_persistent_index.h"
 #include "storage/lake/persistent_index_sstable.h"
@@ -41,7 +41,7 @@
 #include "storage/sstable/merger.h"
 #include "storage/sstable/options.h"
 #include "storage/sstable/table_builder.h"
-#include "util/global_metrics_registry.h"
+#include "storage/storage_metrics.h"
 
 namespace starrocks::lake {
 
@@ -198,9 +198,8 @@ Status LakePersistentIndexParallelCompactTask::do_run() {
                                                    _merge_base_level, _tablet_mgr, _metadata->id(),
                                                    true /* generate multi outputs*/);
     while (merging_iter->Valid()) {
-        const std::string& cur_key = merging_iter->key().to_string();
-        if (!_seek_range.stop_key.empty() &&
-            options.comparator->Compare(Slice(cur_key), Slice(_seek_range.stop_key)) >= 0) {
+        const Slice cur_key = merging_iter->key();
+        if (!_seek_range.stop_key.empty() && options.comparator->Compare(cur_key, Slice(_seek_range.stop_key)) >= 0) {
             // meet the scan range boundary, quit.
             break;
         }
@@ -288,7 +287,7 @@ Status LakePersistentIndexParallelCompactMgr::init() {
     builder.set_max_queue_size(config::pk_index_parallel_compaction_threadpool_size);
     auto st = builder.build(&_thread_pool);
     if (st.ok()) {
-        REGISTER_THREAD_POOL_METRICS(cloud_native_pk_index_compact, _thread_pool);
+        StorageMetrics::instance()->register_thread_pool_metrics("cloud_native_pk_index_compact", _thread_pool.get());
     }
     return st;
 }
@@ -381,7 +380,7 @@ Status LakePersistentIndexParallelCompactMgr::sample_keys_from_sstable(const Per
         ASSIGN_OR_RETURN(auto sstable,
                          PersistentIndexSstable::new_sstable(
                                  sstable_pb, _tablet_mgr->sst_location(metadata->id(), sstable_pb.filename()),
-                                 block_cache ? block_cache->cache() : nullptr, false));
+                                 block_cache ? block_cache->cache() : nullptr, false, nullptr, metadata, _tablet_mgr));
         RETURN_IF_ERROR(sstable->sample_keys(sample_keys, config::pk_index_sstable_sample_interval_bytes));
     }
     return Status::OK();

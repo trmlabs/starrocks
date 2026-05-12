@@ -50,14 +50,6 @@ size_t ArrayColumn::capacity() const {
     return _offsets->capacity() - 1;
 }
 
-const uint8_t* ArrayColumn::raw_data() const {
-    return _elements->raw_data();
-}
-
-uint8_t* ArrayColumn::mutable_raw_data() {
-    return _elements->mutable_raw_data();
-}
-
 size_t ArrayColumn::byte_size(size_t from, size_t size) const {
     const auto offsets = _offsets->immutable_data();
     DCHECK_LE(from + size, this->size()) << "Range error";
@@ -83,8 +75,9 @@ void ArrayColumn::resize(size_t n) {
 void ArrayColumn::assign(size_t n, size_t idx) {
     DCHECK_LE(idx, this->size()) << "Range error when assign arrayColumn.";
     auto desc = this->clone_empty();
-    auto datum = get(idx); // just reference
-    desc->append_value_multiple_times(&datum, n);
+    // Avoid Datum-based round-trip for nested complex/object elements (e.g. shredded VARIANT).
+    // Using column append path preserves element lifetimes and prevents dangling object pointers.
+    desc->append_value_multiple_times(*this, idx, n);
     swap_column(*desc);
     desc->reset_column();
 }
