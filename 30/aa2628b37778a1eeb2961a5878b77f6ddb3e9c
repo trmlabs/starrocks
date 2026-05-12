@@ -1,0 +1,19 @@
+.github/workflows/ci-report.yml
+  s_3e4cd117276bf6::t_16e39f44ba6e85 52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "30aa2628b37778a1eeb2961a5878b77f6ddb3e9c",
+  "prompts": {},
+  "sessions": {
+    "s_3e4cd117276bf6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fcb1f882-52bd-488b-84d6-831feb002696",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Vijay <vijay@trmlabs.com>"
+    }
+  }
+}
