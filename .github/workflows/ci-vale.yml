@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   vale:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     name: Vale Lint
     env:
       PR_NUMBER: ${{ github.event.number }}

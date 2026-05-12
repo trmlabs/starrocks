@@ -19,7 +19,7 @@ jobs:
       POSTHOG_TOKEN: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
       ALGOLIA_TOKEN: ${{ secrets.ALGOLIA_ANALYTICS_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     steps:
       - name: Checkout code
         uses: actions/checkout@v6

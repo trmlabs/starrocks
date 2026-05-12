@@ -45,7 +45,7 @@ jobs:
           labels: ${{ matrix.version }}
 
   thirdparty-filter:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-hardened-latest-m
     if: github.event.pull_request.merged == true
     outputs:
       thirdparty: ${{ steps.filter-info.outputs.thirdparty }}
