@@ -1,0 +1,31 @@
+.github/workflows/ci-doc-checker.yml
+  s_3e4cd117276bf6::t_930bb3423b9338 122
+.github/workflows/ci-merged.yml
+  s_3e4cd117276bf6::t_16dbb40244d6ad 48
+.github/workflows/ci-pipeline-branch.yml
+  s_3e4cd117276bf6::t_2d74cc9063c6ae 120,163,293
+.github/workflows/ci-pipeline.yml
+  s_3e4cd117276bf6::t_14dde43d93dcdc 354,408,451,492
+.github/workflows/ci-clang-format.yml
+  s_3e4cd117276bf6::t_0f58b10e8e0fad 31
+.github/workflows/weekly-docs-feedback.yml
+  s_3e4cd117276bf6::t_8febccfff7dcee 22
+.github/workflows/ci-vale.yml
+  s_3e4cd117276bf6::t_f1e1687041b78b 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "fcf5be170f03396d7f4b8403dbc274045565889a",
+  "prompts": {},
+  "sessions": {
+    "s_3e4cd117276bf6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fcb1f882-52bd-488b-84d6-831feb002696",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Vijay <vijay@trmlabs.com>"
+    }
+  }
+}
