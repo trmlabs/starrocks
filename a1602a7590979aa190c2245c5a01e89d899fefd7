@@ -1,0 +1,21 @@
+docs/docusaurus/package.json
+  s_ba2eb1f9ddada8::t_60b84a05b4b688 27
+docs/docusaurus/yarn.lock
+  ai_agent 3547-3550,3552-3554,4727-4736,5090,5095-5099,5105-5108,5112-5113,5169,5333,5338-5344,8079-8082
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "a1602a7590979aa190c2245c5a01e89d899fefd7",
+  "prompts": {},
+  "sessions": {
+    "s_ba2eb1f9ddada8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69a1917a-a4d3-4f48-910f-4a6ea48daed2",
+        "model": "unknown"
+      },
+      "human_author": "Jonathan Irvin <jonathan.irvin@trmlabs.com>"
+    }
+  }
+}

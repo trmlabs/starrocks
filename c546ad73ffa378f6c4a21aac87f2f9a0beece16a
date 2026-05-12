@@ -1,0 +1,19 @@
+fe/pom.xml
+  s_ba2eb1f9ddada8::t_5fa9ea5ec0c6cc 1513
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "c546ad73ffa378f6c4a21aac87f2f9a0beece16a",
+  "prompts": {},
+  "sessions": {
+    "s_ba2eb1f9ddada8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69a1917a-a4d3-4f48-910f-4a6ea48daed2",
+        "model": "unknown"
+      },
+      "human_author": "Jonathan Irvin <jonathan.irvin@trmlabs.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+be/src/formats/orc/apache-orc/CMakeLists.txt
+  s_ba2eb1f9ddada8::t_46b4cf70db58a9 23-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "4d40a0a21e3edeb65dc48ea1d716b2f2aad1d40f",
+  "prompts": {},
+  "sessions": {
+    "s_ba2eb1f9ddada8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69a1917a-a4d3-4f48-910f-4a6ea48daed2",
+        "model": "unknown"
+      },
+      "human_author": "Jonathan Irvin <jonathan.irvin@trmlabs.com>"
+    }
+  }
+}
